@@ -141,19 +141,19 @@ def test_add_race_form_has_goal_time_field(user_and_client):
 
 
 def test_plan_add_race_button_present(user_and_client):
-    """AC1: The '+ Add Race' button is visible in the plan tab."""
+    """AC1: The add button opens the race/checkpoint modal from the plan tab."""
     client, _ = user_and_client
     r = client.get("/log")
     html = r.text
-    assert 'id="plan-add-race-btn"' in html, "'+ Add Race' button not found"
+    assert 'id="plan-add-btn"' in html, "Add race/checkpoint button not found"
 
 
 def test_plan_add_checkpoint_button_present(user_and_client):
-    """AC2: The '+ Add Checkpoint' button is visible in the plan tab."""
+    """AC2: The modal still exposes a checkpoint type tab."""
     client, _ = user_and_client
     r = client.get("/log")
     html = r.text
-    assert 'id="plan-add-checkpoint-btn"' in html, "'+ Add Checkpoint' button not found"
+    assert 'data-type="checkpoint"' in html, "Checkpoint modal tab not found"
 
 
 def test_plan_modal_has_error_container(user_and_client):

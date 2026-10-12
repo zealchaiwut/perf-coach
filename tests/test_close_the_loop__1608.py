@@ -185,7 +185,11 @@ def test_evidence_block_hides_itself_when_empty():
 
 def test_evidence_fetch_cannot_break_the_grid():
     js = (REPO / "frontend" / "js" / "habits.js").read_text()
-    assert ".catch(() => null)" in js, "the evidence fetch must not reject the Promise.all"
+    load_fn = js[js.index("async function loadAndRender") :][:4000]
+    assert "showChecklistError" in load_fn, (
+        "checklist fetch failures must render an error state, not throw"
+    )
+    assert "catch" in load_fn, "loadAndRender must catch checklist fetch errors"
 
 
 def test_evidence_is_styled_quietly():

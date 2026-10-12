@@ -533,7 +533,7 @@
 
     var header =
       '<div class="card-head">' +
-        '<h2 class="ttl"><i class="ti ti-chart-line"></i>Performance</h2>' +
+        '<h2 class="ttl"><i class="ti ti-chart-line"></i>Performance · overall</h2>' +
         '<a href="/log#performance">View trends &#8594;</a>' +
       '</div>';
     el.innerHTML = header + '<div class="hperf-loading">Loading…</div>';
@@ -544,8 +544,8 @@
         if (state === 'scored') {
           el.innerHTML = header +
             '<div class="hperf-grid hperf-grid--side">' +
-              _hpfTileHtml('Endurance', 'e', data.endurance) +
-              _hpfTileHtml('Speed', 's', data.speed) +
+              _hpfTileHtml('Endurance (overall)', 'e', data.endurance) +
+              _hpfTileHtml('Speed (overall)', 's', data.speed) +
             '</div>';
           return;
         }

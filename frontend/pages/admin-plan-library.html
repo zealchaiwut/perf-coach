@@ -1149,6 +1149,7 @@
     <div class="tabs" role="tablist" aria-label="Plan library sections">
       <button class="tab on" type="button" id="tab-exercises" role="tab" aria-selected="true" aria-controls="panel-exercises">Exercises</button>
       <button class="tab" type="button" id="tab-patterns" role="tab" aria-selected="false" aria-controls="panel-patterns">Patterns</button>
+      <button class="tab" type="button" id="tab-mobility" role="tab" aria-selected="false" aria-controls="panel-mobility">Mobility</button>
       <button class="tab" type="button" id="tab-preview" role="tab" aria-selected="false" aria-controls="panel-preview">Preview</button>
     </div>
 
@@ -1309,6 +1310,25 @@
               <button class="btn btn-danger" type="button" id="pat-btn-delete">Delete</button>
             </div>
             <div class="fb" id="pat-feedback" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="panel-mobility" role="tabpanel" aria-labelledby="tab-mobility" hidden>
+      <div class="layout layout-ex">
+        <section class="panel panel-ex-grid" aria-label="Stretch exercise pool">
+          <div class="panel-pad">
+            <h2 class="panel-h">Stretch pool</h2>
+            <p class="fld-hint">Add exercises with group <code>stretch</code>. Names come from your cheat sheet — not seeded.</p>
+            <div id="mobility-stretch-list" class="ex-grid"></div>
+          </div>
+        </section>
+        <section class="panel" aria-label="Mobility patterns">
+          <div class="panel-pad">
+            <h2 class="panel-h">Mobility patterns</h2>
+            <p class="fld-hint">Six ship-default patterns (stretch_core, stretch_hips, …). Seed from Patterns tab or run admin seed.</p>
+            <ul id="mobility-pattern-list" class="pat-list"></ul>
           </div>
         </section>
       </div>

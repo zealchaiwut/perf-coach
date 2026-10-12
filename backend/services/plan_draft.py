@@ -211,22 +211,39 @@ def generate_draft_payload(
         rest_days=set(prefs.get("preferred_rest_days") or []),
     )
 
+    from backend.services.plan_mobility import quality_day_before_map
+
     week_ctx = build_week_ctx(
         facts=facts,
         skeleton_slots=sk["slots"],
         strength_emphasis=prefs["strength_emphasis"],
         notes=prefs["notes"],
     )
+    week_ctx["quality_day_before"] = quality_day_before_map(sk["slots"])
 
     prev_by_day = {}
+    prev_mobility_by_day = {}
     if previous_payload:
         for s in (previous_payload.get("sessions") or previous_payload.get("slots") or []):
             if isinstance(s, dict) and s.get("day_offset") is not None:
-                prev_by_day[int(s["day_offset"])] = s
+                d = int(s["day_offset"])
+                if (s.get("workout_type") or "") == "mobility":
+                    prev_mobility_by_day[d] = s
+                else:
+                    prev_by_day[d] = s
+
+    primary_slots = [
+        s for s in sk["slots"]
+        if (s.get("workout_type") or "") != "mobility" and not s.get("is_mobility")
+    ]
+    mobility_slots = [
+        s for s in sk["slots"]
+        if (s.get("workout_type") or "") == "mobility" or s.get("is_mobility")
+    ]
 
     contents: list[dict | None] = [None] * 7
     to_fill: list[tuple[int, dict]] = []
-    for slot in sk["slots"]:
+    for slot in primary_slots:
         d = int(slot["day_offset"])
         prev = prev_by_day.get(d)
         if refresh_untouched_only and prev and prev.get("source") == "user":
@@ -240,13 +257,38 @@ def generate_draft_payload(
             continue
         to_fill.append((d, slot))
 
-    # Sequential — one SQLAlchemy Session must not be shared across threads
     for d, slot in to_fill:
         contents[d] = _cached_or_generate(db, user_id, week_ctx, slot, None, None)
 
-    # Ensure order
     ordered_contents = [contents[i] or {"intent": "Rest", "source": "template"} for i in range(7)]
-    assembled = assemble_week(sk["slots"], ordered_contents, facts=facts)
+    primary_by_day = {int(s["day_offset"]): s for s in primary_slots}
+    primary_ordered = [
+        primary_by_day.get(i) or {
+            "day_offset": i,
+            "workout_type": "rest",
+            "subtype": "rest",
+            "target_tss": 0,
+            "duration_minutes": 0,
+        }
+        for i in range(7)
+    ]
+    assembled = assemble_week(primary_ordered, ordered_contents, facts=facts)
+
+    mobility_sessions: list[dict] = []
+    for slot in mobility_slots:
+        d = int(slot["day_offset"])
+        prev = prev_mobility_by_day.get(d)
+        if refresh_untouched_only and prev and prev.get("source") == "user":
+            content = {
+                "intent": prev.get("intent"),
+                "notes": prev.get("notes"),
+                "exercises": prev.get("exercises"),
+                "source": "user",
+            }
+        else:
+            content = _cached_or_generate(db, user_id, week_ctx, slot, None, None)
+        sess = stamp_session(slot, content)
+        mobility_sessions.append(sess)
 
     from backend.services.plan_skeleton_ops import ensure_slot_ids, sync_slots_from_sessions
     from backend.services.plan_week_balance import balance_week_sessions, sore_parts_for_user
@@ -258,11 +300,17 @@ def generate_draft_payload(
         sessions, db=db, week_ctx=week_ctx, sore_parts=sore,
     )
     sessions = ensure_slot_ids(sessions)
+    mobility_sessions = ensure_slot_ids(mobility_sessions)
+    sessions = sessions + mobility_sessions
 
-    # Carry slot_ids onto skeleton slots by day
-    by_day = {int(s["day_offset"]): s for s in sessions}
+    by_day = {int(s["day_offset"]): s for s in sessions if s.get("workout_type") != "mobility"}
+    mob_by_day = {int(s["day_offset"]): s for s in sessions if s.get("workout_type") == "mobility"}
     for slot in sk["slots"]:
-        sid = by_day.get(int(slot["day_offset"]), {}).get("slot_id")
+        d = int(slot["day_offset"])
+        if (slot.get("workout_type") or "") == "mobility" or slot.get("is_mobility"):
+            sid = mob_by_day.get(d, {}).get("slot_id")
+        else:
+            sid = by_day.get(d, {}).get("slot_id")
         if sid:
             slot["slot_id"] = sid
 
@@ -451,7 +499,7 @@ def run_plan_draft_job(payload: dict) -> dict:
         return {"status": "ok", "facts_signature": draft_payload["facts_signature"]}
 
 
-_VALID_SESSION_TYPES = frozenset({"run", "strength", "plyo", "stretch", "rest"})
+_VALID_SESSION_TYPES = frozenset({"run", "strength", "plyo", "stretch", "rest", "mobility"})
 
 
 def pipeline_status() -> dict:
@@ -476,7 +524,14 @@ def _session_to_planned_body(week_start: date, session: dict) -> dict | None:
         return None
     planned_date = week_start + timedelta(days=offset)
     structure = None
-    if session.get("exercises"):
+    if wt == "mobility":
+        structure = {
+            "exercises": session.get("exercises") or [],
+            "optional": True,
+        }
+        if session.get("duration_minutes"):
+            structure["duration_minutes"] = int(session["duration_minutes"])
+    elif session.get("exercises"):
         structure = {"exercises": session["exercises"]}
     elif session.get("blocks"):
         structure = {"blocks": session["blocks"]}
@@ -528,12 +583,12 @@ def apply_draft(db: Session, user_id, week_start: date, *, today: date | None = 
         if pdate < today:
             skipped_past += 1
             continue
-        # Skip days that already have a planned session
         existing = (
             db.query(PlannedSession)
             .filter(
                 PlannedSession.user_id == user_id,
                 PlannedSession.planned_date == pdate,
+                PlannedSession.session_type == body["session_type"],
             )
             .first()
         )

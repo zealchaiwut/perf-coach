@@ -1599,6 +1599,10 @@ def estimate_planned_session_metrics(baseline: dict, workout_type: str, structur
     out = {"estimated_tss": None, "estimated_distance_km": None}
     wt = (workout_type or "").lower()
 
+    if wt in ("mobility", "stretch"):
+        out["estimated_tss"] = 0
+        return out
+
     if wt in ("strength", "plyo"):
         try:
             from backend.services.session_pins import structure_actual_spend

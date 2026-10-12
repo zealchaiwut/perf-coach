@@ -304,5 +304,32 @@ def default_exercises() -> list[dict[str, Any]]:
     ]
 
 
+def default_mobility_patterns() -> list[dict[str, Any]]:
+    """Mobility/stretch patterns (WC-11). Stretch exercise names are NOT seeded."""
+    def mob(subtype, lo, hi, name, *, pnf_allowed=True, pick_n=4):
+        return {
+            "kind": "mobility",
+            "subtype": subtype,
+            "duration_min_lo": lo,
+            "duration_min_hi": hi,
+            "name": name,
+            "priority": 10,
+            "recipe": {
+                "intent_template": name,
+                "pnf_allowed": pnf_allowed,
+                "pick": {"n": pick_n, "from_tags": ["stretch"]},
+            },
+        }
+
+    return [
+        mob("stretch_core", 10, 15, "Core stretch (strength days)"),
+        mob("stretch_hips", 10, 15, "Hip stretch (easy run day 1)"),
+        mob("stretch_posterior", 10, 15, "Posterior chain (quality run)", pnf_allowed=False),
+        mob("stretch_upper", 10, 15, "Upper stretch (easy run day 3)"),
+        mob("yin", 15, 25, "Yin (rest before long run / race)", pick_n=3),
+        mob("stretch_light", 5, 10, "Light stretch (long run / race day)", pick_n=3),
+    ]
+
+
 def all_default_patterns() -> list[dict[str, Any]]:
-    return default_run_patterns() + default_strength_patterns()
+    return default_run_patterns() + default_strength_patterns() + default_mobility_patterns()

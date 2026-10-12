@@ -14,6 +14,32 @@ import types
 from backend.services.session_profile import detect_session_profile
 
 
+def _lap_distance_km(lap) -> float:
+    if isinstance(lap, dict):
+        v = lap.get("distance_km")
+    else:
+        v = getattr(lap, "distance_km", None)
+    try:
+        return float(v) if v is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _prefer_manual_laps_for_detection(manual_laps, split_rows) -> bool:
+    """Use device lap presses for phase/interval detection instead of km splits."""
+    if not manual_laps or len(manual_laps) < 2:
+        return False
+    split_rows = split_rows or []
+    if len(manual_laps) > max(1, len(split_rows)):
+        return True
+    # Fewer manual segments than auto km splits (e.g. 5×2 km with 18×1 km splits).
+    if len(split_rows) >= 5 and len(manual_laps) < len(split_rows):
+        max_km = max(_lap_distance_km(lap) for lap in manual_laps)
+        if max_km >= 1.75:
+            return True
+    return False
+
+
 def get_session_profile_for_workout(workout, split_rows, prefs, manual_laps=None):
     """Return a session profile for a workout.
 
@@ -63,7 +89,7 @@ def get_session_profile_for_workout(workout, split_rows, prefs, manual_laps=None
     # is detected. lap_roles then aligns with the manual lap order — the lap set
     # the run-detail view draws for these sessions. The caller stays DB-free: the
     # endpoint loads the streams and passes manual_laps in.
-    if manual_laps and len(manual_laps) > max(1, len(split_rows or [])):
+    if _prefer_manual_laps_for_detection(manual_laps, split_rows):
         splits_container = types.SimpleNamespace(laps=manual_laps, lap_type="manual")
         profile = detect_session_profile(splits_container, prefs_dict)
         profile["lap_source"] = "manual"

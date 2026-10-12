@@ -114,6 +114,7 @@ def ensure_coach_tracked_habits(db: Session, user_id) -> dict[str, Habit | None]
             icon="ti-heart-rate-monitor",
             active=True,
             is_archived=False,
+            checklist_role="optional",
         )
         try:
             with db.begin_nested():

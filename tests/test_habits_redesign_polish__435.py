@@ -161,7 +161,7 @@ def test_modal_js_present():
 # ── (m) Single /api/habits/week call on initial load ─────────────────────────
 
 def test_single_week_fetch_in_load_and_render():
-    # loadAndRender must fetch /api/habits/week exactly once (via weekUrl variable)
+    # loadAndRender must fetch /api/checklist/week exactly once on initial load.
     load_fn_match = re.search(
         r'async function loadAndRender\(\)(.*?)^}',
         _JS,
@@ -170,15 +170,13 @@ def test_single_week_fetch_in_load_and_render():
     assert load_fn_match, "habits.js must contain loadAndRender() function"
     fn_body = load_fn_match.group(1)
 
-    # Count calls to fetch(weekUrl) — the week endpoint fetch
-    week_endpoint_fetches = re.findall(r'fetch\(weekUrl\)', fn_body)
+    week_endpoint_fetches = re.findall(r'fetch\(clUrl\)', fn_body)
     assert len(week_endpoint_fetches) == 1, (
-        f"loadAndRender() must call fetch(weekUrl) exactly once; found {len(week_endpoint_fetches)}"
+        f"loadAndRender() must call fetch(clUrl) exactly once; found {len(week_endpoint_fetches)}"
     )
 
-    # Confirm weekUrl is set to /api/habits/week
-    assert "/api/habits/week" in fn_body, \
-        "loadAndRender() must construct weekUrl pointing to /api/habits/week"
+    assert "/api/checklist/week" in fn_body, \
+        "loadAndRender() must construct clUrl pointing to /api/checklist/week"
 
 
 # ── (n) scheduleHeroRefresh debounced single call ────────────────────────────

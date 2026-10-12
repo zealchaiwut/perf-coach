@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Home — Sprint 138 checklist composite</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#1b2340;--blue:#4f6ef7;--green:#16a34a;--border:#e8eaf0;--sub:#6b7280;--faint:#9ca3af;--lime:#cff245}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter Tight',system-ui,sans-serif;background:linear-gradient(170deg,#4257c4,#2d3a94);color:var(--ink);font-size:14px}
+  main{max-width:1300px;margin:0 auto;padding:14px 24px 40px;display:flex;flex-direction:column;gap:13px}
+  .hero h1{font-size:25px;color:#fff;font-weight:700}
+  .hero p{font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(255,255,255,.75);margin-top:5px}
+  .card{background:#fff;border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 3px 14px rgba(10,16,50,.1)}
+  .cols{display:grid;grid-template-columns:1.2fr .8fr;gap:13px;align-items:start}
+  @media(max-width:900px){.cols{grid-template-columns:1fr}}
+  .col{display:flex;flex-direction:column;gap:13px}
+  .today-head{padding:11px 18px;background:linear-gradient(90deg,#eafaf0,#f4fbf7);border-bottom:1px solid #d6f0df;display:flex;justify-content:space-between;align-items:center}
+  .k{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#15803d}
+  .today-body{display:grid;grid-template-columns:1.1fr .9fr}
+  .core{padding:12px 16px;border-right:1px solid var(--border)}
+  .fuel{padding:12px 16px;background:#fafbff}
+  .row{padding:8px 0;border-bottom:1px solid #eef0f4;font-size:13px;font-weight:650}
+  .sub{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--faint);font-weight:500}
+  .ch{padding:14px 17px}
+  .ttl{font-size:13.5px;font-weight:700;margin-bottom:8px}
+  .note{background:rgba(255,255,255,.95);border-radius:12px;padding:14px 16px;font-size:12px;line-height:1.65}
+  .note h3{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);margin-bottom:8px}
+  .note ul{margin:8px 0 0 18px}
+  .note li{margin:4px 0}
+  code{font-family:'JetBrains Mono',monospace;font-size:10px;background:#f1f4fa;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="hero" style="padding:20px 24px 0">
+  <h1>Good morning, zeal</h1>
+  <p>Monday, 28 Sep — Sprint 138 composite (supersedes home-revamp-v2 morning strip)</p>
+</div>
+<main>
+  <section class="card">
+    <div class="today-head"><span class="k">Today · 2 of 4 core</span><span style="font-size:12px;color:var(--blue);font-weight:600">Full checklist →</span></div>
+    <div class="today-body">
+      <div class="core">
+        <div class="row">Morning weigh-in <span class="sub">AUTO · logged</span></div>
+        <div class="row">Slept 7.5 hr or more <span class="sub">AUTO</span></div>
+        <div class="row">Protein first <span class="sub">TAP</span></div>
+        <div class="row" style="background:#f3f0ff;border-radius:8px;padding:10px">Strength A <span class="sub">planned session</span></div>
+      </div>
+      <div class="fuel">
+        <div class="k" style="color:var(--faint);margin-bottom:8px">Fuel today</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px">
+          <div><span class="sub">Protein</span><br><b>145–188 g</b></div>
+          <div><span class="sub">Carbs</span><br><b>230–268 g</b></div>
+          <div><span class="sub">Deficit</span><br><b>Paused</b></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <div class="col">
+      <div class="card ch"><div class="ttl">Coach · this week</div><p>Deload is doing its job. Don't refill it.</p></div>
+      <div class="card ch"><div class="ttl">Road to Bangsaen42</div><p>48 d · goal / estimate / End+Spd</p></div>
+      <div class="card ch"><div class="ttl">Weight trend</div><p>89.8 kg trend</p></div>
+      <div class="card ch"><div class="ttl">Performance · overall</div><p>Endurance + Speed tiles</p></div>
+      <div class="card ch"><div class="ttl">Readiness · today</div><p>TSB + ACWR headline</p></div>
+    </div>
+    <div class="col">
+      <div class="card ch"><div class="ttl">Today's session</div><p>Strength A — exercise list (Hip thrust, RDL, …)</p></div>
+      <div class="card ch"><div class="ttl">Week plan</div><p>Race week subtitle · Lift day / Quality day chips</p></div>
+      <div class="card ch"><div class="ttl">Training · this week</div><p>Workouts / distance / zone 2</p></div>
+      <div class="card ch"><div class="ttl">Recent workouts</div><p>Last 3 logged sessions</p></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>Live implementation map</h3>
+    <ul>
+      <li><code>#home-morning</code> → <code>HomeTodayChecklist</code> (<code>home-today-checklist.js</code>)</li>
+      <li><code>#home-next-up</code> → <code>HomeTodaySession</code> (<code>home-today-session.js</code>)</li>
+      <li><code>#home-brief-week-plan-card</code> → week_days + checklist fuel/day-type enrichment</li>
+      <li>Left column: coach → race → weight → performance → readiness</li>
+      <li>Right column: session → week plan → training → recent</li>
+    </ul>
+    <h3 style="margin-top:14px">Data prerequisites (UAT)</h3>
+    <ul>
+      <li><b>Today core/fuel card:</b> habits with <code>checklist_role != off</code>; <code>GET /api/checklist/week</code> must include today in <code>days[]</code>.</li>
+      <li><b>Fuel boxes:</b> <code>GET /api/fuel/today</code> + deficit periodization prefs.</li>
+      <li><b>Today's session exercises:</b> planned session on today with <code>structure.exercises[]</code> in <code>summary.week_days</code>.</li>
+      <li><b>Road to race:</b> A-race set on Performance tab → <code>summary.race</code> from <code>/api/home/summary</code>.</li>
+      <li><b>Week plan chips:</b> checklist <code>fuel_detail.day_type</code> per day; phase subtitle from <code>fuel_week.week_phase_reason</code>.</li>
+      <li><b>Legacy fallback:</b> <code>HomeMorning</code> only when checklist fetch hard-fails (401/500), not when data is empty.</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>

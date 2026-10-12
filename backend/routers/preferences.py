@@ -81,8 +81,7 @@ def put_preferences(body: _PrefsBody, user: User = Depends(resolve_user)):
     db = _db()
     try:
         payload = dict(body.payload or {})
-        # Migrated to Habits — ignore if older clients still POST them.
-        payload.pop("stretch_daily_min", None)
+        # zone2 lives on the Zone 2 habit — ignore legacy POSTs.
         payload.pop("zone2_weekly_min", None)
         errs = validate_payload(payload)
         if errs:

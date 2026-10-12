@@ -16,6 +16,8 @@
   var activeRowEl = null;
   var panelMode = "view"; // 'view' | 'edit' | 'create'
   var cachedDetailWorkout = null;
+  /** Last GET /api/workouts/{id}/full payload (computed TSS, sources, …). */
+  var cachedDetailFull = null;
   var _athleteBrand = "";
   // issue: perf — fetchAndRender() defaults to a trailing window rather than
   // full history (see the fetchAndRender comment below); this flags whether
@@ -2008,6 +2010,7 @@
     activeTriggerEl = triggerEl || null;
     activePosIndex = findPosIndex(workoutId);
     cachedDetailWorkout = null;
+    cachedDetailFull = null;
 
     closeOverflowMenu();
     setPanelMode("view");
@@ -2125,6 +2128,7 @@
     activeDetailWorkoutId = null;
     activePosIndex = -1;
     cachedDetailWorkout = null;
+    cachedDetailFull = null;
 
     closeOverflowMenu();
     var dateToUse = presetDate || createPresetDate();
@@ -2375,6 +2379,7 @@
     activeTriggerEl = null;
     activePosIndex = -1;
     cachedDetailWorkout = null;
+    cachedDetailFull = null;
     panelMode = "view";
 
     closeOverflowMenu();
@@ -2584,9 +2589,20 @@
     return out.childElementCount ? out : contentEl.cloneNode(true);
   }
 
+  function applyScreenshotLapMode(contentEl, lapMode) {
+    if (!contentEl || !lapMode) return;
+    var toggle = contentEl.querySelector("#rd4-lapmode-toggle");
+    if (!toggle) return;
+    var target = toggle.querySelector(
+      '.rd4-lm-btn[data-lap-mode="' + lapMode + '"]',
+    );
+    if (target && !target.classList.contains("rd4-lm-btn--on")) target.click();
+  }
+
   /** Prefer the landscape / simple share card; fall back to the vertical panel clone. */
   function buildDetailCaptureRoot(contentEl, shotOpts) {
     shotOpts = shotOpts || {};
+    applyScreenshotLapMode(contentEl, shotOpts.lapMode);
     var RD = window.RunDetailView;
     if (!RD) return buildScreenshotClone(contentEl);
 
@@ -2604,7 +2620,11 @@
     if (typeof RD.buildShareCard === "function") {
       var share = RD.buildShareCard(contentEl, {
         workout: cachedDetailWorkout || {},
-        brand: _athleteBrand || undefined,
+        full: cachedDetailFull || null,
+        lapSets: RD._lastLapSets || null,
+        lapMode: shotOpts.lapMode || null,
+        theme: shotOpts.theme === "light" ? "light" : "dark",
+        includeGraph: !!shotOpts.includeGraph,
       });
       if (share) return share;
     }
@@ -2612,10 +2632,11 @@
   }
 
   /**
-   * Single screenshot modal with two sections + live preview:
-   *   Card  — Social (IG/FB) | Simple + graph | Simple (no graph)
-   *   Laps  — Manual | 1 km   (when both exist; dimmed if card doesn't need laps)
-   * Resolves { style, includeGraph, lapMode } or null if cancelled.
+   * Single screenshot modal with live preview:
+   *   Theme — Dark | Light
+   *   Graph — With graph | No graph (pace/HR lap chart above the lap table)
+   *   Laps  — Manual | 1 km (when both exist)
+   * Resolves { style, theme, includeGraph, lapMode } or null if cancelled.
    */
   function _promptScreenshotOptions(contentEl) {
     return new Promise(function (resolve) {
@@ -2623,27 +2644,20 @@
       var hasLapChoice =
         !!(toggle && toggle.querySelectorAll(".rd4-lm-btn").length >= 2);
 
-      var lastCard = "advanced";
+      var theme = "dark";
+      var includeGraph = false;
       var lastLap = "manual";
       try {
-        lastCard = localStorage.getItem("rd4_shot_card") || "advanced";
+        theme = localStorage.getItem("rd4_shot_theme") || "dark";
+        if (theme !== "light") theme = "dark";
+        if (localStorage.getItem("rd4_shot_graph") != null) {
+          includeGraph = localStorage.getItem("rd4_shot_graph") !== "0";
+        } else {
+          var oldCard = localStorage.getItem("rd4_shot_card");
+          includeGraph = oldCard === "simple_graph";
+        }
         lastLap = localStorage.getItem("rd4_shot_lap") || "manual";
       } catch (e) {}
-      if (
-        lastCard !== "advanced" &&
-        lastCard !== "simple_graph" &&
-        lastCard !== "simple"
-      ) {
-        try {
-          var oldStyle = localStorage.getItem("rd4_shot_style");
-          var oldGraph = localStorage.getItem("rd4_shot_graph") !== "0";
-          if (oldStyle === "simple")
-            lastCard = oldGraph ? "simple_graph" : "simple";
-          else lastCard = "advanced";
-        } catch (e2) {
-          lastCard = "advanced";
-        }
-      }
 
       var activeBtn =
         toggle &&
@@ -2655,7 +2669,6 @@
       if (lastLap !== "manual" && lastLap !== "distance")
         lastLap = liveLap || "manual";
 
-      var card = lastCard;
       var lapMode = lastLap;
 
       // Focus save/restore, matching the established modal pattern in this
@@ -2782,7 +2795,7 @@
       }
 
       function cardNeedsLaps() {
-        return card === "advanced" || card === "simple_graph";
+        return true;
       }
 
       function applyLapModeIfNeeded() {
@@ -2820,8 +2833,10 @@
         requestAnimationFrame(function () {
           requestAnimationFrame(function () {
             var opts = {
-              style: card === "advanced" ? "full" : "simple",
-              includeGraph: card === "simple_graph",
+              style: "full",
+              theme: theme,
+              includeGraph: includeGraph,
+              lapMode: lapMode,
             };
             var node = buildDetailCaptureRoot(contentEl, opts);
             previewStage.innerHTML = "";
@@ -2864,7 +2879,8 @@
             } else if (isSocial) {
               previewStage.style.width = "";
               previewStage.style.maxWidth = "100%";
-              previewStage.style.backgroundColor = "#1a1a1a";
+              previewStage.style.backgroundColor =
+                theme === "light" ? "#f4f6fa" : "#1a1a1a";
               var stageW = previewStage.clientWidth || 400;
               var scale = Math.min(1, (stageW - 16) / measured);
               scaleWrap.style.transform = "scale(" + scale + ")";
@@ -2882,8 +2898,7 @@
                 Math.max(120, Math.ceil(measuredH * scale) + 16) + "px";
             }
 
-            previewHint.style.display =
-              card === "simple" || card === "simple_graph" ? "" : "none";
+            previewHint.style.display = "none";
           });
         });
       }
@@ -2893,49 +2908,68 @@
         refreshPreview();
       }
 
-      controls.appendChild(sectionTitle("Card"));
+      controls.appendChild(sectionTitle("Theme"));
       controls.appendChild(
         choiceBtn(
-          "card",
-          "Social (IG/FB)",
-          "advanced",
+          "theme",
+          "Dark",
+          "dark",
           function () {
-            return card;
+            return theme;
           },
           function (v) {
-            card = v;
+            theme = v;
           },
           onOptionsChange,
         ),
       );
       controls.appendChild(
         choiceBtn(
-          "card",
-          "Simple + graph",
-          "simple_graph",
+          "theme",
+          "Light",
+          "light",
           function () {
-            return card;
+            return theme;
           },
           function (v) {
-            card = v;
+            theme = v;
           },
           onOptionsChange,
         ),
       );
-      controls.appendChild(
+
+      var graphWrap = document.createElement("div");
+      graphWrap.style.cssText = "margin-top:8px;";
+      graphWrap.appendChild(sectionTitle("Graph"));
+      graphWrap.appendChild(
         choiceBtn(
-          "card",
-          "Simple (no graph)",
-          "simple",
+          "graph",
+          "With graph",
+          "1",
           function () {
-            return card;
+            return includeGraph ? "1" : "0";
           },
           function (v) {
-            card = v;
+            includeGraph = v === "1";
           },
           onOptionsChange,
         ),
       );
+      graphWrap.appendChild(
+        choiceBtn(
+          "graph",
+          "No graph",
+          "0",
+          function () {
+            return includeGraph ? "1" : "0";
+          },
+          function (v) {
+            includeGraph = v === "1";
+          },
+          onOptionsChange,
+        ),
+      );
+      controls.appendChild(graphWrap);
 
       var lapsWrap = document.createElement("div");
       lapsWrap.style.cssText = "margin-top:8px;";
@@ -2989,7 +3023,8 @@
         "background:var(--ink);color:var(--surface);";
       go.addEventListener("click", function () {
         try {
-          localStorage.setItem("rd4_shot_card", card);
+          localStorage.setItem("rd4_shot_theme", theme);
+          localStorage.setItem("rd4_shot_graph", includeGraph ? "1" : "0");
           localStorage.setItem("rd4_shot_lap", lapMode);
         } catch (e) {}
         applyLapModeIfNeeded();
@@ -2997,8 +3032,9 @@
         document.body.removeChild(overlay);
         _restoreShotFocus();
         resolve({
-          style: card === "advanced" ? "full" : "simple",
-          includeGraph: card === "simple_graph",
+          style: "full",
+          theme: theme,
+          includeGraph: includeGraph,
           lapMode: lapMode,
         });
       });
@@ -3088,7 +3124,13 @@
             clone.classList.contains("rd4-simple")
           );
           var captureWidth = isSocial ? 1080 : isSimple ? 360 : 540;
-          var bg = isSimple ? null : isSocial ? "#0a0a0a" : "#ffffff";
+          var bg = isSimple
+            ? null
+            : isSocial
+              ? shotOpts.theme === "light"
+                ? "#f8f6f1"
+                : "#0a0a0a"
+              : "#ffffff";
 
           var host = document.createElement("div");
           host.className =
@@ -3250,6 +3292,7 @@
       })
       .catch(function (_) {
         cachedDetailWorkout = null;
+    cachedDetailFull = null;
         updateOverflowMenu(null);
         if (loadingEl) loadingEl.style.display = "none";
         if (errorEl) errorEl.style.display = "";
@@ -3589,6 +3632,7 @@
     });
 
   function renderRunView(full, prefs, stravaLatest, strydLatest) {
+    cachedDetailFull = full || null;
     var contentEl = document.getElementById("dp-content");
     if (!contentEl || !window.RunDetailView) return;
     window.RunDetailView.render(contentEl, full, prefs, {
@@ -5985,6 +6029,22 @@
   //
   // Desktop: inset .log-page-header-inner to the content column. Global nav
   // left/right padding is owned by nav.js (_positionGlobalNav) on every page.
+  function _visibleLogShell() {
+    var selectors = [".log-layout", ".tab-panel-placeholder"];
+    for (var s = 0; s < selectors.length; s++) {
+      var nodes = document.querySelectorAll(selectors[s]);
+      for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
+        if (el.hidden) continue;
+        if (el.style.display === "none") continue;
+        var cs = window.getComputedStyle(el);
+        if (cs.display === "none" || cs.visibility === "hidden") continue;
+        return el;
+      }
+    }
+    return document.querySelector(".log-layout, .tab-panel-placeholder");
+  }
+
   function _positionNav() {
     var gnav = document.querySelector(".global-nav");
     var hdr = document.querySelector(".log-page-header");
@@ -6007,13 +6067,20 @@
       return;
     }
 
-    // Brand+tabs align to the shared centered content box's left edge (same as
-    // #plan-race-header / any .pm-card); computed from geometry (all four tabs
-    // share max-width:1000 + 24px padding, border-box) rather than measuring
-    // #list-main, which is display:none on Plan/Projection/Performance.
-    // The actions cluster (.log-page-header-actions) is a normal flex child
-    // pushed right by .log-nav-spacer, so setting this same padding-right
-    // aligns its right edge with the content column's right edge too.
+    // Measure the visible sub-tab shell (--log-shell-max) so Summary / Plan /
+    // Performance share the same left/right edge as the sticky tab bar.
+    var anchor = _visibleLogShell();
+    if (anchor) {
+      var rect = anchor.getBoundingClientRect();
+      var cs = window.getComputedStyle(anchor);
+      var pl = parseFloat(cs.paddingLeft) || 0;
+      var pr = parseFloat(cs.paddingRight) || 0;
+      inner.style.paddingLeft = Math.max(0, rect.left + pl) + "px";
+      inner.style.paddingRight =
+        Math.max(0, document.documentElement.clientWidth - (rect.right - pr)) + "px";
+      return;
+    }
+
     var CONTENT_MAX = 1000,
       PAD = 24;
     var vw = document.documentElement.clientWidth;
@@ -6021,6 +6088,7 @@
     inner.style.paddingLeft = contentLeft + "px";
     inner.style.paddingRight = contentLeft + "px";
   }
+  window.repositionLogNav = _positionNav;
   window.addEventListener("load", _positionNav);
   window.addEventListener("resize", _positionNav);
   _positionNav();
@@ -6948,6 +7016,7 @@
         : "") +
       "</div>" +
       '<div class="sd-supercomp-links">' +
+      '<a class="sd-supercomp-link" href="training-log.html#plan">&#8594; Plan</a>' +
       '<a class="sd-supercomp-link" href="training-log.html#performance">&#8594; Performance</a>' +
       "</div>" +
       "</div>";

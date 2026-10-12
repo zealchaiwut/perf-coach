@@ -17,6 +17,10 @@ const FUEL_DAY_TYPE_LABEL = {
   lift: 'LIFT',
   easy_run: 'EASY RUN',
   long_run: 'LONG RUN',
+  quality: 'QUALITY',
+  pre_race: 'PRE-RACE',
+  race: 'RACE',
+  carb_load: 'CARB LOAD',
 };
 const FUEL_WEEKDAY_ABBR = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 

@@ -3978,7 +3978,17 @@ _VALID_AUTO_FILL_SOURCES = frozenset({
     "workout.zone2_minutes", "workout.run_count", "workout.lift_count",
     "workout.total_duration_minutes", "workout.distance_km",
     "coach.stretch_daily",
+    "sleep.hours_min",
 })
+
+_CHECKLIST_ROLE_VALUES = frozenset({"core", "optional", "off"})
+
+
+def _habit_checklist_role(h: Habit) -> str:
+    role = getattr(h, "checklist_role", None)
+    if isinstance(role, str) and role in _CHECKLIST_ROLE_VALUES:
+        return role
+    return "core"
 
 
 def _habit_dict(h: Habit) -> dict:
@@ -3996,6 +4006,7 @@ def _habit_dict(h: Habit) -> dict:
         "sort_order": h.sort_order,
         "is_archived": h.is_archived,
         "section": str(h.section) if h.section is not None else "general",
+        "checklist_role": _habit_checklist_role(h),
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -4032,6 +4043,7 @@ def _habit_dict_v2(h: Habit) -> dict:
         "color": h.color,
         "auto_fill_source": h.auto_fill_source,
         "section": str(h.section) if h.section is not None else "general",
+        "checklist_role": _habit_checklist_role(h),
         "created_at": h.created_at.isoformat() if h.created_at else None,
         "updated_at": h.updated_at.isoformat() if h.updated_at else None,
     }
@@ -4066,8 +4078,17 @@ def _validate_habit_business_rules(
     schedule_type: Optional[str] = None,
     target_value: Optional[float] = None,
     section: Optional[str] = None,
+    checklist_role: Optional[str] = None,
 ) -> None:
     # v2 enum validations
+    if checklist_role is not None and checklist_role not in _CHECKLIST_ROLE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": f"checklist_role must be one of {sorted(_CHECKLIST_ROLE_VALUES)}",
+                "details": "",
+            },
+        )
     if section is not None and section not in _VALID_SECTION_VALUES:
         raise HTTPException(
             status_code=422,
@@ -4127,6 +4148,7 @@ class HabitIn(BaseModel):
     auto_fill_source: Optional[str] = None
     icon: Optional[str] = None
     color: Optional[str] = None
+    checklist_role: Optional[str] = None
 
 
 class HabitPatch(BaseModel):
@@ -4145,6 +4167,7 @@ class HabitPatch(BaseModel):
     color: Optional[str] = None
     sort_order: Optional[int] = None
     is_archived: Optional[bool] = None
+    checklist_role: Optional[str] = None
 
 
 class HabitReorderIn(BaseModel):
@@ -4249,6 +4272,7 @@ def get_habits(
     user: User = Depends(resolve_user),
 ):
     with Session(engine) as session:
+        from backend.services.checklist_habits import ensure_sleep_habit
         from backend.services.coach_habit_targets import ensure_coach_tracked_habits
         from backend.services.goal_habits import ensure_goal_habits
 
@@ -4257,6 +4281,7 @@ def get_habits(
         # long-run fuel). Idempotent and adopt-not-duplicate, so opening this
         # page is the whole bootstrap — the same shape as the line above.
         ensure_goal_habits(session, user.id)
+        ensure_sleep_habit(session, user.id)
         session.commit()
         q = session.query(Habit).filter(Habit.user_id == user.id)
         if active is not None:
@@ -4266,7 +4291,11 @@ def get_habits(
             # legacy: exclude is_archived habits
             q = q.filter(Habit.is_archived.is_(False))
         rows = q.order_by(Habit.sort_order).all()
-        return JSONResponse([_habit_dict(r) for r in rows])
+        visible = [
+            r for r in rows
+            if include_archived or _habit_checklist_role(r) != "off"
+        ]
+        return JSONResponse([_habit_dict(r) for r in visible])
 
 
 @app.post("/api/habits", status_code=201)
@@ -4284,6 +4313,7 @@ def post_habit(body: HabitIn, user: User = Depends(resolve_user)):
         schedule_type=body.schedule_type,
         target_value=body.target_value,
         section=body.section,
+        checklist_role=body.checklist_role,
     )
     with Session(engine) as session:
         if body.auto_fill_source is not None:
@@ -4359,6 +4389,7 @@ async def patch_habit(habit_id: str, request: Request, user: User = Depends(reso
         schedule_type=body.schedule_type,
         target_value=body.target_value,
         section=body.section,
+        checklist_role=body.checklist_role,
     )
     try:
         hid = _uuid.UUID(habit_id)
@@ -4847,6 +4878,30 @@ def get_habit_summary(
         "days_checked": days_checked,
         "days_total": days_in_window,
     })
+
+
+# ── Weekly checklist read model (WC-14) ─────────────────────────────────────
+
+@app.get("/api/checklist/week")
+def get_checklist_week(
+    week_start: Optional[str] = Query(None),
+    user: User = Depends(resolve_user),
+):
+    """Compose planned sessions, habits, fuel and sleep into days[] (no table)."""
+    from backend.services.checklist_week import build_checklist_week
+
+    if week_start is not None:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid week_start; use YYYY-MM-DD")
+        if ws.weekday() != 0:
+            raise HTTPException(status_code=422, detail="week_start must be a Monday")
+    else:
+        ws = _week_start_bangkok(_bangkok_today())
+
+    with Session(engine) as session:
+        return JSONResponse(build_checklist_week(session, user.id, ws))
 
 
 # ── Habits week-view batch endpoint (issue #429) ─────────────────────────────
@@ -5720,6 +5775,15 @@ app.add_api_route("/login", _serve_login, include_in_schema=False)
 app.add_api_route("/login.html", _serve_login, include_in_schema=False)
 
 
+def _redirect_checklist_to_habits():
+    """WC-20: retire standalone checklist artifact — one in-app surface."""
+    return RedirectResponse(url="/habits", status_code=302)
+
+
+app.add_api_route("/checklist", _redirect_checklist_to_habits, include_in_schema=False)
+app.add_api_route("/checklist.html", _redirect_checklist_to_habits, include_in_schema=False)
+
+
 def _serve_dev_mobile():
     """Local/UAT mobile preview frame (Chrome DevTools–style device width)."""
     env = os.getenv("ENVIRONMENT", "local").lower()
@@ -6162,11 +6226,9 @@ def _workout_signal_scores(session, workout) -> dict:
 def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
     """Endurance/speed score for the athlete AS OF ``as_of_date``.
 
-    Uses the SAME machinery as ``_workout_signal_scores`` (the numbers shown on
-    the workout-detail/log card) — all run workouts with ``workout_date <=
-    as_of_date`` scored via compute_endurance_score / compute_speed_score. This
-    is deliberately the athlete-scale score, not a pace inversion, so a
-    completed race's demonstrated score matches the log for that date.
+    Uses the SAME machinery as ``get_athlete_performance`` — all run workouts
+    with ``workout_date <= as_of_date`` scored via compute_endurance_score /
+    compute_speed_score so projection estimate_basis matches the Perf tab cards.
 
     Returns ``{"endurance": float|None, "speed": float|None}``.
     """
@@ -6194,13 +6256,17 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
             "aerobic_decoupling_threshold": getattr(prefs_row, "aerobic_decoupling_threshold", None),
             "duration_curve_bests": None,
         }
+        curve_data = _get_athlete_duration_curve(user_id, session)
+        prefs_dict["duration_curve_bests"] = curve_data or {}
     zone_constants = make_zone_constants()
     try:
         compute_decoupling = _compute_decoupling
     except Exception:
         compute_decoupling = None
 
-    _window_start = as_of_date - _timedelta(days=89)
+    # Same history cap as get_athlete_performance (#1578) so projection
+    # estimate_basis scores match the End/Speed cards on the Perf tab.
+    _window_start = as_of_date - _timedelta(days=_RUN_HISTORY_CAP_DAYS)
     run_workouts = (
         session.query(Workout)
         .options(load_only(
@@ -6299,9 +6365,18 @@ def _athlete_scores_as_of(session, user_id, as_of_date) -> dict:
         )
 
     _race_perf = _latest_race_perf(session, user_id, as_of=as_of_date)
+    from backend.services.body_modifier import get_body_modifier_for_user as _get_bm
+
+    _bm = _get_bm(user_id)
 
     def _score(fn):
-        r = fn(runs, prefs_dict or None, zone_constants, race_perf=_race_perf)
+        r = fn(
+            runs,
+            prefs_dict or None,
+            zone_constants,
+            race_perf=_race_perf,
+            body_modifier=_bm,
+        )
         s = r.get("score") if isinstance(r, dict) else None
         return s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
 
@@ -6944,7 +7019,11 @@ def get_workout_full(
             .filter(UserPreferences.user_id == workout.user_id)
             .first()
         )
-        tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
+        _is_run = (workout.workout_type or "").lower().find("run") >= 0
+        if _is_run:
+            tss_result = _persist_running_tss(workout.id, session)
+        else:
+            tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
         from backend.models import ActivityStream as _ActivityStream
         from backend.services.activity_streams import activity_streams_to_strava_dict as _as_to_strava
         # Phase C: streams=none must not hydrate deferred GPS/power/HR arrays.
@@ -7010,8 +7089,15 @@ def get_workout_full(
             "has_power": unified["avg_power_w"] is not None,
             "has_tss": unified["tss"] is not None,
         }
-        # Authoritative TSS: manual entry wins; fall back to freshly-computed value.
-        authoritative_tss = int(workout.tss) if workout.tss is not None else tss_result["tss"]
+        # Authoritative TSS: manual entry wins; else app-computed (not Stryd stress).
+        if workout.tss_source == "manual" and workout.tss is not None:
+            authoritative_tss = int(workout.tss)
+        elif tss_result.get("tss") is not None:
+            authoritative_tss = int(round(tss_result["tss"]))
+        elif workout.tss is not None:
+            authoritative_tss = int(workout.tss)
+        else:
+            authoritative_tss = None
         # Manual lap presses expose real interval reps that stored 1 km splits hide;
         # pass them so detection/pairing runs on them.  Use the persisted manual_laps
         # column (issue #1295) to avoid re-materialising streams_payload.
@@ -7076,6 +7162,8 @@ def get_workout_full(
         }
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
+        if _is_run:
+            session.commit()
         return JSONResponse(response_body)
 
 
@@ -7208,6 +7296,12 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
         except Exception as _cd_exc:
             _logging.getLogger(__name__).warning(
                 "checkpoint autodetection failed for workout %s: %s", workout.id, _cd_exc, exc_info=True
+            )
+        try:
+            _run_race_autocomplete(workout)
+        except Exception as _ra_exc:
+            _logging.getLogger(__name__).warning(
+                "race auto-complete failed for workout %s: %s", workout.id, _ra_exc, exc_info=True
             )
         if workout.workout_type == "strength":
             try:
@@ -7481,10 +7575,10 @@ def delete_workout(workout_id: str, user: User = Depends(resolve_user)):
 # Distinct from Projection's ramp/taper load model (TrainingPlan/PlannedLoad).
 # Link-only: matched_workout_id → workouts.id; Log tab unchanged.
 
-_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest"}
+_PLANNED_SESSION_TYPES = {"run", "strength", "plyo", "stretch", "rest", "mobility"}
 _PLANNED_STATUSES = {
     "planned", "missed", "missed_auto", "missed_manual",
-    "needs_review", "done_auto", "done_manual",
+    "needs_review", "done_auto", "done_manual", "skipped",
 }
 
 
@@ -7614,7 +7708,8 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
     if (
         estimate_baseline is not None
         and matched is None
-        and p.status != "missed"
+        and p.status not in ("missed", "skipped")
+        and p.session_type != "mobility"
         and p.planned_date >= _today_bkk()
     ):
         from backend.services.training_load import estimate_planned_session_metrics as _est
@@ -7921,6 +8016,20 @@ def mark_done_planned_session(ps_id: str, user: User = Depends(resolve_user)):
         row = _get_planned_session_or_404(session, ps_id, user)
         row.matched_workout_id = None
         row.status = "done_manual"
+        row.updated_at = _datetime.now(_timezone.utc)
+        session.commit()
+        session.refresh(row)
+        return JSONResponse(_planned_session_dict(row))
+
+
+@app.post("/api/planned-sessions/{ps_id}/skip")
+def skip_planned_session(ps_id: str, user: User = Depends(resolve_user)):
+    """Skip an optional session (mobility) — never counted as missed."""
+    with Session(engine) as session:
+        row = _get_planned_session_or_404(session, ps_id, user)
+        if row.session_type != "mobility":
+            raise HTTPException(status_code=422, detail="only mobility sessions may be skipped")
+        row.status = "skipped"
         row.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(row)
@@ -10058,6 +10167,7 @@ def get_training_log(
     today = _today_bkk()
 
     uid = user.id
+    snap_ctl = snap_atl = snap_tsb = None
 
     from_d = today - timedelta(days=29) if from_date is None else None
     if from_date is not None:
@@ -10132,31 +10242,44 @@ def get_training_log(
                     TrainingLoadSnapshot.snapshot_date == today,
                 ).first()
 
-    workout_entries = [
-        {
-            "date": str(w.workout_date),
-            "type": w.workout_type,
-            "run_subtype": w.run_subtype,
-            "id": str(w.id),
-            "title": w.name,
-            "duration_seconds": w.duration_seconds,
-            "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
-            "distance_km": float(w.distance_km) if w.distance_km is not None else None,
-            "avg_hr": w.avg_hr,
-            "elevation_m": w.elevation_m,
-            "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
-            "tss": float(w.tss) if w.tss is not None else None,
-            "source": w.source or w.tss_source or "manual",
-            "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
-            "is_stryd_synced": w.stryd_activity_pk is not None,
-            "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
-            "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
-            "notes": w.remarks or "",
-            "feeling": w.feeling,
-            "weight_context": w.remarks,
-        }
-        for w in workouts
-    ]
+        # Training log / calendar rollups use workout.tss — refresh app-computed
+        # values for runs (overwrites Stryd etc.; manual athlete entry wins).
+        for w in workouts:
+            wt = (w.workout_type or "").lower()
+            if "run" in wt and w.tss_source != "manual":
+                _persist_running_tss(w.id, session)
+
+        if today_snap is not None:
+            snap_ctl = round(today_snap.ctl, 1)
+            snap_atl = round(today_snap.atl, 1)
+            snap_tsb = round(today_snap.tsb, 1)
+
+        workout_entries = [
+            {
+                "date": str(w.workout_date),
+                "type": w.workout_type,
+                "run_subtype": w.run_subtype,
+                "id": str(w.id),
+                "title": w.name,
+                "duration_seconds": w.duration_seconds,
+                "duration_minutes": round(w.duration_seconds / 60, 2) if w.duration_seconds is not None else None,
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "avg_hr": w.avg_hr,
+                "elevation_m": w.elevation_m,
+                "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
+                "tss": float(w.tss) if w.tss is not None else None,
+                "source": w.source or w.tss_source or "manual",
+                "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
+                "is_stryd_synced": w.stryd_activity_pk is not None,
+                "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
+                "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
+                "notes": w.remarks or "",
+                "feeling": w.feeling,
+                "weight_context": w.remarks,
+            }
+            for w in workouts
+        ]
+        session.commit()
 
     all_entries = workout_entries + rest_entries
     all_entries.sort(key=lambda e: e["date"], reverse=True)
@@ -10204,10 +10327,10 @@ def get_training_log(
     if include_load_context:
         load_context = None
         if total_workout_days >= 7:
-            if today_snap is not None:
-                lc_ctl = round(today_snap.ctl, 1)
-                lc_atl = round(today_snap.atl, 1)
-                lc_tsb = round(today_snap.tsb, 1)
+            if snap_ctl is not None:
+                lc_ctl = snap_ctl
+                lc_atl = snap_atl
+                lc_tsb = snap_tsb
             else:
                 _load = current_load(str(uid), as_of=today)
                 lc_ctl = round(_load["ctl"], 1)
@@ -14703,6 +14826,18 @@ def get_calibration_status(user: User = Depends(resolve_user)):
 # ── Race Checkpoints ──────────────────────────────────────────────────────────
 
 
+def _run_race_autocomplete(workout: Workout) -> None:
+    """Mark planned races done when a synced run matches race date + distance."""
+    from backend.services.race_auto_complete import apply_race_autocomplete_for_workout
+
+    with Session(engine) as session:
+        w = session.get(Workout, workout.id)
+        if w is None:
+            return
+        if apply_race_autocomplete_for_workout(session, w):
+            session.commit()
+
+
 def _run_checkpoint_autodetection(workout: Workout) -> None:
     """Evaluate and update unmet/non-overridden checkpoints after a run is ingested.
 
@@ -17479,6 +17614,16 @@ def _compute_plan_bundle(user) -> dict:
                 "avg_hr": w.avg_hr,
             }
 
+        # Self-heal planned races that already have a matching run (e.g. after
+        # Strava sync while the worker/Mac was off — this runs on the webapp).
+        try:
+            from backend.services.race_auto_complete import backfill_planned_races as _backfill_races
+
+            if _backfill_races(session, user.id):
+                session.commit()
+        except Exception:
+            _log.warning("race backfill failed", exc_info=True)
+
         races = (
             session.query(Race)
             .filter(Race.user_id == user.id)
@@ -17573,8 +17718,38 @@ def _compute_plan_bundle(user) -> dict:
             scores = _plan_race_scores(
                 session, user.id, race, rd, readiness, current_scores, tp
             )
+            if not is_done and str(race.race_date) < str(today):
+                try:
+                    from backend.services.race_auto_complete import (
+                        suggest_actual_time_for_race as _suggest_actual,
+                    )
+
+                    suggested = _suggest_actual(session, race)
+                    if suggested is not None:
+                        rd["suggested_actual_time_seconds"] = suggested
+                except Exception:
+                    _log.warning("race suggest actual failed", exc_info=True)
             rd["computed"] = {"estimate": estimate, "scores": scores}
             race_out.append(rd)
+
+        # Keep projection pipeline scores in sync with the Perf tab cards
+        # (same get_athlete_performance source as current_scores above).
+        if (
+            primary_time_curve
+            and cur_end is not None
+            and cur_spd is not None
+            and primary_race
+            and primary_race.distance
+        ):
+            from backend.services.race_finish_estimator import (
+                blended_scores_estimate as _bundle_blend,
+            )
+
+            _dist = float(primary_race.distance)
+            if _dist > 0:
+                _new_basis = _bundle_blend(cur_end, cur_spd, _dist, tp).get("basis")
+                if _new_basis:
+                    primary_time_curve["estimate_basis"] = _new_basis
 
     return {
         "generated_at": _datetime.now(_timezone.utc).isoformat(),
@@ -18034,7 +18209,8 @@ def _week_planned_tss(
     if not include_all:
         q = q.filter(
             PlannedSession.matched_workout_id.is_(None),
-            PlannedSession.status != "missed",
+            PlannedSession.status.notin_(("missed", "skipped")),
+            PlannedSession.session_type != "mobility",
         )
     rows = q.all()
     total = 0.0
@@ -18202,6 +18378,8 @@ def get_plan_week_load(
             "verdict_reason": verdict["reason"],
             "weeks_to_converge": verdict["weeks_to_converge"],
             "converge_date": verdict["converge_date"],
+            "week_phase": target_week.get("phase") if target_week else None,
+            "week_deload": bool(target_week.get("deload")) if target_week else False,
         })
 
 

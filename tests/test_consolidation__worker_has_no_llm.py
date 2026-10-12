@@ -124,24 +124,18 @@ def test_worker_does_not_load_a_third_party_llm_sdk(worker_modules):
     assert not hits, f"worker loaded third-party LLM SDK(s): {hits}"
 
 
-def test_plan_draft_is_not_a_dispatchable_job():
-    """Parking drafts means removing the handler, not just leaving the
-    scheduler quiet. plan_draft was the single edge that made llm,
-    plan_slot_cache and the whole parked coach cluster reachable from the
-    worker — the dispatch entry was the door, so the door is what closed."""
+def test_plan_draft_is_a_dispatchable_job_without_module_level_import():
+    """plan_draft regen is pattern-fill only; handler lazy-imports plan_draft."""
     import backend.worker_app as w
 
-    assert "plan_draft" not in w._DISPATCH, (
-        "plan_draft is back in the worker dispatch table; it re-opens the "
-        "import path plan_draft -> plan_slot_cache -> plan_suggestions -> llm."
-    )
+    assert "plan_draft" in w._DISPATCH
 
 
-def test_draft_notify_still_answers_with_pipeline_off():
-    """Hermes polls this on a schedule. Parked must mean 'nothing today', not
-    an outage — a 404 would read as the worker being down."""
+def test_draft_notify_reports_pipeline_off_when_disabled(monkeypatch):
+    """Hermes polls this on a schedule — pipeline off must not 404."""
     import backend.worker_app as w
 
+    monkeypatch.setenv("PLAN_PIPELINE", "legacy")
     out = w.plan_draft_notify()
     assert out["pipeline_off"] is True
     assert out["deliver_now"] is False

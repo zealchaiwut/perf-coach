@@ -91,6 +91,8 @@ class _RacePatchBody(BaseModel):
     name: Optional[str] = None
     goal_time_seconds: Optional[int] = None
     priority: Optional[str] = None
+    status: Optional[str] = None
+    actual_time_seconds: Optional[int] = None
 
 
 class _CheckpointCreateBody(BaseModel):
@@ -266,6 +268,11 @@ async def patch_race(
         priority = _resolve_priority(body.type or "race", body.priority)
 
     goal_time_set = "goal_time_seconds" in body.model_fields_set
+    if body.status is not None and body.status not in ("planned", "done", "abandoned"):
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "status", "error": "status must be one of: planned, done, abandoned"},
+        )
     data = _svc.update_race(
         pid,
         rid,
@@ -276,6 +283,10 @@ async def patch_race(
         goal_time_seconds=body.goal_time_seconds,
         goal_time_set=goal_time_set,
         priority=priority,
+        status=body.status,
+        actual_time_seconds=body.actual_time_seconds,
+        status_set="status" in body.model_fields_set,
+        actual_time_set="actual_time_seconds" in body.model_fields_set,
     )
     if data is None:
         raise HTTPException(status_code=404, detail="race not found")
@@ -831,6 +842,47 @@ def draft_replan_remaining(
             "job_id": None,
             "week_start": ws.isoformat(),
         })
+    finally:
+        db.close()
+
+
+@router.get("/plan/build-status")
+def get_plan_build_status(
+    week_start: Optional[str] = _Query(None, alias="week_start"),
+    user: User = Depends(resolve_user),
+):
+    """Rebuild status for checklist UI: updating / up_to_date + last_built."""
+    from backend.services.plan_build_status import plan_build_status
+
+    ws = _parse_week_start(week_start) if week_start else None
+    db = _Session(_engine)
+    try:
+        return JSONResponse(plan_build_status(db, user.id, week_start=ws))
+    finally:
+        db.close()
+
+
+@router.post("/plan/rebuild-week")
+def post_plan_rebuild_week(
+    body: PlanDraftApplyRequest = Body(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Manual rebuild: enqueue plan_draft for this week (remaining days when mid-week)."""
+    from backend.services.plan_build_status import enqueue_week_rebuild, plan_build_status
+    from backend.services.plan_draft import pipeline_enabled
+    from backend.utils.time import today_bangkok
+
+    if not pipeline_enabled():
+        raise HTTPException(status_code=400, detail="plan pipeline not enabled; set PLAN_PIPELINE=skeleton_v2")
+    ws = _parse_week_start(body.week_start if body else None)
+    today = today_bangkok()
+    remaining = ws <= today <= ws + _timedelta(days=6)
+    job_id = enqueue_week_rebuild(user.id, ws, remaining_days_only=remaining)
+    db = _Session(_engine)
+    try:
+        status = plan_build_status(db, user.id, week_start=ws)
+        status["job_id"] = job_id
+        return JSONResponse(status)
     finally:
         db.close()
 

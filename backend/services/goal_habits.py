@@ -60,6 +60,7 @@ _SPECS: dict[str, dict[str, Any]] = {
         "auto_fill_source": WEIGH_IN_SOURCE,
         "icon": "ti-scale",
         "sort_order": 0,
+        "checklist_role": "core",
     },
     "protein_first": {
         "name": "Protein first",
@@ -69,6 +70,7 @@ _SPECS: dict[str, dict[str, Any]] = {
         "auto_fill_source": PROTEIN_FIRST_SOURCE,
         "icon": "ti-meat",
         "sort_order": 1,
+        "checklist_role": "core",
     },
     "long_run_fuel": {
         "name": "Long-run fuel",
@@ -79,6 +81,7 @@ _SPECS: dict[str, dict[str, Any]] = {
         "auto_fill_source": LONG_RUN_FUEL_SOURCE,
         "icon": "ti-bolt",
         "sort_order": 2,
+        "checklist_role": "core",
     },
 }
 
@@ -146,6 +149,7 @@ def ensure_goal_habits(db: Session, user_id) -> dict[str, Habit]:
                 active=True,
                 is_archived=False,
                 is_focus=True,
+                checklist_role=spec.get("checklist_role", "core"),
             )
             try:
                 with db.begin_nested():
@@ -165,8 +169,10 @@ def ensure_goal_habits(db: Session, user_id) -> dict[str, Habit]:
                     raise
         else:
             # Adopt: an athlete who already had one of these keeps their history.
-            habit.is_focus = True
-            habit.section = "training"
+            # Respect checklist_role=off — never re-activate a hidden habit.
+            if getattr(habit, "checklist_role", "core") != "off":
+                habit.is_focus = True
+                habit.section = "training"
         out[key] = habit
     return out
 

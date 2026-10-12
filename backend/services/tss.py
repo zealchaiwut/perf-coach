@@ -1199,8 +1199,8 @@ def persist_running_tss(workout_id, session) -> dict:
     """Thin caller: load workout, splits, and user prefs from session; persist running TSS.
 
     No math or hardcoded thresholds — all computation is delegated to
-    compute_running_tss.  Only writes the computed value to workout.tss when
-    that field is currently null (a manually-entered TSS is never overwritten).
+    compute_running_tss.      Writes app-computed TSS to workout.tss whenever tss_source is not
+    ``manual`` (Stryd/Strava stored values are replaced; manual athlete entry wins).
     Always writes workout.tss_method so the UI can show the computation method
     even when a manual override is in place.
 
@@ -1235,10 +1235,8 @@ def persist_running_tss(workout_id, session) -> dict:
     if result["method"] != "none":
         workout.tss_method = result["method"]
 
-    # Write computed value when: (a) no TSS stored yet, or (b) previously computed TSS
-    # (tss_source="calculated") so threshold changes refresh the stored value.
-    # Never overwrites manually-entered or externally-sourced TSS values.
-    if (workout.tss is None or workout.tss_source == "calculated") and result["tss"] is not None:
+    # App-computed TSS is authoritative unless the athlete confirmed manual TSS.
+    if workout.tss_source != "manual" and result["tss"] is not None:
         workout.tss = result["tss"]
         workout.tss_source = "calculated"
 

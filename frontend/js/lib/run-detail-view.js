@@ -336,11 +336,26 @@
     return options;
   }
 
-  function pickDefaultTssId(options) {
+  function pickDefaultTssId(options, w) {
+    if (w && w.tss_source === "manual") {
+      for (var m = 0; m < options.length; m++) {
+        if (options[m].id === "manual") return "manual";
+      }
+    }
     for (var i = 0; i < options.length; i++) {
       if (options[i].id === "computed") return "computed";
     }
     return options.length ? options[0].id : null;
+  }
+
+  /** Share export always prefers app-computed TSS over Stryd/Strava stored values. */
+  function resolveShareTssValue(stats, full, w) {
+    if (full && full.computed_tss != null && isFinite(full.computed_tss)) {
+      return String(Math.round(full.computed_tss));
+    }
+    if (stats && stats.TSS) return stats.TSS;
+    if (w && w.tss != null) return String(Math.round(w.tss));
+    return dash(null);
   }
 
   function tssOptionById(options, id) {
@@ -555,6 +570,23 @@
     });
   }
 
+  /** Work reps for the interval summary — prefer Stryd manual 2 km presses. */
+  function manualWorkLapsForInterval(manualLapMeta) {
+    if (!manualLapMeta || !manualLapMeta.length) return [];
+    var tagged = manualLapMeta.filter(function (m) {
+      return m.role === "work";
+    });
+    if (tagged.length >= 2) return tagged;
+    var byDist = manualLapMeta.filter(function (m) {
+      if (m.role === "recovery") return false;
+      var d =
+        m.split && m.split.distance_km != null ? +m.split.distance_km : 0;
+      return d >= 1.75 && !m.anomaly;
+    });
+    if (byDist.length >= 2) return byDist;
+    return [];
+  }
+
   function extractIntervalSet(lapMeta) {
     if (lapMeta.length < 3) return null;
     var firstRest = -1, lastRest = -1;
@@ -762,7 +794,7 @@
     var startTime = fmtTime(startIso);
 
     var tssOptions = buildTssOptions(full, w, strava, stryd);
-    var defaultTssId = pickDefaultTssId(tssOptions);
+    var defaultTssId = pickDefaultTssId(tssOptions, w);
 
     // Backend per-lap interval roles: aligned by 0-based position with the lap
     // set the backend ran detection on (detected.lap_source: "manual" laps for
@@ -771,14 +803,24 @@
       detected && detected.confident && detected.lap_roles
         ? detected.lap_roles
         : null;
-    var rolesForManual = lapRoles && detected.lap_source === "manual" ? lapRoles : null;
-    var rolesForSplits = lapRoles && detected.lap_source !== "manual" ? lapRoles : null;
+    var profileLapSource =
+      detected && detected.lap_source ? detected.lap_source : "splits";
+    var rolesForManual = lapRoles && profileLapSource === "manual" ? lapRoles : null;
+    var rolesForSplits = lapRoles && profileLapSource !== "manual" ? lapRoles : null;
     var distanceLapMeta = buildLapMeta(splits, z2min, z2max, rolesForSplits);
     var manualLapMeta = manualSplits.length
       ? buildLapMeta(manualSplits, z2min, z2max, rolesForManual)
       : [];
     var hasDistanceLaps = distanceLapMeta.length > 0;
     var hasManualLaps = manualLapMeta.length > 0;
+    var defaultLapMode =
+      profileLapSource === "manual" && hasManualLaps
+        ? "manual"
+        : hasDistanceLaps
+          ? "distance"
+          : hasManualLaps
+            ? "manual"
+            : "distance";
 
     var bandMap = lapBandMap(detected, distanceLapMeta.length);
     var halves = computeHalves(distanceLapMeta);
@@ -1077,9 +1119,12 @@
 
     // ── 5 Laps ──
     var lapsBlock = "";
-    var activeLapMeta = hasDistanceLaps
-      ? distanceLapMeta
-      : manualLapMeta;
+    var activeLapMeta =
+      defaultLapMode === "manual" && hasManualLaps
+        ? manualLapMeta
+        : hasDistanceLaps
+          ? distanceLapMeta
+          : manualLapMeta;
     if (activeLapMeta.length) {
       var lapTitle =
         hasDistanceLaps && hasManualLaps
@@ -1090,8 +1135,12 @@
       var lapModeToggle =
         hasDistanceLaps && hasManualLaps
           ? '<div class="rd4-lapmode-toggle" id="rd4-lapmode-toggle">' +
-            '<button type="button" class="rd4-lm-btn rd4-lm-btn--on" data-lap-mode="distance">1 km</button>' +
-            '<button type="button" class="rd4-lm-btn" data-lap-mode="manual">Manual</button>' +
+            '<button type="button" class="rd4-lm-btn' +
+            (defaultLapMode === "distance" ? " rd4-lm-btn--on" : "") +
+            '" data-lap-mode="distance">1 km</button>' +
+            '<button type="button" class="rd4-lm-btn' +
+            (defaultLapMode === "manual" ? " rd4-lm-btn--on" : "") +
+            '" data-lap-mode="manual">Manual</button>' +
             "</div>"
           : "";
       var showDetailCols = typeof localStorage !== "undefined" && localStorage.getItem("rd4_lap_detail_cols") === "1";
@@ -1126,25 +1175,41 @@
         z2max +
         ") · grey = break / anomaly</div>" +
         '<div class="rd4-lap-scroll"><table class="rd4-lap-table"><thead><tr>' +
-        renderLapTableHead(hasManualLaps && !hasDistanceLaps) +
+        renderLapTableHead(defaultLapMode === "manual") +
         '</tr></thead><tbody id="rd4-lap-tbody">' +
         renderLapTableRows(activeLapMeta, {
-          withDuration: hasManualLaps && !hasDistanceLaps,
+          withDuration: defaultLapMode === "manual",
         }) +
         "</tbody></table></div></section>";
     }
 
     // ── 5b Interval set ──
     var intervalsBlock = "";
-    if (activeLapMeta.length) {
-      // Prefer the backend's role-tagged work laps (numbered) when they apply to
-      // the active lap set; fall back to the frontend anomaly heuristic.
-      var activeHasRoles = activeLapMeta.some(function (m) { return m.role === "work"; });
-      var repsPerSet = (detected && detected.confident) ? detected.reps_per_set : null;
-      var intervalWorkLaps = activeHasRoles
-        ? activeLapMeta.filter(function (m) { return m.role === "work"; })
-        : extractIntervalSet(activeLapMeta);
-      intervalsBlock = renderIntervalBlock(intervalWorkLaps, activeHasRoles ? repsPerSet : null);
+    var intervalLapMeta =
+      profileLapSource === "manual" && manualLapMeta.length
+        ? manualLapMeta
+        : hasManualLaps &&
+            manualLapMeta.some(function (m) { return m.role === "work"; })
+          ? manualLapMeta
+          : activeLapMeta;
+    var intervalWorkLaps = manualWorkLapsForInterval(manualLapMeta);
+    var intervalHasRoles = intervalWorkLaps.some(function (m) {
+      return m.role === "work";
+    });
+    if (!intervalWorkLaps.length && intervalLapMeta.length) {
+      intervalHasRoles = intervalLapMeta.some(function (m) {
+        return m.role === "work";
+      });
+      intervalWorkLaps = intervalHasRoles
+        ? intervalLapMeta.filter(function (m) { return m.role === "work"; })
+        : extractIntervalSet(intervalLapMeta);
+    }
+    if (intervalWorkLaps.length) {
+      var repsPerSet = detected && detected.confident ? detected.reps_per_set : null;
+      intervalsBlock = renderIntervalBlock(
+        intervalWorkLaps,
+        intervalHasRoles ? repsPerSet : null,
+      );
     }
 
     // ── 6 Aerobic decoupling ──
@@ -1343,6 +1408,8 @@
       },
       hasDistanceLaps: hasDistanceLaps,
       hasManualLaps: hasManualLaps,
+      lapSource: profileLapSource,
+      defaultLapMode: defaultLapMode,
       tssOptions: tssOptions,
       defaultTssId: defaultTssId,
       workout: w,
@@ -1354,11 +1421,12 @@
     var w = rendered.workout;
     var lapSets = rendered.lapSets || { distance: [], manual: [] };
     var lapMode =
-      rendered.hasDistanceLaps
+      rendered.defaultLapMode ||
+      (rendered.hasDistanceLaps
         ? "distance"
         : rendered.hasManualLaps
           ? "manual"
-          : "distance";
+          : "distance");
     var metric = "pace";
     var tssSource = rendered.defaultTssId;
     var tssOptions = rendered.tssOptions || [];
@@ -1549,9 +1617,14 @@
 
       // Pixel heights against the chart's measured height — no CSS %-resolution.
       var CH = chart.clientHeight || 130;
+      var barDurWeights = lapDurationFlexWeights(
+        laps.map(function (lap) { return lapDurationSecondsFromMeta(lap); }),
+      );
+
       chart.innerHTML = laps
         .map(function (lap, i) {
           var v = vals[i];
+          var flexW = barDurWeights[i] != null ? barDurWeights[i] : 1;
           var cls = "rd4-cbar2";
           if (lap.zone2) cls += " rd4-cbar2--z2";
           if (lap.anomaly) cls += " rd4-cbar2--break";
@@ -1569,12 +1642,12 @@
             cellCls += " rd4-cell2--rest";
           }
           if (v == null) {
-            return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:1 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
+            return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:' + flexW + ' 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + Math.round(0.05 * CH) + 'px;background:#e2e8f0"></div></div>';
           }
           // Pace: faster (smaller sec/km) = taller → invert. Power: more = taller.
           var norm = barMetric === "pace" ? 1 - (v - mn) / rng : (v - mn) / rng;
           var hpx = Math.max(4, Math.round((10 + norm * 86) / 100 * CH));
-          return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:1 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
+          return '<div class="' + cellCls + '" data-i="' + i + '" style="flex:' + flexW + ' 0 0">' + repLbl + '<div class="' + cls + '" style="height:' + hpx + "px;background:" + barColor + '"></div></div>';
         })
         .join("");
 
@@ -1635,8 +1708,9 @@
       }
       var axisEl = container.querySelector("#rd4-lap-axis");
       if (axisEl) {
-        axisEl.innerHTML = laps.map(function (lap) {
-          return '<div class="rd4-cell2">' + lap.index + "</div>";
+        axisEl.innerHTML = laps.map(function (lap, i) {
+          var flexW = barDurWeights[i] != null ? barDurWeights[i] : 1;
+          return '<div class="rd4-cell2" style="flex:' + flexW + ' 0 0">' + lap.index + "</div>";
         }).join("");
       }
 
@@ -1646,7 +1720,6 @@
       var hmin = hValid.length ? Math.min.apply(null, hValid) : 0;
       var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
       var hrng = hmax - hmin || 1;
-      var n = laps.length;
       // Vertical band the HR curve occupies (viewBox 0..100). The old scale used
       // 8..88 (span 80), which slammed the lowest lap onto the chart baseline —
       // a warm-up lap (the HR minimum) read like a dropped/zero value — and
@@ -1656,10 +1729,13 @@
       var HR_PAD = 19;      // % margin at top and bottom
       var HR_SPAN = 100 - 2 * HR_PAD;
       var pts = [];
+      var cum = 0;
       laps.forEach(function (lap, i) {
         var hv = lap.split.avg_hr;
         if (hv == null || hv <= 0) return;
-        var x = ((i + 0.5) / n) * 100;
+        var w = barDurWeights[i] != null ? barDurWeights[i] : 1 / laps.length;
+        var x = (cum + w / 2) * 100;
+        cum += w;
         var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
         pts.push(x.toFixed(2) + "," + y.toFixed(2));
       });
@@ -2031,9 +2107,54 @@
     return m * 60 + s;
   }
 
-  /** Pace bar colour tiers — matches the IG/FB share-card legend. */
-  function socialPaceBarColor(paceSec) {
+  function durationSecFromDisplay(durTxt) {
+    if (!durTxt || durTxt === "—") return null;
+    var parts = String(durTxt).trim().split(":");
+    if (parts.length === 2) {
+      var mm = parseInt(parts[0], 10);
+      var ss = parseInt(parts[1], 10);
+      if (!isFinite(mm) || !isFinite(ss)) return null;
+      return mm * 60 + ss;
+    }
+    if (parts.length === 3) {
+      var hh = parseInt(parts[0], 10);
+      mm = parseInt(parts[1], 10);
+      ss = parseInt(parts[2], 10);
+      if (!isFinite(hh) || !isFinite(mm) || !isFinite(ss)) return null;
+      return hh * 3600 + mm * 60 + ss;
+    }
+    return null;
+  }
+
+  /** Flex weights from lap durations (seconds); falls back to equal width. */
+  function lapDurationFlexWeights(durationSecs) {
+    if (!durationSecs || !durationSecs.length) return [];
+    var durs = durationSecs.map(function (d) {
+      return d != null && d > 0 ? d : null;
+    });
+    var known = durs.filter(function (d) { return d != null; });
+    if (!known.length) {
+      return durs.map(function () { return 1; });
+    }
+    var fallback = known.reduce(function (a, b) { return a + b; }, 0) / known.length;
+    durs = durs.map(function (d) { return d != null && d > 0 ? d : fallback; });
+    var total = durs.reduce(function (a, b) { return a + b; }, 0) || 1;
+    return durs.map(function (d) { return d / total; });
+  }
+
+  function lapDurationSecondsFromMeta(lap) {
+    if (!lap || !lap.split) return null;
+    var d = lap.split.duration_seconds;
+    return d != null && d > 0 ? d : null;
+  }
+
+  var SOCIAL_REST_BAR = "#94a3b8";
+
+  /** Pace bar colour tiers — share-card legend; teal when faster than run avg. */
+  function socialPaceBarColor(paceSec, estPaceSec, isRest) {
+    if (isRest) return SOCIAL_REST_BAR;
     if (paceSec == null) return "#64748b";
+    if (estPaceSec != null && paceSec < estPaceSec - 0.5) return "#14b8a6";
     if (paceSec <= 375) return "#f97316"; /* ≤ 6:15 */
     if (paceSec <= 400) return "#d97706"; /* ≤ 6:40 */
     return "#ef4444"; /* slower */
@@ -2071,29 +2192,146 @@
     return out;
   }
 
-  function parseSocialLapRows(stack) {
-    var tbody = stack.querySelector(".rd4-lap-table tbody");
-    if (!tbody) return [];
-    var withDur = !!stack.querySelector('.rd4-lap-table thead th:nth-child(3)');
-    var headCells = stack.querySelectorAll(".rd4-lap-table thead th");
-    if (headCells.length >= 3 && headCells[2].textContent.trim() === "Dur") {
-      withDur = true;
+  function shareLapTable(stack) {
+    return (
+      stack.querySelector(".rd4-laps-card .rd4-lap-table:not(.rd4-int-table)") ||
+      stack.querySelector(".rd4-lap-table:not(.rd4-int-table)")
+    );
+  }
+
+  function lapTableColumnIndex(stack) {
+    var table = shareLapTable(stack);
+    var map = {};
+    if (!table) return map;
+    table.querySelectorAll("thead th").forEach(function (th, i) {
+      var key = th.textContent.replace(/\s+/g, " ").trim().toLowerCase();
+      if (key) map[key] = i;
+    });
+    return map;
+  }
+
+  /** Share-card lap rows from the same lap meta the chart/table render uses. */
+  function lapMetaToSocialRows(lapMeta) {
+    if (!lapMeta || !lapMeta.length) return [];
+    return lapMeta.map(function (m) {
+      var s = m.split || {};
+      var distKmRaw = s.distance_km != null ? parseFloat(s.distance_km) : null;
+      var distTxt =
+        distKmRaw != null && isFinite(distKmRaw) ? distKmRaw.toFixed(2) : "—";
+      var durationSec =
+        s.duration_seconds != null && isFinite(s.duration_seconds)
+          ? s.duration_seconds
+          : null;
+      var durationTxt = fmtDuration(durationSec);
+      var paceSec =
+        m.paceSec != null && isFinite(m.paceSec)
+          ? m.paceSec
+          : distKmRaw && durationSec
+            ? durationSec / distKmRaw
+            : null;
+      var paceTxt = fmtPace(paceSec);
+      var hrVal = s.avg_hr != null ? s.avg_hr : null;
+      var hrTxt = hrVal != null ? String(Math.round(hrVal)) : "—";
+      var pwrVal =
+        s.avg_power != null
+          ? s.avg_power
+          : m.power != null
+            ? m.power
+            : null;
+      var pwrTxt = pwrVal != null ? String(Math.round(pwrVal)) : "—";
+      return {
+        index: String(m.index),
+        dist: distTxt,
+        duration: durationTxt,
+        durationSec: durationSec,
+        pace: paceTxt,
+        hr: hrTxt,
+        hrNum: hrVal != null ? parseInt(hrVal, 10) : NaN,
+        power: pwrTxt,
+        zone2: !!m.zone2,
+        isRest: m.role === "recovery" || !!m.anomaly,
+        paceSec: paceSec,
+      };
+    });
+  }
+
+  function resolveShareLapRows(stack, opts) {
+    opts = opts || {};
+    var lapSets = opts.lapSets;
+    var lapMode = opts.lapMode;
+    if (lapSets) {
+      var useManual =
+        lapMode === "manual" &&
+        lapSets.manual &&
+        lapSets.manual.length;
+      var useDistance =
+        !useManual &&
+        lapSets.distance &&
+        lapSets.distance.length;
+      if (useManual) return lapMetaToSocialRows(lapSets.manual);
+      if (useDistance) return lapMetaToSocialRows(lapSets.distance);
+      if (lapSets.manual && lapSets.manual.length) {
+        return lapMetaToSocialRows(lapSets.manual);
+      }
+      if (lapSets.distance && lapSets.distance.length) {
+        return lapMetaToSocialRows(lapSets.distance);
+      }
     }
+    return parseSocialLapRows(stack);
+  }
+
+  function parseSocialLapRows(stack) {
+    var table = shareLapTable(stack);
+    var tbody = table && table.querySelector("tbody");
+    if (!tbody) return [];
+    var col = lapTableColumnIndex(stack);
+    var distIdx = col.dist != null ? col.dist : 1;
+    var durIdx =
+      col.dur != null ? col.dur : col.time != null ? col.time : -1;
+    var hasDur = durIdx >= 0;
+    var paceIdx = col.pace != null ? col.pace : hasDur ? 3 : 2;
+    var hrIdx = col.hr != null ? col.hr : hasDur ? 4 : 3;
+    var pwrIdx = col.pwr != null ? col.pwr : hasDur ? 5 : 4;
+
     var rows = [];
     tbody.querySelectorAll("tr").forEach(function (tr) {
       var cells = tr.querySelectorAll("td");
       if (cells.length < 5) return;
-      var paceIdx = withDur ? 3 : 2;
-      var hrIdx = withDur ? 4 : 3;
-      var pwrIdx = withDur ? 5 : 4;
       var lapNum = cells[0].querySelector(".rd4-lap-num");
+      var distTxt =
+        cells[distIdx] != null ? cells[distIdx].textContent.trim() : "—";
+      var distKm = parseFloat(distTxt);
+      var paceTxt =
+        cells[paceIdx] != null ? cells[paceIdx].textContent.trim() : "—";
+      var paceSec = paceSecFromDisplay(paceTxt);
+      var durationTxt = durIdx >= 0 ? cells[durIdx].textContent.trim() : "—";
+      var durationSec = durationSecFromDisplay(durationTxt);
+      if (durationSec == null && paceSec != null && isFinite(distKm) && distKm > 0) {
+        durationSec = Math.round(paceSec * distKm);
+        durationTxt = fmtDuration(durationSec);
+      }
+      if (paceSec == null && durationSec != null && isFinite(distKm) && distKm > 0) {
+        paceSec = durationSec / distKm;
+        paceTxt = fmtPaceSec2(paceSec);
+      }
+      var hrTxt =
+        cells[hrIdx] != null ? cells[hrIdx].textContent.trim() : "—";
+      var pwrTxt =
+        cells[pwrIdx] != null ? cells[pwrIdx].textContent.trim() : "—";
       rows.push({
         index: lapNum ? lapNum.textContent.trim() : cells[0].textContent.trim(),
-        pace: cells[paceIdx].textContent.trim(),
-        hr: cells[hrIdx].textContent.trim(),
-        power: cells[pwrIdx].textContent.trim(),
+        dist: distTxt,
+        duration: durationTxt || "—",
+        durationSec: durationSec,
+        pace: paceTxt,
+        hr: hrTxt,
+        hrNum: parseInt(hrTxt, 10),
+        power: pwrTxt,
         zone2: tr.classList.contains("rd4-lap-row--z2"),
-        paceSec: paceSecFromDisplay(cells[paceIdx].textContent.trim()),
+        isRest:
+          tr.classList.contains("rd4-lap-row--break") ||
+          tr.classList.contains("rd4-lap-row--rest"),
+        paceSec: paceSec,
       });
     });
     return rows;
@@ -2108,24 +2346,32 @@
     return "laps";
   }
 
-  function buildSocialLapColumn(rows, startIdx) {
+  function buildSocialLapColumn(rows, estPaceSec) {
     if (!rows.length) return "";
-    var paceSecs = rows.map(function (r) { return r.paceSec; }).filter(function (v) { return v != null; });
+    var paceSecs = rows
+      .filter(function (r) { return !r.isRest; })
+      .map(function (r) { return r.paceSec; })
+      .filter(function (v) { return v != null; });
     var minP = paceSecs.length ? Math.min.apply(null, paceSecs) : null;
     var maxP = paceSecs.length ? Math.max.apply(null, paceSecs) : null;
 
     var html =
       '<div class="rd4-social-lap-head">' +
-      '<span>KM</span><span>PACE</span><span></span><span>HR</span><span>W</span>' +
+      '<span>LAP</span><span>DIST</span><span>TIME</span><span>PACE</span><span></span><span>HR</span><span>W</span>' +
       "</div>";
 
     rows.forEach(function (row) {
-      var barW = socialPaceBarWidth(row.paceSec, minP, maxP);
-      var barC = socialPaceBarColor(row.paceSec);
-      var rowCls = "rd4-social-lap-row" + (row.zone2 ? " rd4-social-lap-row--z2" : "");
+      var isRest = !!row.isRest;
+      var barW = isRest ? 10 : socialPaceBarWidth(row.paceSec, minP, maxP);
+      var barC = socialPaceBarColor(row.paceSec, estPaceSec, isRest);
+      var rowCls = "rd4-social-lap-row";
+      if (isRest) rowCls += " rd4-social-lap-row--rest";
+      else if (row.zone2) rowCls += " rd4-social-lap-row--z2";
       html +=
         '<div class="' + rowCls + '">' +
         '<span class="rd4-social-lap-km">' + esc(row.index) + "</span>" +
+        '<span class="rd4-social-lap-dist">' + esc(row.dist || "—") + "</span>" +
+        '<span class="rd4-social-lap-time">' + esc(row.duration || "—") + "</span>" +
         '<span class="rd4-social-lap-pace">' + esc(row.pace) + "</span>" +
         '<span class="rd4-social-lap-bar"><i style="width:' + barW + "px;background:" + barC + '"></i></span>' +
         '<span class="rd4-social-lap-hr">' + esc(row.hr) + "</span>" +
@@ -2133,6 +2379,58 @@
         "</div>";
     });
     return html;
+  }
+
+  function applyDurationFlexToChart(chartRoot, durationSecs, hrValues) {
+    var weights = lapDurationFlexWeights(durationSecs);
+    if (!weights.length) return;
+    var barRow = chartRoot.querySelector(".rd4-chart2-bars");
+    if (barRow) {
+      var barCells = barRow.querySelectorAll(".rd4-cell2");
+      barCells.forEach(function (cell, i) {
+        if (i >= weights.length) return;
+        cell.style.flex = weights[i] + " 0 0";
+      });
+    }
+    var axisRow = chartRoot.querySelector(".rd4-axis2");
+    if (axisRow) {
+      var axisCells = axisRow.querySelectorAll(".rd4-cell2");
+      axisCells.forEach(function (cell, i) {
+        if (i >= weights.length) return;
+        cell.style.flex = weights[i] + " 0 0";
+      });
+    }
+    var svg = chartRoot.querySelector(".rd4-hr-svg");
+    if (!svg || !hrValues || !hrValues.length) return;
+    var hValid = hrValues.filter(function (v) { return v != null && v > 0; });
+    if (!hValid.length) return;
+    var hmin = Math.min.apply(null, hValid);
+    var hmax = Math.max.apply(null, hValid);
+    var hrng = hmax - hmin || 1;
+    var HR_PAD = 19;
+    var HR_SPAN = 100 - 2 * HR_PAD;
+    var pts = [];
+    var cum = 0;
+    hrValues.forEach(function (hv, i) {
+      if (hv == null || hv <= 0 || i >= weights.length) return;
+      var x = (cum + weights[i] / 2) * 100;
+      cum += weights[i];
+      var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
+      pts.push(x.toFixed(2) + "," + y.toFixed(2));
+    });
+    var inner = "";
+    if (pts.length >= 2) {
+      inner +=
+        '<polyline points="' + pts.join(" ") +
+        '" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+    }
+    pts.forEach(function (p) {
+      var xy = p.split(",");
+      inner +=
+        '<path d="M' + xy[0] + " " + xy[1] +
+        'l0 0" stroke="#ef4444" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+    });
+    svg.innerHTML = inner;
   }
 
   function buildSocialPowerZones(stack) {
@@ -2180,8 +2478,45 @@
     return dd + "." + mm + "." + yy;
   }
 
+  /** Pace/power lap chart for the portrait social card (cloned from live DOM). */
+  function buildSocialLapChart(stack, lapRows) {
+    var lapsSrc = stack.querySelector(".rd4-laps-card");
+    if (!lapsSrc) return null;
+    var chart = lapsSrc.querySelector(".rd4-chart2");
+    if (!chart) return null;
+
+    var wrap = document.createElement("div");
+    wrap.className = "rd4-social-chart";
+
+    wrap.appendChild(chart.cloneNode(true));
+    var tip = wrap.querySelector(".rd4-lap-tip");
+    if (tip && tip.parentNode) tip.parentNode.removeChild(tip);
+
+    var axis = lapsSrc.querySelector(".rd4-axis2");
+    if (axis) wrap.appendChild(axis.cloneNode(true));
+
+    var legend = lapsSrc.querySelector(".rd4-chart2-legend");
+    if (legend) wrap.appendChild(legend.cloneNode(true));
+
+    realignShareHrSvg(wrap);
+    stripCloneIds(wrap);
+
+    lapRows = lapRows || parseSocialLapRows(stack);
+    if (lapRows.length) {
+      applyDurationFlexToChart(
+        wrap,
+        lapRows.map(function (r) { return r.durationSec; }),
+        lapRows.map(function (r) {
+          return isFinite(r.hrNum) ? r.hrNum : null;
+        }),
+      );
+    }
+    return wrap;
+  }
+
   /**
-   * Portrait social share card (IG / FB stories) — dark theme, two-column laps.
+   * Portrait social share card (IG / FB stories) — dark or light theme.
+   * opts.theme: "dark" | "light"; opts.includeGraph adds the pace/HR lap chart.
    * Returns null when the panel is not an rd4 run view (caller falls back).
    */
   function buildShareCard(contentEl, opts) {
@@ -2190,10 +2525,23 @@
     var stack = contentEl.querySelector(".rd4-stack");
     if (!stack) return null;
 
+    var theme = opts.theme === "light" ? "light" : "dark";
+    var includeGraph = !!opts.includeGraph;
+
     var w = opts.workout || {};
     var stats = parseSocialStatGrid(stack);
-    var lapRows = parseSocialLapRows(stack);
-    var lapLabel = socialLapModeLabel(stack);
+    var fullPayload = opts.full || null;
+    var shareTss = resolveShareTssValue(stats, fullPayload, w);
+    var lapRows = resolveShareLapRows(stack, {
+      lapSets: opts.lapSets,
+      lapMode: opts.lapMode,
+    });
+    var lapLabel =
+      opts.lapMode === "manual"
+        ? "manual"
+        : opts.lapMode === "distance"
+          ? "lap1km"
+          : socialLapModeLabel(stack);
 
     var titleEl = stack.querySelector(".rd4-title");
     var title = titleEl ? titleEl.textContent.trim() : w.name || "Run";
@@ -2228,15 +2576,12 @@
     var z2min = _Z2.ZONE2_HR_MIN;
     var z2max = _Z2.ZONE2_HR_MAX;
 
-    var brandRaw = opts.brand || "perf-coach";
-    var brand = String(brandRaw).trim().toLowerCase().replace(/\s+/g, "") || "perf-coach";
-
     var root = document.createElement("div");
-    root.className = "rd4-social";
+    root.className =
+      "rd4-social" + (theme === "light" ? " rd4-social--light" : "");
     root.innerHTML =
       '<div class="rd4-social-top">' +
       '<div class="rd4-social-event">' + esc(title) + "</div>" +
-      '<div class="rd4-social-brand">' + esc(brand) + "</div>" +
       "</div>" +
       '<div class="rd4-social-meta">' +
       esc(typeLine) +
@@ -2249,31 +2594,56 @@
       "<span>" + esc(dist) + "</span>" +
       "<span>" + esc(pace) + "</span>" +
       "<span>" + esc(avgHr) + "</span>" +
-      "</div>" +
-      (lapRows.length
-        ? '<div class="rd4-social-laps-title">' + esc(lapLabel) + "</div>" +
-          '<div class="rd4-social-laps">' +
-          '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colA) + "</div>" +
-          '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colB) + "</div>" +
-          "</div>" +
-          '<div class="rd4-social-legend">' +
-          '<span><i class="rd4-social-leg rd4-social-leg--z2"></i> HR zone 2 (' +
-          z2min + "–" + z2max +
-          ")</span>" +
-          '<span><i class="rd4-social-leg rd4-social-leg--fast"></i> ≤ 6:15</span>' +
-          '<span><i class="rd4-social-leg rd4-social-leg--mid"></i> ≤ 6:40</span>' +
-          '<span><i class="rd4-social-leg rd4-social-leg--slow"></i> slower</span>' +
-          "</div>"
-        : "") +
-      '<div class="rd4-social-stats">' +
-      statSocialTile("TSS", stats.TSS || dash(w.tss != null ? Math.round(w.tss) : null)) +
+      "</div>";
+
+    var estPaceLabel =
+      paceSec != null ? fmtPaceSec2(paceSec) + "/km avg" : "run avg";
+
+    if (includeGraph) {
+      var chartEl = buildSocialLapChart(stack, lapRows);
+      if (chartEl) root.appendChild(chartEl);
+    }
+
+    if (lapRows.length) {
+      var lapsFrag = document.createElement("div");
+      lapsFrag.innerHTML =
+        '<div class="rd4-social-laps-title">' + esc(lapLabel) + "</div>" +
+        '<div class="rd4-social-laps">' +
+        '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colA, paceSec) + "</div>" +
+        '<div class="rd4-social-lap-col">' + buildSocialLapColumn(colB, paceSec) + "</div>" +
+        "</div>" +
+        '<div class="rd4-social-legend">' +
+        '<span><i class="rd4-social-leg rd4-social-leg--rest"></i> Rest / recovery lap</span>' +
+        '<span><i class="rd4-social-leg rd4-social-leg--z2"></i> HR zone 2 (' +
+        z2min + "–" + z2max +
+        ")</span>" +
+        '<span><i class="rd4-social-leg rd4-social-leg--ahead"></i> faster than ' +
+        esc(estPaceLabel) +
+        "</span>" +
+        '<span><i class="rd4-social-leg rd4-social-leg--fast"></i> ≤ 6:15</span>' +
+        '<span><i class="rd4-social-leg rd4-social-leg--mid"></i> ≤ 6:40</span>' +
+        '<span><i class="rd4-social-leg rd4-social-leg--slow"></i> slower</span>' +
+        "</div>";
+      while (lapsFrag.firstChild) root.appendChild(lapsFrag.firstChild);
+    }
+
+    var statsEl = document.createElement("div");
+    statsEl.className = "rd4-social-stats";
+    statsEl.innerHTML =
+      statSocialTile("TSS", shareTss) +
       statSocialTile("NP", stats.NP || dash(w.np)) +
       statSocialTile("AVG PWR", stats["Avg power"] || dash(w.avg_power)) +
       statSocialTile("CADENCE", stats.Cadence || dash(w.avg_cadence_spm)) +
       statSocialTile("STRIDE", stats.Stride || dash(w.avg_stride_m)) +
-      statSocialTile("ZONE 2", stats["Zone 2"] || dash(w.zone2_minutes)) +
-      "</div>" +
-      buildSocialPowerZones(stack);
+      statSocialTile("ZONE 2", stats["Zone 2"] || dash(w.zone2_minutes));
+    root.appendChild(statsEl);
+
+    var pzHtml = buildSocialPowerZones(stack);
+    if (pzHtml) {
+      var pzFrag = document.createElement("div");
+      pzFrag.innerHTML = pzHtml;
+      while (pzFrag.firstChild) root.appendChild(pzFrag.firstChild);
+    }
 
     return root;
 
@@ -2396,10 +2766,12 @@
   win.RunDetailView = {
     buildShareCard: buildShareCard,
     buildSimpleShareCard: buildSimpleShareCard,
+    _lastLapSets: null,
     render: function (contentEl, full, prefs, syncMeta) {
       if (!contentEl) return;
       var out = render(full, prefs, syncMeta);
       contentEl.innerHTML = out.html;
+      win.RunDetailView._lastLapSets = out.lapSets || null;
       wireInteractions(contentEl, out);
     },
   };

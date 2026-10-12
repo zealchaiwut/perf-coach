@@ -81,13 +81,17 @@ main {
 .error-msg {
   font-size: 13px;
   color: #fff;
+  min-height: 0;
+  margin-bottom: 0;
+  padding: 0;
+}
+.error-msg:not(:empty) {
   min-height: 1.2em;
   margin-bottom: 8px;
   background: rgba(122,26,26,0.55);
   border-radius: 8px;
-  padding: 0;
+  padding: 10px 14px;
 }
-.error-msg:not(:empty) { padding: 10px 14px; }
 
 /* ── Hero 2-col row ────────────────────────────────────────────────────── */
 .hero-row {
@@ -95,6 +99,14 @@ main {
   grid-template-columns: minmax(280px, 350px) 1fr;
   gap: 10px;
   margin-bottom: 10px;
+  align-items: stretch;
+}
+
+/* Cards inside the hero row share one row height — drop the default
+   .card bottom margin and inner padding on the stats strip so its rounded
+   shell and tiles align with the wheel card. */
+.hero-row .card {
+  margin-bottom: 0;
 }
 
 /* ── Wheel card (Card A) ───────────────────────────────────────────────── */
@@ -395,10 +407,12 @@ main {
   display: flex;
   flex-direction: row;
   gap: 1px;
+  padding: 0;
   background: var(--card-border);
   border-radius: var(--card-radius);
   overflow: hidden;
-  /* Card border/shadow applied via .card class on the element */
+  align-self: stretch;
+  min-height: 100%;
 }
 
 .stat-tile {
@@ -407,8 +421,10 @@ main {
   padding: 16px 14px 14px;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 4px;
   min-width: 0;
+  min-height: 100%;
 }
 
 .stat-tile-today { background: #f0f6ff; }
@@ -1838,12 +1854,16 @@ main {
 /* ── Habits History Calendar (issue #829) ────────────────────────────── */
 
 /* Month grid: desktop only (≥768px); week strip: mobile only (<768px) */
-#habits-month-cal { display: none; }
-#habits-week-strip { display: block; }
+#habits-month-cal { display: none; width: 100%; }
+#habits-week-strip { display: block; width: 100%; }
 
 @media (min-width: 768px) {
   #habits-month-cal { display: block; }
   #habits-week-strip { display: none; }
+}
+
+.habits-history-cal {
+  width: 100%;
 }
 
 .hcal-title {
@@ -1911,11 +1931,12 @@ main {
   font-weight: 600;
 }
 
-/* Month grid */
+/* Month grid — minmax(0,1fr) keeps cells equal width inside the card */
 .hcal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
 }
 
 .hcal-weekday {
@@ -1932,14 +1953,18 @@ main {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 3px;
-  padding: 4px 2px 3px;
-  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 4px;
+  border-radius: 8px;
   border: 1.5px solid transparent;
   background: transparent;
   font-family: inherit;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 52px;
+  aspect-ratio: 1;
   transition: background 0.1s, border-color 0.1s;
 }
 

@@ -16,6 +16,7 @@
   var _initialized = false;
   var _weekStart = null;          // Date (Monday) of the visible week
   var _bundle = null;             // last GET bundle
+  var _checklistWeek = null;      // GET /api/checklist/week when enabled
   var _nextUpBundle = null;       // today→+20d for Next-up hero
   var _panel = { open: null };    // null | 'add' | 'detail'
   var _addState = { top: 'single', sub: 'form', delim: 'pipe' };
@@ -146,6 +147,8 @@ information about.
       _injectStyles();
       if (!_weekStart) _weekStart = _mondayOf(new Date());
       _applyUrlWeekParam();
+      var sessionParam = _urlFlag('session');
+      if (sessionParam) _pendingOpenId = sessionParam;
       // Idempotent: always re-render the shell + reload the current week.
       _renderAll();
       _loadPipelineThenWeek(function () {
@@ -182,6 +185,14 @@ information about.
     openSession: function (sessionId, dateIso) {
       if (dateIso) _weekStart = _mondayOf(_parseISO(dateIso));
       _pendingOpenId = sessionId;
+    },
+    // Deep link from Performance PR tiles (best week km/TSS): jump Plan to
+    // that ISO week_start (Monday). Call before activateTab('plan').
+    openWeek: function (weekStartIso) {
+      if (!weekStartIso) return;
+      try {
+        _weekStart = _mondayOf(_parseISO(weekStartIso));
+      } catch (e) { /* ignore bad dates */ }
     },
     // Plan-guard helpers (issue #1383), exported for the suggestions module
     // — it is a SEPARATE closure below in this file, so bare references to
@@ -931,6 +942,7 @@ information about.
     _renderWeekList();
     _renderWeekLoad();
     _renderNextUp();
+    _loadChecklistForPlan();
     // Keep an open detail panel in sync with the freshly loaded bundle.
     if (_detail) {
       var updated = null;
@@ -1473,15 +1485,19 @@ information about.
       // Status by severity: over the ACWR guardrail = red "warning"; over
       // the week target = orange "over target"; otherwise blue "on target".
       var proj = d.projected_tss != null ? d.projected_tss : null;
-      var status = 'on';
+      var status = d.state || 'on_track';
       if (proj != null && d.acwr_ceiling != null && proj > d.acwr_ceiling) status = 'danger';
-      else if (proj != null && proj > d.target_tss) status = 'over';
-      projEl.className = 'wl-target-projected wl-proj-' + status;
+      projEl.className = 'wl-target-projected wl-proj-' +
+        (status === 'danger' ? 'danger' : status === 'over' ? 'over' : status === 'under' ? 'under' : 'on');
       projEl.textContent = proj != null ? Math.round(proj) : '';
       var statusPill = document.getElementById('wl-proj-status');
       if (statusPill) {
-        statusPill.className = 'wl-proj-pill wl-proj-' + status;
-        statusPill.textContent = status === 'danger' ? 'warning' : (status === 'over' ? 'over target' : 'on target');
+        var pillCls = status === 'danger' ? 'danger' : status === 'over' ? 'over' :
+          status === 'under' ? 'under' : 'on';
+        statusPill.className = 'wl-proj-pill wl-proj-' + pillCls;
+        statusPill.textContent = status === 'danger' ? 'warning' :
+          status === 'over' ? 'over target' :
+          status === 'under' ? 'under' : 'on target';
         statusPill.hidden = proj == null;
       }
     }
@@ -1526,7 +1542,25 @@ information about.
     var rampPct = (d.ramp_rate * 100).toFixed(1).replace(/\.0$/, '') + '%';
     var rampCell = document.getElementById('wl-ramp-cell');
     var deloadSub = document.getElementById('wl-deload-sub');
-    if (d.deload) {
+    if (d.week_phase === 'consolidation') {
+      _setText('wl-ramp-lab', 'Hold');
+      _setText('wl-ramp-val', '90% baseline');
+      if (deloadSub) {
+        deloadSub.hidden = false;
+        deloadSub.textContent = 'verdict consolidation — flat target this week';
+      }
+      if (rampCell) rampCell.classList.remove('is-deload');
+    } else if (d.week_phase === 'hold') {
+      _setText('wl-ramp-lab', 'Hold');
+      _setText('wl-ramp-val', 'flat');
+      if (deloadSub) { deloadSub.hidden = true; deloadSub.textContent = ''; }
+      if (rampCell) rampCell.classList.remove('is-deload');
+    } else if (d.week_phase === 'taper') {
+      _setText('wl-ramp-lab', 'Taper');
+      _setText('wl-ramp-val', '↓ volume');
+      if (deloadSub) { deloadSub.hidden = true; deloadSub.textContent = ''; }
+      if (rampCell) rampCell.classList.remove('is-deload');
+    } else if (d.deload) {
       // Deload week: the chain is baseline × ramp × (1 − cut), not the plain
       // ramp — show the cut or the target looks broken next to "5%".
       var cutPct = Math.round((d.deload_cut || 0.3) * 100);
@@ -1866,6 +1900,7 @@ information about.
             '<button type="button" class="pl-btn pl-ghost pl-tiny" id="pl-export-week">Export ↗</button>' +
           '</span>' +
         '</div>' +
+        '<div id="cl-plan-strip" class="cl-plan-strip-host"></div>' +
         '<div class="pl-btnrow" style="display:none">' +
           '<button class="pl-btn pl-lime" id="pl-apply-draft" hidden title="Create planned sessions from this draft">Apply week</button>' +
           '<button class="pl-btn pl-ghost" id="pl-refresh-draft" hidden title="Regenerate untouched draft slots">Refresh draft</button>' +
@@ -2008,6 +2043,50 @@ information about.
         gut + content + '</div>';
     }).join('');
     _wireWeekEvents();
+    _mergeChecklistIntoPlanRows();
+  }
+
+  function _checklistRaceDates(data) {
+    var out = [];
+    if (!data) return out;
+    var rh = data.races_header || {};
+    [rh.a_race, rh.b_race, data.a_race].forEach(function (r) {
+      if (r && r.race_date && out.indexOf(r.race_date) < 0) out.push(r.race_date);
+    });
+    return out;
+  }
+
+  function _loadChecklistForPlan() {
+    if (!window.ChecklistUI) return;
+    var ws = _iso(_weekStart);
+    var weekHost = document.getElementById('plan-week-section');
+    fetch('/api/checklist/week?week_start=' + encodeURIComponent(ws))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        _checklistWeek = data && data.checklist_enabled ? data : null;
+        var strip = document.getElementById('cl-plan-strip');
+        if (strip) ChecklistUI.renderPlanStrip(strip, _checklistWeek || {});
+        if (weekHost) {
+          if (_checklistWeek) ChecklistUI.renderPlanWeekHeader(weekHost);
+          else ChecklistUI.hidePlanWeekHeader(weekHost);
+        }
+        _mergeChecklistIntoPlanRows();
+      })
+      .catch(function () {});
+  }
+
+  function _mergeChecklistIntoPlanRows() {
+    if (!_checklistWeek || !window.ChecklistUI) return;
+    var host = document.getElementById('plan-week-list');
+    if (!host) return;
+    var ctx = {
+      today: _todayISO(),
+      raceDates: _checklistRaceDates(_checklistWeek),
+    };
+    (_checklistWeek.days || []).forEach(function (dayData) {
+      var row = host.querySelector('.pl-dayrow[data-date="' + dayData.date + '"]');
+      if (row) ChecklistUI.renderPlanDayExtras(row, dayData, ctx);
+    });
   }
 
   // Real logged TSS (p.actual.tss) when the session is done/matched; else the

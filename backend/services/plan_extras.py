@@ -108,7 +108,10 @@ def attach_plyo(
     # Standalone: claim a day the skeleton left rest or easy, preferring midweek
     # so the session is fresh and far from the long run. If that weekday has no
     # slot at all (sparse history skeleton), invent a short plyo day there.
-    by_day = {int(s["day_offset"]): s for s in slots}
+    by_day = {
+        int(s["day_offset"]): s for s in slots
+        if (s.get("workout_type") or "") != "mobility" and not s.get("is_mobility")
+    }
     for day in _PLYO_PREFERRED_DAYS:
         if placed >= sessions:
             break
@@ -209,7 +212,8 @@ def apply_prefs_extras(
         raw = skeleton.get("week_start")
         week_start = _date.fromisoformat(raw) if isinstance(raw, str) else raw
 
-    attach_stretch(slots, int(prefs.get("stretch_daily_min") or 0))
+    from backend.services.plan_mobility import attach_mobility_slots
+    slots = attach_mobility_slots(slots, int(prefs.get("stretch_daily_min") or 0))
     plyo_mode = prefs.get("plyo_mode", "off")
     plyo_sessions = int(prefs.get("plyo_sessions_per_week") or 0)
     # Plyo / week alone should create short sessions. Mode=off with a positive
@@ -256,6 +260,8 @@ def planned_extras_summary(slots: list[dict]) -> dict:
             benchmark = True
         if slot.get("workout_type") == "plyo":
             plyo_sessions += 1
+        if (slot.get("workout_type") or "") == "mobility" or slot.get("is_mobility"):
+            stretch_min += int(slot.get("duration_minutes") or 0)
         for extra in slot.get("daily_extras") or []:
             if extra.get("kind") == "stretch":
                 stretch_min += int(extra.get("duration_minutes") or 0)

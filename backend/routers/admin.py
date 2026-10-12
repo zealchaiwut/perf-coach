@@ -1007,7 +1007,7 @@ class AdminPlanLibraryImportIn(BaseModel):
 # Catalog allow-lists — keep groups/focus in sync with frontend/js/admin-plan-library.js
 _PLAN_EXERCISE_GROUPS = frozenset({
     "warmup", "heavy_compound", "superset", "standalone", "accessories",
-    "cooldown", "bodyweight", "plyo", "isometric", "emom",
+    "cooldown", "bodyweight", "plyo", "isometric", "emom", "stretch",
 })
 _PLAN_FOCUS_TAGS = frozenset({"lower", "upper", "full", "core"})
 _PLAN_RUN_PHASES = frozenset({"warmup", "main", "cooldown", "mp"})

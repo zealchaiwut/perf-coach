@@ -189,6 +189,9 @@ class Habit(Base):
     focus_since = Column(DateTime(timezone=True), nullable=True)
     # Section grouping: 'training' or 'general' (issue #1506)
     section = Column(Text, nullable=False, server_default=text("'general'"))
+    # Weekly checklist role (WC-05): core counts toward day score; optional never
+    # "missed"; off hides without archiving.
+    checklist_role = Column(Text, nullable=False, server_default=text("'core'"))
 
     __table_args__ = (
         CheckConstraint(
@@ -202,6 +205,10 @@ class Habit(Base):
         CheckConstraint(
             "section IN ('training', 'general')",
             name="ck_habits_section_values",
+        ),
+        CheckConstraint(
+            "checklist_role IN ('core', 'optional', 'off')",
+            name="ck_habits_checklist_role",
         ),
         # Partial unique indexes (#1604) closing ensure_goal_habits' check-then-
         # insert race — see goal_habits.py and
@@ -1668,13 +1675,13 @@ class PlannedSession(Base):
         index=True,
     )
     planned_date = Column(Date, nullable=False, index=True)
-    # run | strength | plyo | rest
+    # run | strength | plyo | mobility | rest
     session_type = Column(String(20), nullable=False)
     name = Column(String(200), nullable=True)
     # blocks[] for runs / exercises[] for strength·plyo; null for rest
     structure = Column(JSONB, nullable=True)
     notes = Column(Text, nullable=True)
-    # planned | missed | missed_auto | missed_manual | needs_review | done_auto | done_manual
+    # planned | missed | missed_auto | missed_manual | needs_review | done_auto | done_manual | skipped
     status = Column(String(20), nullable=False, server_default=text("'planned'"))
     matched_workout_id = Column(
         UUID(as_uuid=True),
@@ -2217,7 +2224,7 @@ class PlanPattern(Base):
     __tablename__ = "plan_patterns"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    kind = Column(String(20), nullable=False)  # run | strength
+    kind = Column(String(20), nullable=False)  # run | strength | mobility
     subtype = Column(String(40), nullable=False)
     duration_min_lo = Column(Integer, nullable=False, server_default=text("0"))
     duration_min_hi = Column(Integer, nullable=False, server_default=text("120"))
@@ -2229,7 +2236,7 @@ class PlanPattern(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
     __table_args__ = (
-        CheckConstraint("kind IN ('run', 'strength')", name="ck_plan_patterns_kind"),
+        CheckConstraint("kind IN ('run', 'strength', 'mobility')", name="ck_plan_patterns_kind"),
         Index("ix_plan_patterns_kind_subtype", "kind", "subtype"),
         Index("ix_plan_patterns_active", "active"),
     )

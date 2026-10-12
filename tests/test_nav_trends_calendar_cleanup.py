@@ -138,6 +138,14 @@ def test_shrink_guard_has_a_floor_and_is_bounded(nav):
     )
 
 
+def test_nav_skips_display_contents_main(nav):
+    """Training log's main.log-page is display:contents — measuring it directly
+    zeroes the rect and clips global nav links."""
+    assert "_pageContentAnchor" in nav
+    assert 'display !== "contents"' in nav or "display !== 'contents'" in nav
+    assert "log-layout" in nav
+
+
 def test_nav_right_width_is_observed_for_late_content(nav):
     """.gn-right keeps changing size after first paint (env.js populates the
     UAT/LOCAL badge asynchronously, the avatar swaps from initial to <img>)

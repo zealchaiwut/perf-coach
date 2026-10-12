@@ -1,18 +1,6 @@
 /**
- * Home "Race" card (home revamp v2) — countdown + goal vs. estimate for the
- * primary A-race. Sourced entirely from GET /api/plan/computed's `races`
- * array: same bundle home.js's old _renderGoalCard read for goal/date, and
- * the SAME estimate field (`race.computed.estimate`) training-performance.js
- * uses for its race cards / time-curve projection — that field comes from
- * the authoritative time_curve engine. Deliberately does NOT call
- * /api/plans/{id}/projection: training-performance.js documents that
- * endpoint runs a separate, less-integrated estimate model that has
- * disagreed with this one in production (see its _renderPerfProjection
- * comment) — using it here would risk the same two-numbers-for-one-race bug.
- *
- * Progress bar is a simple elapsed fill from race.created_at → race.date
- * (no named build/peak/taper segments — those phase boundaries aren't in
- * the plan/computed payload).
+ * Home "Road to {A-race}" card (WC-17 mock) — countdown, goal/estimate/range,
+ * race-specific End/Spd, and needs-result warnings for past B races.
  */
 (function () {
   'use strict';
@@ -21,10 +9,10 @@
     return window.AppCommon.escapeHtml(s);
   }
 
-  function _header() {
+  function _header(title) {
     return (
       '<div class="card-head">' +
-        '<h2 class="ttl"><i class="ti ti-flag-2"></i>Race</h2>' +
+        '<h2 class="ttl"><i class="ti ti-flag-2"></i>' + esc(title) + '</h2>' +
         '<a href="/log#performance">Performance &#8594;</a>' +
       '</div>'
     );
@@ -49,154 +37,162 @@
     return sign + m + ':' + String(s).padStart(2, '0');
   }
 
-  function _fmtPace(secPerKm) {
-    if (secPerKm == null || !isFinite(secPerKm) || secPerKm <= 0) return '';
-    var m = Math.floor(secPerKm / 60);
-    var s = Math.round(secPerKm % 60);
-    return m + ':' + String(s).padStart(2, '0') + '/km';
-  }
-
   function _fmtDate(iso) {
     if (!iso) return '—';
     var d = new Date(iso + (iso.length === 10 ? 'T12:00:00' : ''));
     if (isNaN(d.getTime())) return iso;
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-  }
-
-  function _daysBetween(isoA, isoB) {
-    if (!isoA || !isoB) return null;
-    var a = new Date(String(isoA).slice(0, 10) + 'T00:00:00');
-    var b = new Date(String(isoB).slice(0, 10) + 'T00:00:00');
-    if (isNaN(a.getTime()) || isNaN(b.getTime())) return null;
-    return Math.round((b - a) / 86400000);
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
   function _daysUntil(iso) {
-    return _daysBetween(window.AppCommon.todayISO(), iso);
+    if (!iso) return null;
+    var a = new Date(window.AppCommon.todayISO() + 'T00:00:00');
+    var b = new Date(String(iso).slice(0, 10) + 'T00:00:00');
+    return Math.round((b - a) / 86400000);
   }
 
-  // Simple countdown progress: created_at → race date. Returns '' when we
-  // can't compute an honest span (missing created_at, inverted dates, etc.).
-  function _progressHtml(primary, daysLeft) {
-    var startIso = primary.created_at ? String(primary.created_at).slice(0, 10) : null;
-    var raceIso = primary.date ? String(primary.date).slice(0, 10) : null;
-    if (!startIso || !raceIso) return '';
+  function _roadTitle(name) {
+    if (!name) return 'Road to your A-race';
+    var short = name.replace(/\s+\d{4}$/, '').trim();
+    return 'Road to ' + short;
+  }
 
-    var total = _daysBetween(startIso, raceIso);
-    if (total == null || total <= 0) return '';
-
+  function _needsResultRaces(races) {
     var today = window.AppCommon.todayISO();
-    var elapsed = _daysBetween(startIso, today);
-    if (elapsed == null) return '';
-    elapsed = Math.max(0, Math.min(total, elapsed));
-    var pct = Math.round((elapsed / total) * 100);
-    var left = daysLeft != null ? Math.max(0, daysLeft) : Math.max(0, total - elapsed);
-    var weekNow = Math.max(1, Math.min(Math.ceil(total / 7), Math.ceil(Math.max(1, elapsed) / 7) || 1));
-    var weekTotal = Math.max(1, Math.ceil(total / 7));
+    return (races || []).filter(function (r) {
+      return r.type !== 'checkpoint' && r.date && r.date < today &&
+        !(r.status === 'done' && r.actual_time_seconds != null);
+    });
+  }
 
+  function _needsResultBanner(races) {
+    var needs = _needsResultRaces(races);
+    if (!needs.length) return '';
+    var r = needs[0];
+    var msg = (r.name || 'Race') + ' needs a result';
+    if (r.suggested_actual_time_seconds) {
+      msg += ' — prefilled ' + _fmtTime(r.suggested_actual_time_seconds) + ' from matched workout';
+    }
     return (
-      '<div class="hrc-progress">' +
-        '<div class="hrc-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"' +
-          ' aria-label="Race countdown progress">' +
-          '<div class="hrc-progress-fill" style="width:' + pct + '%"></div>' +
-        '</div>' +
-        '<div class="hrc-progress-meta">' +
-          '<span>week ' + weekNow + ' of ' + weekTotal + '</span>' +
-          '<span>' + left + ' day' + (left === 1 ? '' : 's') + ' left</span>' +
-        '</div>' +
+      '<div class="hrc-warn">' +
+        '<span class="hrc-warn-ic">⚠</span>' +
+        '<span>' + esc(msg) + '</span>' +
+        '<a href="/log#performance" class="hrc-warn-link">Record →</a>' +
       '</div>'
     );
   }
 
-  function render(host, primary) {
-    if (!host) return;
-    host.innerHTML = _header() + '<div class="hrc-loading">Loading…</div>';
+  function _raceScoresHtml(primary) {
+    var sc = primary && primary.computed && primary.computed.scores;
+    if (!sc || sc.kind !== 'required') return '';
+    return (
+      '<div class="hrc-scores">' +
+        '<span class="hrc-scores-lab">Race-specific</span>' +
+        '<span class="hrc-score-pill">End ' + esc(String(sc.end)) + '</span>' +
+        '<span class="hrc-score-pill">Spd ' + esc(String(sc.spd)) + '</span>' +
+      '</div>'
+    );
+  }
 
-    function _paint(primaryRace) {
-      if (!primaryRace) {
-        host.innerHTML = _header() +
-          '<div class="hrc-empty">' +
-            '<div class="hrc-empty-sub">No upcoming race set yet.</div>' +
-            '<a class="hrc-empty-cta" href="/log#performance">Set a race on Performance &#8594;</a>' +
-          '</div>';
-        return;
-      }
-      _paintPrimary(primaryRace);
+  function _paint(host, primary, allRaces) {
+    if (!primary) {
+      host.innerHTML = _header('Road to your A-race') +
+        '<div class="hrc-empty">' +
+          '<div class="hrc-empty-sub">No upcoming A-race set yet.</div>' +
+          '<a class="hrc-empty-cta" href="/log#performance">Set a race on Performance →</a>' +
+        '</div>';
+      return;
     }
 
-    // Phase B: prefer slim race from /api/home/summary (no cold plan/computed).
-    if (primary !== undefined) {
-      _paint(primary || null);
-      return;
+    var distKm = parseFloat(primary.distance || 0);
+    var days = _daysUntil(primary.date);
+    var goalSec = primary.goal_time_seconds || null;
+    var est = primary.computed && primary.computed.estimate;
+    var estSec = est && est.est != null ? est.est : null;
+    var bandMin = est && est.band != null ? Math.max(1, Math.round(est.band / 60)) : null;
+    var rangeHtml = '';
+    if (estSec != null && est && est.band != null) {
+      rangeHtml =
+        '<div class="hrc-est"><div class="hrc-est-k">Range</div>' +
+          '<div class="hrc-est-v">' + esc(_fmtTime(estSec - est.band)) + ' – ' + esc(_fmtTime(estSec + est.band)) + '</div>' +
+        '</div>';
+    }
+    var gapHtml = '';
+    if (goalSec != null && estSec != null) {
+      var gapSec = estSec - goalSec;
+      var inside = Math.abs(gapSec) <= 30;
+      gapHtml =
+        '<div class="hrc-est"><div class="hrc-est-k">Gap</div>' +
+          '<div class="hrc-est-v">' + esc(_fmtSignedTime(gapSec)) + '</div>' +
+          '<div class="hrc-est-s">' + (inside ? 'inside goal' : (gapSec > 0 ? 'behind goal' : 'ahead of goal')) + '</div>' +
+        '</div>';
+    }
+
+    host.innerHTML =
+      _header(_roadTitle(primary.name)) +
+      _needsResultBanner(allRaces) +
+      '<div class="hrc-race">' +
+        (days != null
+          ? '<div class="hrc-days"><div class="hrc-days-n">' + Math.max(0, days) + '</div><div class="hrc-days-k">days</div></div>'
+          : '') +
+        '<div class="hrc-info">' +
+          '<div class="hrc-info-t">' + esc(primary.name || 'Unnamed') + '</div>' +
+          '<div class="hrc-info-m">' + esc(_fmtDate(primary.date)) +
+            (distKm ? ' · ' + distKm.toFixed(1) + ' km' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="hrc-stats">' +
+        '<div class="hrc-est"><div class="hrc-est-k">Goal</div>' +
+          '<div class="hrc-est-v">' + esc(goalSec ? _fmtTime(goalSec) : '—') + '</div></div>' +
+        (estSec != null
+          ? '<div class="hrc-est"><div class="hrc-est-k">Estimate</div>' +
+              '<div class="hrc-est-v hrc-est-v--ok">' + esc(_fmtTime(estSec)) + '</div>' +
+              (bandMin ? '<div class="hrc-est-s">± ' + bandMin + ' min</div>' : '') +
+            '</div>'
+          : '') +
+        rangeHtml +
+        gapHtml +
+      '</div>' +
+      _raceScoresHtml(primary);
+  }
+
+  function _paintPrimary(host, primary, allRaces) {
+    _paint(host, primary, allRaces || (primary ? [primary] : []));
+  }
+
+  function render(host, primary) {
+    if (!host) return;
+
+    function _fromBundle(bundle) {
+      var races = (bundle && Array.isArray(bundle.races)) ? bundle.races : [];
+      var found =
+        races.find(function (r) { return r.type === 'race' && r.priority === 'A' && r.status !== 'done'; }) ||
+        races.find(function (r) { return r.type === 'race' && r.status !== 'done'; }) ||
+        null;
+      if (!found && primary && primary.name) {
+        found = primary;
+        if (!races.length) races = [primary];
+      }
+      _paint(host, found, races);
+    }
+
+    if (primary && primary.name) {
+      _paintPrimary(host, primary, [primary]);
+    } else {
+      host.innerHTML = _header('Road to your A-race') + '<div class="hrc-loading">Loading…</div>';
     }
 
     fetch('/api/plan/computed')
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (bundle) {
-        var races = (bundle && Array.isArray(bundle.races)) ? bundle.races : [];
-        var found =
-          races.find(function (r) { return r.type === 'race' && r.priority === 'A' && r.status !== 'done'; }) ||
-          races.find(function (r) { return r.type === 'race' && r.status !== 'done'; }) ||
-          null;
-        _paint(found);
-      })
-      .catch(function () { _paint(null); });
-  }
-
-  function _paintPrimary(primary) {
-        var distKm = parseFloat(primary.distance || 0);
-        var days = _daysUntil(primary.date);
-        var weeksOut = days != null ? Math.max(0, Math.round(days / 7)) : null;
-
-        var goalSec = primary.goal_time_seconds || null;
-        var goalPace = goalSec && distKm ? _fmtPace(goalSec / distKm) : '';
-
-        var est = primary.computed && primary.computed.estimate;
-        var estSec = est && est.est != null ? est.est : null;
-        var estBand = est && est.band != null ? Math.max(1, Math.round(est.band / 60)) : null;
-
-        var gapHtml = '';
-        if (goalSec != null && estSec != null) {
-          var gapSec = estSec - goalSec;
-          var inside = Math.abs(gapSec) <= 30;
-          gapHtml =
-            '<div class="hrc-est"><div class="hrc-est-k">Gap</div>' +
-              '<div class="hrc-est-v">' + esc(_fmtSignedTime(gapSec)) + '</div>' +
-              '<div class="hrc-est-s">' + (inside ? 'inside goal' : (gapSec > 0 ? 'behind goal' : 'ahead of goal')) + '</div>' +
-            '</div>';
+      .then(_fromBundle)
+      .catch(function () {
+        if (primary && primary.name) {
+          _paintPrimary(host, primary, [primary]);
+        } else {
+          _paint(host, null, []);
         }
-
-        var estHtml = estSec != null
-          ? '<div class="hrc-est"><div class="hrc-est-k">Estimate</div>' +
-              '<div class="hrc-est-v hrc-est-v--ok">' + esc(_fmtTime(estSec)) + '</div>' +
-              '<div class="hrc-est-s">' + (estBand != null ? '&plusmn; ' + estBand + ' min' : '') + '</div>' +
-            '</div>'
-          : '';
-
-        host.innerHTML =
-          _header() +
-          '<div class="hrc-race">' +
-            (days != null
-              ? '<div class="hrc-days"><div class="hrc-days-n">' + Math.max(0, days) + '</div><div class="hrc-days-k">days</div></div>'
-              : '') +
-            '<div class="hrc-info">' +
-              '<div class="hrc-info-t">' + esc(primary.name || 'Unnamed') + '</div>' +
-              '<div class="hrc-info-m">' + esc(_fmtDate(primary.date)) +
-                (distKm ? ' &middot; ' + distKm.toFixed(2) + ' km' : '') +
-                ' &middot; A-priority' +
-                (weeksOut != null ? ' &middot; ' + weeksOut + ' weeks out' : '') +
-              '</div>' +
-            '</div>' +
-          '</div>' +
-          '<div class="hrc-stats">' +
-            '<div class="hrc-est"><div class="hrc-est-k">Goal</div>' +
-              '<div class="hrc-est-v">' + esc(goalSec ? _fmtTime(goalSec) : '—') + '</div>' +
-              '<div class="hrc-est-s">' + esc(goalPace) + '</div>' +
-            '</div>' +
-            estHtml +
-            gapHtml +
-          '</div>' +
-          _progressHtml(primary, days);
+      });
   }
 
   window.HomeRaceCard = { render: render };

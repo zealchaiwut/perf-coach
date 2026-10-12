@@ -167,6 +167,8 @@ def reconcile_user(session: _Session, user_id) -> dict:
     planned = (
         session.query(PlannedSession)
         .filter(PlannedSession.user_id == uid)
+        .filter(PlannedSession.session_type != "mobility")
+        .filter(PlannedSession.status != "skipped")
         .all()
     )
     if not planned:

@@ -28,7 +28,7 @@
 
   var GROUPS = [
     'warmup', 'heavy_compound', 'superset', 'standalone', 'accessories',
-    'cooldown', 'bodyweight', 'plyo', 'isometric', 'emom',
+    'cooldown', 'bodyweight', 'plyo', 'isometric', 'emom', 'stretch',
   ];
   // Recipe-block display order for the Exercises card grid (variation C).
   var GROUP_SECTION_ORDER = [
@@ -46,6 +46,7 @@
     plyo: 'Plyometrics',
     standalone: 'Standalone',
     emom: 'EMOM',
+    stretch: 'Stretch',
   };
   var FOCUS = ['lower', 'upper', 'full', 'core'];
   var PART_COLORS = {
@@ -104,7 +105,7 @@
     });
   }
   var RUN_PHASES = ['warmup', 'main', 'cooldown', 'mp'];
-  var PAT_KINDS = ['run', 'strength'];
+  var PAT_KINDS = ['run', 'strength', 'mobility'];
 
   var _tab = 'exercises';
   var _exercisesLoaded = false;
@@ -156,10 +157,31 @@
     history.replaceState(null, '', url.pathname + url.search);
   }
 
+  function renderMobilityPanel() {
+    var stretchEl = document.getElementById('mobility-stretch-list');
+    var patEl = document.getElementById('mobility-pattern-list');
+    if (!stretchEl || !patEl) return;
+    var stretches = _all.filter(function (e) {
+      return (e.groups || []).indexOf('stretch') >= 0 && e.active !== false;
+    });
+    stretchEl.innerHTML = stretches.length
+      ? stretches.map(function (e) {
+        return '<div class="ex-card"><strong>' + esc(e.name) + '</strong></div>';
+      }).join('')
+      : '<p class="fld-hint">No stretch exercises yet. Use + New stretch exercise (group: stretch).</p>';
+    var mobPats = _patterns.filter(function (p) { return p.kind === 'mobility'; });
+    patEl.innerHTML = mobPats.length
+      ? mobPats.map(function (p) {
+        return '<li><strong>' + esc(p.name) + '</strong> · ' + esc(p.subtype) +
+          ' · ' + esc(String(p.duration_min_lo)) + '–' + esc(String(p.duration_min_hi)) + ' min</li>';
+      }).join('')
+      : '<li class="fld-hint">No mobility patterns loaded — run Seed defaults on Patterns tab.</li>';
+  }
+
   function setTab(tab) {
-    if (tab !== 'patterns' && tab !== 'preview') tab = 'exercises';
+    if (tab !== 'patterns' && tab !== 'preview' && tab !== 'mobility') tab = 'exercises';
     _tab = tab;
-    ['exercises', 'patterns', 'preview'].forEach(function (name) {
+    ['exercises', 'patterns', 'preview', 'mobility'].forEach(function (name) {
       var on = _tab === name;
       var btn = document.getElementById('tab-' + name);
       var panel = document.getElementById('panel-' + name);
@@ -176,6 +198,12 @@
       if (pageSub) {
         pageSub.textContent = 'Dry-run pattern fill — pool depth and pick-by-pick budget.';
       }
+    } else if (_tab === 'mobility') {
+      btnNew.hidden = false;
+      btnNew.textContent = '+ New stretch exercise';
+      if (pageSub) {
+        pageSub.textContent = 'Mobility patterns + stretch pool. Enter stretch names from your cheat sheet — nothing is pre-seeded.';
+      }
     } else {
       btnNew.hidden = false;
       btnNew.textContent = _tab === 'patterns' ? '+ New pattern' : '+ New exercise';
@@ -187,6 +215,11 @@
     }
     updateUrlTab(_tab);
     if (_tab === 'patterns' && !_patternsLoaded) loadPatterns();
+    if (_tab === 'mobility') {
+      if (!_patternsLoaded) loadPatterns();
+      if (!_exercisesLoaded) loadExercises();
+      renderMobilityPanel();
+    }
     if (_tab === 'exercises' && !_exercisesLoaded) loadExercises();
     if (_tab === 'preview') {
       if (!_patternsLoaded) loadPatterns();
@@ -1847,11 +1880,18 @@
 
   document.getElementById('tab-exercises').onclick = function () { setTab('exercises'); };
   document.getElementById('tab-patterns').onclick = function () { setTab('patterns'); };
+  document.getElementById('tab-mobility').onclick = function () { setTab('mobility'); };
   document.getElementById('tab-preview').onclick = function () { setTab('preview'); };
 
   document.getElementById('btn-new').onclick = function () {
     if (_tab === 'patterns') fillPatternForm(blankPattern());
-    else if (_tab === 'exercises') fillExerciseForm(blankExercise());
+    else if (_tab === 'mobility') {
+      setTab('exercises');
+      var ex = blankExercise();
+      ex.groups = ['stretch'];
+      ex.focus_tags = ['full'];
+      fillExerciseForm(ex);
+    } else if (_tab === 'exercises') fillExerciseForm(blankExercise());
   };
 
   document.getElementById('btn-save').onclick = saveExercise;

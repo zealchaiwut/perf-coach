@@ -100,7 +100,27 @@ def write_version(
     )
     db.add(row)
     db.flush()
+    _maybe_enqueue_mobility_rebuild(user_id, prev, normalized)
     return row
+
+
+def _maybe_enqueue_mobility_rebuild(user_id, prev, normalized: dict) -> None:
+    """Enqueue plan rebuild when mobility prefs change; does not merge payloads."""
+    if prev is None:
+        return
+    from backend.services.pref_catalog import get_field
+    from backend.services.plan_build_status import enqueue_week_rebuild
+
+    prev_payload = prev.payload if isinstance(getattr(prev, "payload", None), dict) else {}
+    old_stretch = int(get_field(prev_payload, "stretch_daily_min") or 0)
+    new_stretch = int(get_field(normalized, "stretch_daily_min") or 0)
+    old_mob_role = get_field(prev_payload, "mobility_checklist_role") or "optional"
+    new_mob_role = get_field(normalized, "mobility_checklist_role") or "optional"
+    if old_stretch != new_stretch or old_mob_role != new_mob_role:
+        try:
+            enqueue_week_rebuild(user_id, remaining_days_only=True)
+        except Exception:
+            pass
 
 
 def confirm_active(db: Session, user_id) -> Any:
@@ -329,6 +349,7 @@ def prefs_for_assemble_facts(db: Session, user_id) -> dict:
         # of habits and into the plan). The habit is read below only as a
         # fallback, so an athlete who set a target before the move keeps it.
         "stretch_daily_min": int(get_field(p, "stretch_daily_min") or 0),
+        "weekly_checklist_enabled": bool(get_field(p, "weekly_checklist_enabled")),
         "zone2_weekly_min": 0,
         "notes": get_field(p, "notes") or "",
     }

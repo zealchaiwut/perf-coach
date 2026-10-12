@@ -93,8 +93,7 @@ def _apply_best(workout, best: dict) -> None:
         hr = clean_hr(best["best_avg_hr"])
         if hr is not None:
             workout.avg_hr = hr
-    if best.get("best_tss") is not None:
-        workout.tss = best["best_tss"]
+    # Stryd stress TSS stays on stryd_activities; workout.tss is app-computed via tss.py.
 
 
 def _apply_stryd_metrics(workout, act) -> None:
@@ -533,6 +532,16 @@ def reconcile_workouts(
         user_id,
         workout_ids=affected_workout_ids if incremental else None,
     )
+
+    # Match synced runs to planned races (same path as manual workout POST).
+    try:
+        from backend.services.race_auto_complete import backfill_planned_races
+
+        with _Session(engine) as session:
+            if backfill_planned_races(session, uid):
+                session.commit()
+    except Exception:
+        _log.exception("race auto-complete after reconcile failed for user %s", uid)
 
     # Update the per-athlete best-effort duration curve for touched runs only.
     try:

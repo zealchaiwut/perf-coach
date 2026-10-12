@@ -143,8 +143,10 @@ def test_weight_js_uses_loading_helper():
 
 
 def test_habits_js_uses_loading_helper():
-    assert "UIStates.setLoading" in HABITS_JS, \
-        "habits.js must use UIStates.setLoading"
+    assert (
+        "UIStates.setLoading" in HABITS_JS
+        or "ChecklistUI.showChecklistLoading" in HABITS_JS
+    ), "habits.js must show a loading state (UIStates or checklist shell)"
 
 
 def test_training_js_uses_loading_helper():

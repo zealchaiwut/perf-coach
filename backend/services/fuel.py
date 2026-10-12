@@ -446,9 +446,45 @@ def compute_food_totals(entry: Optional[FuelEntry]) -> dict:
 
 # ── Day type + burn ──────────────────────────────────────────────────────────
 
+# Race-week day types (WC-08). Long races (goal ≥ 90 min) carb-load two days out.
+_CARB_LOAD_GOAL_SECONDS = 90 * 60
+
+
+def _race_calendar_day_type(user_id, target_date: _date, db: Session) -> Optional[str]:
+    """Return race-calendar override for *target_date*, or None."""
+    from backend.models import Race
+
+    races = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_type == "race",
+            Race.race_date >= target_date - timedelta(days=3),
+            Race.race_date <= target_date + timedelta(days=1),
+        )
+        .order_by(Race.priority.asc(), Race.race_date.asc())
+        .all()
+    )
+    if not races:
+        return None
+
+    for race in races:
+        if race.race_date == target_date:
+            return "race"
+        goal = race.goal_time_seconds or 0
+        days_before = (race.race_date - target_date).days
+        if goal >= _CARB_LOAD_GOAL_SECONDS:
+            if days_before in (1, 2):
+                return "carb_load"
+        elif days_before == 1:
+            return "pre_race"
+    return None
+
+
 def compute_day_type(sessions: list) -> str:
     """sessions: list of {"type": <normalized-or-raw workout_type str>,
-    "duration_min": float|None}. rest | lift | easy_run | long_run."""
+    "duration_min": float|None, "quality": bool|None}.
+    rest | lift | easy_run | long_run | quality."""
     if not sessions:
         return "rest"
     run_minutes = 0.0
@@ -462,7 +498,12 @@ def compute_day_type(sessions: list) -> str:
         elif wt != "rest":
             saw_other = True
     if saw_run:
-        return "long_run" if run_minutes >= _LONG_RUN_MINUTES else "easy_run"
+        if run_minutes >= _LONG_RUN_MINUTES:
+            return "long_run"
+        for s in sessions:
+            if _normalize_type(s.get("type")) == "run" and s.get("quality"):
+                return "quality"
+        return "easy_run"
     if saw_other:
         return "lift"
     return "rest"
@@ -577,6 +618,9 @@ def training_burn_kcal(
             user_id, target_date, today, weight_kg, run_kcal_per_kg_per_km, baseline, db,
         )
         day_type = compute_day_type(sessions)
+        race_type = _race_calendar_day_type(user_id, target_date, db)
+        if race_type is not None:
+            day_type = race_type
         return {
             "burn": round(burn),
             "day_type": day_type,
@@ -660,6 +704,19 @@ def compute_targets(
     fat_g = settings["fat_g"]
     carbs_g = max(0.0, (budget - protein_g * 4 - fat_g * 9) / 4)
     return {"protein_g": protein_g, "carbs_g": round(carbs_g), "fat_g": fat_g}
+
+
+def food_portions_for_targets(protein_g: float, carbs_g: float) -> dict:
+    """Translate macro targets into cooked meat/rice portions (see FOOD constants)."""
+    meat_g = round(protein_g / FOOD["meat"]["p"] / 25) * 25 if protein_g > 0 else 0
+    rice_g = round(carbs_g / FOOD["rice"]["c"] / 50) * 50 if carbs_g > 0 else 0
+    return {
+        "meat_g": int(meat_g),
+        "rice_g": int(rice_g),
+        "meat_protein_g": round(meat_g * FOOD["meat"]["p"]),
+        "rice_carbs_g": round(rice_g * FOOD["rice"]["c"]),
+        "rice_carbs_per_100g": round(FOOD["rice"]["c"] * 100),
+    }
 
 
 # ── Suggestion (§1.6) ────────────────────────────────────────────────────────
@@ -947,6 +1004,9 @@ def get_today_payload(user_id, target_date: _date, db: Optional[Session] = None)
             "eaten": eaten,
             "remaining": remaining,
             "targets": targets,
+            "food_portions": food_portions_for_targets(
+                targets["protein_g"], targets["carbs_g"],
+            ),
             "suggestion": suggestion,
             "maintenance_source": settings["maintenance_source"],
             "lean_mass_kg": lean_info["lean_mass_kg"],
