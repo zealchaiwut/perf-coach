@@ -6446,6 +6446,9 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
         "strava_activity_url": w.strava_activity_url,
+        "is_stryd_synced": w.stryd_activity_pk is not None,
+        "has_strava": "strava" in (w.source or "") or w.strava_activity_pk is not None,
+        "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
         "avg_hr": w.avg_hr,
@@ -7021,7 +7024,9 @@ def get_workout_full(
         )
         _is_run = (workout.workout_type or "").lower().find("run") >= 0
         if _is_run:
-            tss_result = _persist_running_tss(workout.id, session)
+            # Read path: compute for response only — persist on writes/reconcile, not
+            # here (concurrent list+detail commits caused Postgres deadlocks).
+            tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
         else:
             tss_result = _compute_running_tss(workout, split_rows, prefs or UserPreferences())
         from backend.models import ActivityStream as _ActivityStream
@@ -7145,6 +7150,14 @@ def get_workout_full(
         intensity_zones = _agg_zones(split_rows, _prefs_dict_for_zones)
         _workout_block = _workout_dict(workout, exercises)
         _workout_block.update(_workout_signal_scores(session, workout))
+        if (
+            _is_run
+            and workout.tss_source != "manual"
+            and tss_result.get("tss") is not None
+        ):
+            _workout_block["tss"] = int(round(tss_result["tss"]))
+            if tss_result.get("method") and tss_result["method"] != "none":
+                _workout_block["tss_method"] = tss_result["method"]
         response_body: dict = {
             "workout": _workout_block,
             "splits": [_split_dict(s) for s in split_rows],
@@ -7162,8 +7175,6 @@ def get_workout_full(
         }
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
-        if _is_run:
-            session.commit()
         return JSONResponse(response_body)
 
 
@@ -10153,6 +10164,19 @@ def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
     return round(duration_seconds / float(distance_km), 2)
 
 
+def _workout_list_tss(w, splits, prefs) -> float | None:
+    """App-computed TSS for training-log list/chart rollups (read path — no DB write)."""
+    if w.tss_source == "manual" and w.tss is not None:
+        return float(w.tss)
+    wt = (w.workout_type or "").lower()
+    if "run" not in wt:
+        return float(w.tss) if w.tss is not None else None
+    computed = _compute_running_tss(w, splits or [], prefs or UserPreferences())
+    if computed.get("tss") is not None:
+        return float(computed["tss"])
+    return float(w.tss) if w.tss is not None else None
+
+
 @app.get("/api/training-log")
 def get_training_log(
     from_date: Optional[str] = Query(default=None, alias="from"),
@@ -10242,12 +10266,18 @@ def get_training_log(
                     TrainingLoadSnapshot.snapshot_date == today,
                 ).first()
 
-        # Training log / calendar rollups use workout.tss — refresh app-computed
-        # values for runs (overwrites Stryd etc.; manual athlete entry wins).
-        for w in workouts:
-            wt = (w.workout_type or "").lower()
-            if "run" in wt and w.tss_source != "manual":
-                _persist_running_tss(w.id, session)
+        splits_by_workout: dict = {}
+        run_ids = [w.id for w in workouts if "run" in (w.workout_type or "").lower()]
+        if run_ids:
+            for sp in (
+                session.query(WorkoutSplit)
+                .filter(WorkoutSplit.workout_id.in_(run_ids))
+                .order_by(WorkoutSplit.split_index)
+            ):
+                splits_by_workout.setdefault(sp.workout_id, []).append(sp)
+        list_prefs = (
+            session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        )
 
         if today_snap is not None:
             snap_ctl = round(today_snap.ctl, 1)
@@ -10267,7 +10297,9 @@ def get_training_log(
                 "avg_hr": w.avg_hr,
                 "elevation_m": w.elevation_m,
                 "average_pace_seconds_per_km": _pace(w.workout_type, w.duration_seconds, w.distance_km),
-                "tss": float(w.tss) if w.tss is not None else None,
+                "tss": _workout_list_tss(
+                    w, splits_by_workout.get(w.id, []), list_prefs
+                ),
                 "source": w.source or w.tss_source or "manual",
                 "strava_activity_url": w.strava_activity_url,  # issue #530: list/detail source parity
                 "is_stryd_synced": w.stryd_activity_pk is not None,
@@ -10279,7 +10311,6 @@ def get_training_log(
             }
             for w in workouts
         ]
-        session.commit()
 
     all_entries = workout_entries + rest_entries
     all_entries.sort(key=lambda e: e["date"], reverse=True)

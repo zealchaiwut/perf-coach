@@ -26,6 +26,44 @@ def _build_workout_index(workouts: list) -> dict:
     return index
 
 
+def _find_by_linked_pk(source_type: str, act, existing_workouts: list):
+    """Match a workout already linked to this source row (second-pass merge)."""
+    if source_type == "strava":
+        for w in existing_workouts:
+            if w.strava_activity_pk == act.id:
+                return w
+    else:
+        for w in existing_workouts:
+            if w.stryd_activity_pk == act.id:
+                return w
+    return None
+
+
+def _find_stryd_partner_via_strava(
+    stryd_act,
+    existing_workouts: list,
+    strava_by_id: dict,
+    tolerance: timedelta,
+):
+    """Strava-first sync: merge Stryd when start times differ but Strava row aligns."""
+    if stryd_act.start_time is None:
+        return None
+    tol_s = tolerance.total_seconds()
+    best = None
+    best_delta = None
+    for w in existing_workouts:
+        if w.strava_activity_pk is None or w.stryd_activity_pk is not None:
+            continue
+        sa = strava_by_id.get(w.strava_activity_pk)
+        if sa is None or sa.start_time is None:
+            continue
+        delta = abs((sa.start_time - stryd_act.start_time).total_seconds())
+        if delta <= tol_s and (best_delta is None or delta < best_delta):
+            best = w
+            best_delta = delta
+    return best
+
+
 def _find_in_index(start_time, index: dict, tolerance: timedelta):
     """Match a workout using the date-bucketed index.
 
@@ -450,6 +488,15 @@ def reconcile_workouts(
         touched_workouts: list = []
         for source_type, act in all_acts:
             matched = _find_in_index(act.start_time, workout_index, _TOLERANCE)
+            if matched is None:
+                matched = _find_by_linked_pk(source_type, act, existing_workouts)
+            if matched is None and source_type == "stryd":
+                matched = _find_stryd_partner_via_strava(
+                    act, existing_workouts, strava_by_id, _TOLERANCE,
+                )
+            if matched is not None and matched.start_time is None and act.start_time is not None:
+                matched.start_time = act.start_time
+                workout_index.setdefault(act.start_time.date(), []).append(matched)
             proxy = _make_proxy(
                 act,
                 source_type,

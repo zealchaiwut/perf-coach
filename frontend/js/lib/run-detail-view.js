@@ -29,7 +29,12 @@
   // disagreed about the apostrophe, so identical content was safe on
   // some pages and attribute-injectable on others.
   function esc(s) {
-    return window.AppCommon.escapeHtml(s);
+    if (win.AppCommon && win.AppCommon.escapeHtml) {
+      return win.AppCommon.escapeHtml(s);
+    }
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
   }
 
   function dash(v) {
@@ -450,7 +455,7 @@
 
     return lapMeta
       .map(function (m) {
-        var s = m.split;
+        var s = m.split || {};
         var rowCls = "rd4-lap-row";
         if (m.zone2) rowCls += " rd4-lap-row--z2";
         if (m.anomaly) rowCls += " rd4-lap-row--break";
@@ -689,7 +694,7 @@
       h2p = [],
       h2h = [];
     laps.forEach(function (m) {
-      var dur = m.split.duration_seconds || 0;
+      var dur = (m.split && m.split.duration_seconds) || 0;
       var mid = elapsed + dur / 2;
       var p = m.power;
       var hr = m.split.avg_hr;
@@ -757,7 +762,9 @@
     var splits = (full.splits || [])
       .slice()
       .sort(function (a, b) {
-        return a.split_index - b.split_index;
+        var ai = a.split_index != null ? +a.split_index : 0;
+        var bi = b.split_index != null ? +b.split_index : 0;
+        return ai - bi;
       });
     var manualSplits = collectManualLapSplits(strava, stryd);
 
@@ -936,7 +943,12 @@
     // ── 3 Power zones ──
     var pzBlock = "";
     var pz = (stryd && stryd.power_zones) || null;
-    if (pz && pz.zones && pz.zones.length && pz.seconds_in_zones) {
+    if (
+      pz &&
+      Array.isArray(pz.zones) &&
+      pz.zones.length &&
+      Array.isArray(pz.seconds_in_zones)
+    ) {
       var totalSec = pz.seconds_in_zones.reduce(function (a, b) {
         return a + (b || 0);
       }, 0);
@@ -1196,15 +1208,15 @@
     var intervalHasRoles = intervalWorkLaps.some(function (m) {
       return m.role === "work";
     });
-    if (!intervalWorkLaps.length && intervalLapMeta.length) {
+    if ((!intervalWorkLaps || !intervalWorkLaps.length) && intervalLapMeta.length) {
       intervalHasRoles = intervalLapMeta.some(function (m) {
         return m.role === "work";
       });
       intervalWorkLaps = intervalHasRoles
         ? intervalLapMeta.filter(function (m) { return m.role === "work"; })
-        : extractIntervalSet(intervalLapMeta);
+        : extractIntervalSet(intervalLapMeta) || [];
     }
-    if (intervalWorkLaps.length) {
+    if (intervalWorkLaps && intervalWorkLaps.length) {
       var repsPerSet = detected && detected.confident ? detected.reps_per_set : null;
       intervalsBlock = renderIntervalBlock(
         intervalWorkLaps,
@@ -1560,17 +1572,31 @@
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({ name: val }),
-          }).then(function (r) {
-            if (!r.ok) throw new Error("save failed");
-            w.name = val;
-            restore(val);
-            // Update list row title
-            var listRow = document.querySelector('.entry-row[data-workout-id="' + w.id + '"]');
-            if (listRow) {
-              var listTitle = listRow.querySelector(".entry-title");
-              if (listTitle) listTitle.textContent = val;
-            }
-          }).catch(function () {
+          })
+            .then(function (r) {
+              if (!r.ok) throw new Error("save failed");
+              return r.json();
+            })
+            .then(function (updated) {
+              var saved =
+                (updated && updated.name) ||
+                val;
+              w.name = saved;
+              restore(saved);
+              if (win.TrainingLog && win.TrainingLog.patchWorkoutFromDetail) {
+                win.TrainingLog.patchWorkoutFromDetail(updated || { id: w.id, name: saved });
+              } else {
+                var listRow = document.querySelector(
+                  '.entry-row[data-workout-id="' + w.id + '"]',
+                );
+                if (listRow) {
+                  var listTitle = listRow.querySelector(".ntitle");
+                  if (listTitle) listTitle.textContent = saved;
+                  listRow.dataset.workoutTitle = String(saved).toLowerCase();
+                }
+              }
+            })
+            .catch(function () {
             restore(orig);
           });
         }
@@ -2768,11 +2794,25 @@
     buildSimpleShareCard: buildSimpleShareCard,
     _lastLapSets: null,
     render: function (contentEl, full, prefs, syncMeta) {
-      if (!contentEl) return;
-      var out = render(full, prefs, syncMeta);
-      contentEl.innerHTML = out.html;
-      win.RunDetailView._lastLapSets = out.lapSets || null;
-      wireInteractions(contentEl, out);
+      if (!contentEl) return false;
+      try {
+        var out = render(full, prefs, syncMeta || {});
+        contentEl.innerHTML = out.html || "";
+        win.RunDetailView._lastLapSets = out.lapSets || null;
+        try {
+          wireInteractions(contentEl, out);
+        } catch (wireErr) {
+          console.warn("run detail interactions failed", wireErr);
+        }
+        return (
+          !!(out.html && out.html.length > 10) ||
+          contentEl.childElementCount > 0
+        );
+      } catch (err) {
+        console.error("run detail render failed", err);
+        contentEl.innerHTML = "";
+        return false;
+      }
     },
   };
 })(window);

@@ -79,7 +79,12 @@
   // disagreed about the apostrophe, so identical content was safe on
   // some pages and attribute-injectable on others.
   function esc(s) {
-    return window.AppCommon.escapeHtml(s);
+    if (window.AppCommon && window.AppCommon.escapeHtml) {
+      return window.AppCommon.escapeHtml(s);
+    }
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
   }
 
   // issue #531: empty for falsy/non-positive, else the shared h:mm:ss/m:ss form.
@@ -269,6 +274,7 @@
   }
   window.TrainingLog = window.TrainingLog || {};
   window.TrainingLog.openWorkout = openWorkoutDeepLink;
+  window.TrainingLog.patchWorkoutFromDetail = patchWorkoutFromDetail;
 
   function _scrollListToWorkout(wid) {
     var MAX_BATCHES = 200; // safety cap; each batch is ~30 workouts
@@ -613,6 +619,38 @@
       activePosIndex = findPosIndex(activeDetailWorkoutId);
       syncActiveRow();
       updatePositionPill();
+    }
+  }
+
+  /** Run detail (rd4) name edit → keep list row + caches in sync. */
+  function patchWorkoutFromDetail(updated) {
+    if (!updated || !updated.id) return;
+    var name =
+      updated.name != null && updated.name !== ""
+        ? updated.name
+        : updated.title;
+    if (cachedDetailWorkout && cachedDetailWorkout.id === updated.id) {
+      cachedDetailWorkout.name = name;
+    }
+    if (
+      cachedDetailFull &&
+      cachedDetailFull.workout &&
+      cachedDetailFull.workout.id === updated.id
+    ) {
+      cachedDetailFull.workout.name = name;
+    }
+    updateOverflowMenu(cachedDetailWorkout);
+    if (patchWorkoutInPlace(updated)) {
+      rerenderListInPlace();
+      return;
+    }
+    var listRow = document.querySelector(
+      '.entry-row[data-workout-id="' + updated.id + '"]',
+    );
+    if (listRow && name) {
+      var listTitle = listRow.querySelector(".ntitle");
+      if (listTitle) listTitle.textContent = name;
+      listRow.dataset.workoutTitle = String(name).toLowerCase();
     }
   }
 
@@ -1628,7 +1666,18 @@
     return (
       (workout.source || "").includes("strava") ||
       !!workout.strava_activity_url ||
-      !!workout.strava_activity_pk
+      !!workout.strava_activity_pk ||
+      !!workout.has_strava
+    );
+  }
+
+  function isStrydWorkout(workout) {
+    if (!workout) return false;
+    return (
+      (workout.source || "").includes("stryd") ||
+      !!workout.is_stryd_synced ||
+      !!workout.stryd_activity_pk ||
+      !!workout.has_stryd
     );
   }
 
@@ -2119,6 +2168,284 @@
     return todayISO();
   }
 
+  /** Example plan matching POST /api/workouts/{id}/exercises/replace (ExerciseIn). */
+  var STRENGTH_PLAN_SAMPLE = {
+    exercises: [
+      { block: "Warm-up · 3 rounds", name: "Dead bug", sets: 3, reps: 20 },
+      {
+        block: "Warm-up · 3 rounds",
+        name: "Single Leg RDL (each leg)",
+        sets: 3,
+        reps: 10,
+        weight_kg: 10,
+      },
+      { block: "Warm-up · 3 rounds", name: "Squat hold", sets: 3, duration_seconds: 15 },
+      {
+        block: "Warm-up · 3 rounds",
+        name: "Glute bridge",
+        sets: 3,
+        reps: 15,
+        weight_kg: 10,
+      },
+      { block: "Warm-up · 3 rounds", name: "Inch worm", sets: 3, reps: 5 },
+      { block: "Main lift", name: "Back Squat", sets: 4, reps: 6, weight_kg: 70 },
+      { block: "Accessories", name: "Back extension", sets: 3, reps: 15 },
+      { block: "Accessories", name: "Wall sit", sets: 3, duration_seconds: 40 },
+      {
+        block: "Finisher",
+        name: "Step up",
+        sets: 3,
+        reps: 16,
+        weight_kg: 10,
+      },
+      { block: "Finisher", name: "Inclined push-up", sets: 3, reps: 8 },
+    ],
+  };
+
+  function buildStrengthPortableJson(workout) {
+    var jsonObj = {
+      name: workout.name || "",
+      date: workout.workout_date || "",
+      type: workout.workout_type || "",
+    };
+    if (workout.remarks) jsonObj.remarks = workout.remarks;
+    var exercises = workout.exercises || [];
+    if (exercises.length) {
+      jsonObj.exercises = exercises.map(function (ex) {
+        var e = { name: ex.name || "" };
+        if (ex.block) e.block = ex.block;
+        if (ex.sets != null) e.sets = ex.sets;
+        if (ex.reps != null) e.reps = ex.reps;
+        if (ex.weight_kg != null) e.weight_kg = parseFloat(ex.weight_kg);
+        if (ex.rpe != null) e.rpe = ex.rpe;
+        if (ex.duration_seconds != null) e.duration_seconds = ex.duration_seconds;
+        if (ex.sets_json) {
+          try {
+            e.sets_json = JSON.parse(ex.sets_json);
+          } catch (_e) {
+            e.sets_json = ex.sets_json;
+          }
+        }
+        return e;
+      });
+    } else {
+      jsonObj.exercises = [];
+    }
+    return jsonObj;
+  }
+
+  function _fmtApiDetail(body) {
+    var d = body && body.detail;
+    if (!d) return "Request failed";
+    if (Array.isArray(d)) {
+      return d
+        .map(function (x) {
+          return x.msg || JSON.stringify(x);
+        })
+        .join("; ");
+    }
+    return String(d);
+  }
+
+  function sanitizePlanExercises(rawList) {
+    var allowed = {
+      name: 1,
+      block: 1,
+      sets: 1,
+      reps: 1,
+      weight_kg: 1,
+      weight: 1,
+      load: 1,
+      rpe: 1,
+      duration: 1,
+      distance_km: 1,
+      duration_seconds: 1,
+      avg_hr: 1,
+      sets_json: 1,
+    };
+    return (rawList || []).map(function (ex) {
+      var clean = {};
+      Object.keys(ex || {}).forEach(function (k) {
+        if (!allowed[k]) return;
+        var v = ex[k];
+        if (k === "load" || k === "weight") {
+          var w = typeof v === "string" ? parseFloat(v) : v;
+          clean.weight_kg = isNaN(w) ? null : w;
+          return;
+        }
+        if (k === "reps" || k === "sets" || k === "rpe" || k === "avg_hr") {
+          if (typeof v === "string") {
+            var n = parseInt(v, 10);
+            v = isNaN(n) ? null : n;
+          }
+        }
+        if (k === "sets_json") {
+          if (Array.isArray(v)) clean.sets_json = JSON.stringify(v);
+          else if (typeof v === "string") clean.sets_json = v;
+          return;
+        }
+        clean[k] = v;
+      });
+      return clean;
+    });
+  }
+
+  function saveWorkoutPlanJson(workoutId, parsed) {
+    var patchBody = {};
+    if (parsed.name != null) patchBody.name = parsed.name;
+    if (parsed.date != null) patchBody.workout_date = parsed.date;
+    if (parsed.type != null) patchBody.workout_type = parsed.type;
+    if ("remarks" in parsed) patchBody.remarks = parsed.remarks || null;
+    if ("notes" in parsed) patchBody.remarks = parsed.notes || null;
+    var newExercises = sanitizePlanExercises(parsed.exercises);
+
+    return fetch("/api/workouts/" + workoutId, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patchBody),
+    })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (b) { throw new Error(_fmtApiDetail(b)); });
+        return r.json();
+      })
+      .then(function () {
+        return fetch("/api/workouts/" + workoutId + "/exercises/replace", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ exercises: newExercises }),
+        });
+      })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (b) { throw new Error(_fmtApiDetail(b)); });
+        return r.json();
+      });
+  }
+
+  function renderStrengthPlanPasteSection(workout) {
+    var empty = !(workout.exercises || []).length;
+    var jsonStr = JSON.stringify(buildStrengthPortableJson(workout), null, 2);
+    var lead = empty
+      ? "No exercises logged yet. Paste a plan JSON below (or start from the sample that matches your usual note format)."
+      : "Update the exercise list via JSON — same schema as Edit → JSON.";
+    return (
+      '<div class="dp-section dp-plan-paste' +
+      (empty ? " dp-plan-paste--empty" : "") +
+      '" id="dp-plan-paste">' +
+      '<div class="dp-section-title">Workout plan</div>' +
+      '<p class="dp-json-hint dp-plan-paste-lead">' +
+      esc(lead) +
+      " Fields: <code>block</code>, <code>name</code>, <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>duration_seconds</code>, <code>rpe</code>, <code>sets_json</code> (array).</p>" +
+      '<div class="dp-plan-paste-actions">' +
+      '<button type="button" class="dp-plan-btn" id="dp-plan-paste-clip">Paste from clipboard</button>' +
+      '<button type="button" class="dp-plan-btn dp-plan-btn--ghost" id="dp-plan-insert-sample">Insert sample plan</button>' +
+      (empty
+        ? ""
+        : '<button type="button" class="dp-plan-btn dp-plan-btn--ghost" id="dp-plan-toggle">Hide editor</button>') +
+      "</div>" +
+      '<textarea id="dp-plan-json-ta" class="dp-json-ta dp-plan-json-ta" spellcheck="false">' +
+      esc(jsonStr) +
+      "</textarea>" +
+      '<div class="dp-json-actions">' +
+      '<button type="button" class="dp-json-save-btn" id="dp-plan-save">Save plan</button>' +
+      '<span id="dp-plan-msg" class="dp-json-msg"></span>' +
+      "</div></div>"
+    );
+  }
+
+  function wireStrengthPlanPastePanel(workout) {
+    var host = document.getElementById("dp-plan-paste");
+    if (!host || !workout.id) return;
+    var ta = document.getElementById("dp-plan-json-ta");
+    var saveBtn = document.getElementById("dp-plan-save");
+    var msgEl = document.getElementById("dp-plan-msg");
+    var clipBtn = document.getElementById("dp-plan-paste-clip");
+    var sampleBtn = document.getElementById("dp-plan-insert-sample");
+    var toggleBtn = document.getElementById("dp-plan-toggle");
+
+    if (toggleBtn && ta) {
+      toggleBtn.addEventListener("click", function () {
+        var hidden = ta.classList.toggle("dp-plan-json-ta--collapsed");
+        toggleBtn.textContent = hidden ? "Show JSON editor" : "Hide editor";
+      });
+    }
+
+    if (clipBtn && ta) {
+      clipBtn.addEventListener("click", function () {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+          if (UIStates && UIStates.showToast) {
+            UIStates.showToast("Clipboard not available — paste with Cmd+V", true);
+          }
+          ta.focus();
+          return;
+        }
+        navigator.clipboard.readText().then(function (text) {
+          ta.value = text;
+          ta.focus();
+          if (msgEl) {
+            msgEl.textContent = "Pasted from clipboard";
+            msgEl.className = "dp-json-msg dp-json-msg--ok";
+          }
+        }).catch(function () {
+          ta.focus();
+          if (UIStates && UIStates.showToast) {
+            UIStates.showToast("Allow clipboard access, or paste manually", true);
+          }
+        });
+      });
+    }
+
+    if (sampleBtn && ta) {
+      sampleBtn.addEventListener("click", function () {
+        ta.value = JSON.stringify(STRENGTH_PLAN_SAMPLE, null, 2);
+        ta.focus();
+        if (msgEl) {
+          msgEl.textContent = "Sample inserted — edit then Save plan";
+          msgEl.className = "dp-json-msg dp-json-msg--ok";
+        }
+      });
+    }
+
+    if (!saveBtn || !ta) return;
+    saveBtn.addEventListener("click", function () {
+      var parsed;
+      try {
+        parsed = JSON.parse(ta.value);
+      } catch (e) {
+        if (msgEl) {
+          msgEl.textContent = "Invalid JSON: " + e.message;
+          msgEl.className = "dp-json-msg dp-json-msg--err";
+        }
+        return;
+      }
+      saveBtn.disabled = true;
+      if (msgEl) {
+        msgEl.textContent = "Saving…";
+        msgEl.className = "dp-json-msg";
+      }
+      saveWorkoutPlanJson(workout.id, parsed)
+        .then(function (data) {
+          saveBtn.disabled = false;
+          cachedDetailWorkout = data;
+          if (UIStates && UIStates.showToast) UIStates.showToast("Plan saved");
+          if (msgEl) {
+            msgEl.textContent = "Saved";
+            msgEl.className = "dp-json-msg dp-json-msg--ok";
+          }
+          if (patchWorkoutInPlace(data)) rerenderListInPlace();
+          fetchAndRenderDetail(workout.id);
+        })
+        .catch(function (err) {
+          saveBtn.disabled = false;
+          if (msgEl) {
+            msgEl.textContent = err.message || "Save failed";
+            msgEl.className = "dp-json-msg dp-json-msg--err";
+          }
+        });
+    });
+  }
+
   function openPanelCreate(presetDate) {
     if (activeRowEl) {
       activeRowEl.classList.remove("is-active");
@@ -2167,23 +2494,7 @@
     var formStack = formWrap.querySelector(".training-form-stack");
     if (!formStack) return;
 
-    // Build pre-filled JSON
-    var exercises = workout.exercises || [];
-    var jsonObj = { name: workout.name || "", date: workout.workout_date || "", type: workout.workout_type || "" };
-    if (workout.remarks) jsonObj.remarks = workout.remarks;
-    if (exercises.length) {
-      jsonObj.exercises = exercises.map(function (ex) {
-        var e = { name: ex.name || "" };
-        if (ex.block) e.block = ex.block;
-        if (ex.sets != null) e.sets = ex.sets;
-        if (ex.reps != null) e.reps = ex.reps;
-        if (ex.weight_kg != null) e.weight_kg = parseFloat(ex.weight_kg);
-        if (ex.rpe != null) e.rpe = ex.rpe;
-        if (ex.duration_seconds != null) e.duration_seconds = ex.duration_seconds;
-        return e;
-      });
-    }
-    var jsonStr = JSON.stringify(jsonObj, null, 2);
+    var jsonStr = JSON.stringify(buildStrengthPortableJson(workout), null, 2);
 
     // Tab bar — inserted before the form stack
     var tabBar = document.createElement("div");
@@ -2201,8 +2512,8 @@
     jsonPanel.className = "dp-section";
     jsonPanel.innerHTML =
       '<p class="dp-json-hint">Supported fields: <code>name</code>, <code>date</code>, <code>remarks</code> (or <code>notes</code>). ' +
-      'Exercises: <code>name</code>, <code>block</code> (training-block group, e.g. "Warm-up"), <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>rpe</code>. ' +
-      'Unknown fields like <code>load</code> are silently ignored.</p>' +
+      'Exercises: <code>name</code>, <code>block</code>, <code>sets</code>, <code>reps</code>, <code>weight_kg</code>, <code>duration_seconds</code>, <code>rpe</code>, <code>sets_json</code>. ' +
+      'Aliases <code>load</code>/<code>weight</code> → <code>weight_kg</code>.</p>' +
       '<textarea id="dp-edit-json-ta" class="dp-json-ta" spellcheck="false">' + esc(jsonStr) + '</textarea>' +
       '<div class="dp-json-actions">' +
       '<button type="button" class="dp-json-save-btn" id="dp-edit-json-save">Save changes</button>' +
@@ -2245,63 +2556,9 @@
       msgEl.textContent = "Saving…";
       msgEl.className = "dp-json-msg";
 
-      var patchBody = {};
-      if (parsed.name != null) patchBody.name = parsed.name;
-      if (parsed.date != null) patchBody.workout_date = parsed.date;
-      if (parsed.type != null) patchBody.workout_type = parsed.type;
-      // accept both "remarks" and "notes" (notes is more natural to users)
-      if ("remarks" in parsed) patchBody.remarks = parsed.remarks || null;
-      if ("notes" in parsed) patchBody.remarks = parsed.notes || null;
-
-      // Allowed exercise fields; coerce numeric strings to int/null
-      var EXERCISE_ALLOWED = { name: 1, block: 1, sets: 1, reps: 1, weight_kg: 1, rpe: 1, duration: 1, distance_km: 1, duration_seconds: 1, avg_hr: 1 };
-      var newExercises = (parsed.exercises || []).map(function (ex) {
-        var clean = {};
-        Object.keys(ex).forEach(function (k) {
-          if (!EXERCISE_ALLOWED[k]) return;
-          var v = ex[k];
-          if (k === "reps" || k === "sets" || k === "rpe" || k === "avg_hr") {
-            if (typeof v === "string") {
-              var n = parseInt(v, 10);
-              v = isNaN(n) ? null : n;
-            }
-          }
-          clean[k] = v;
-        });
-        return clean;
-      });
-
       var wid = workout.id;
 
-      function fmtDetail(body) {
-        var d = body && body.detail;
-        if (!d) return "Request failed";
-        if (Array.isArray(d)) return d.map(function (x) { return x.msg || JSON.stringify(x); }).join("; ");
-        return String(d);
-      }
-
-      fetch("/api/workouts/" + wid, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patchBody),
-      })
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (b) { throw new Error(fmtDetail(b)); });
-          return r.json();
-        })
-        .then(function () {
-          return fetch("/api/workouts/" + wid + "/exercises/replace", {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ exercises: newExercises }),
-          });
-        })
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (b) { throw new Error(fmtDetail(b)); });
-          return r.json();
-        })
+      saveWorkoutPlanJson(wid, parsed)
         .then(function () {
           saveBtn.disabled = false;
           UIStates.showToast("Workout saved!");
@@ -3211,6 +3468,101 @@
   }
 
   // ── Fetch and render detail ───────────────────────────────────────────────
+  function mergeWorkoutDetail(base, fromFull) {
+    var merged = Object.assign({}, base || {}, fromFull || {});
+    if (base && base.workout_type && !merged.workout_type) {
+      merged.workout_type = base.workout_type;
+    }
+    if (base && base.exercises && !merged.exercises) {
+      merged.exercises = base.exercises;
+    }
+    return merged;
+  }
+
+  /** Build a /full-shaped payload so Strava-only runs use RunDetailView (rd4), not legacy splits. */
+  function normalizeRunFullPayload(workout, full) {
+    full = full || {};
+    var w = mergeWorkoutDetail(workout, full.workout || workout || {});
+    var splits = Array.isArray(full.splits) ? full.splits : [];
+    var sources = full.sources || {};
+    var src = (w.source || "").toLowerCase();
+    var hasStrava =
+      !!sources.strava ||
+      src.indexOf("strava") >= 0 ||
+      !!w.strava_activity_pk ||
+      !!w.strava_activity_url;
+    var hasStryd =
+      !!sources.stryd ||
+      src.indexOf("stryd") >= 0 ||
+      !!w.stryd_activity_pk ||
+      !!w.is_stryd_synced;
+    if (hasStrava && !sources.strava) {
+      sources.strava = {};
+    }
+    return {
+      workout: w,
+      splits: splits,
+      sources: {
+        strava: sources.strava || null,
+        stryd: sources.stryd || null,
+      },
+      unified: full.unified || {},
+      computed: full.computed || {},
+      field_coverage: full.field_coverage || {
+        strava: hasStrava,
+        stryd: hasStryd,
+        has_splits: splits.length > 0,
+      },
+      detected_profile: full.detected_profile || {},
+      computed_tss:
+        full.computed_tss != null ? full.computed_tss : null,
+      tss_method: full.tss_method || w.tss_method || "none",
+      tss: full.tss != null ? full.tss : w.tss,
+      tss_partial: !!full.tss_partial,
+      aerobic_decoupling: full.aerobic_decoupling,
+      intensity_zones: full.intensity_zones,
+    };
+  }
+
+  function paintRunDetailDrawer(workout, full, prefs, stravaLatest, strydLatest) {
+    var payload = normalizeRunFullPayload(workout, full);
+    var w = payload.workout;
+    var contentEl = document.getElementById("dp-content");
+    var painted = false;
+
+    if (window.RunDetailView && window.RunDetailView.render && contentEl) {
+      try {
+        painted = !!window.RunDetailView.render(contentEl, payload, prefs, {
+          stravaLatest: stravaLatest,
+          strydLatest: strydLatest,
+        });
+        if (painted) {
+          cachedDetailFull = payload;
+          var feelHost = document.getElementById("rd4-feeling");
+          if (feelHost && w.id) {
+            feelHost.innerHTML = "";
+            feelHost.appendChild(buildFeelingRow(w.id, w.feeling, "dp-feel"));
+          }
+        }
+      } catch (err) {
+        console.error("run detail render failed", err);
+        painted = false;
+      }
+    }
+
+    if (!painted) {
+      cachedDetailFull = payload;
+      if (contentEl && window.RunDetailView) {
+        contentEl.innerHTML =
+          '<div class="rd4-stack"><section class="rd4-card">' +
+          '<p class="rd4-muted">Could not load run detail. Try closing and reopening this workout.</p>' +
+          "</section></div>";
+      } else {
+        renderDetailContent(w, payload.splits || []);
+      }
+    }
+  }
+
   function fetchAndRenderDetail(workoutId) {
     var loadingEl = document.getElementById("dp-loading");
     var errorEl = document.getElementById("dp-error");
@@ -3243,9 +3595,18 @@
           Promise.all([
             fetch("/api/workouts/" + workoutId + "/full?streams=none")
               .then(function (r) {
-                return r.ok ? r.json() : null;
+                if (!r.ok) {
+                  console.warn(
+                    "workout /full failed",
+                    r.status,
+                    workoutId,
+                  );
+                  return null;
+                }
+                return r.json();
               })
-              .catch(function () {
+              .catch(function (err) {
+                console.warn("workout /full error", workoutId, err);
                 return null;
               }),
             _userPrefsFetch,
@@ -3263,16 +3624,45 @@
               .catch(function () {
                 return null;
               }),
-          ]).then(function (results) {
-            var full = results[0];
-            var prefs = results[1];
-            var stravaLatest = results[2];
-            var strydLatest = results[3];
-            if (loadingEl) loadingEl.style.display = "none";
-            if (full && full.workout)
-              renderRunView(full, prefs, stravaLatest, strydLatest);
-            else renderDetailContent(workout, []);
-          });
+          ])
+            .then(function (results) {
+              var full = results[0];
+              var prefs = results[1];
+              var stravaLatest = results[2];
+              var strydLatest = results[3];
+              var splitsPromise = Promise.resolve(
+                full && full.splits ? full.splits : null,
+              );
+              if (!full || !full.splits || !full.splits.length) {
+                splitsPromise = fetch("/api/workouts/" + workoutId + "/splits")
+                  .then(function (r) {
+                    return r.ok ? r.json() : [];
+                  })
+                  .catch(function () {
+                    return [];
+                  });
+              }
+              return splitsPromise.then(function (splits) {
+                if (full && splits && splits.length && !full.splits) {
+                  full.splits = splits;
+                } else if (!full && splits) {
+                  full = { splits: splits };
+                }
+                if (loadingEl) loadingEl.style.display = "none";
+                paintRunDetailDrawer(
+                  workout,
+                  full,
+                  prefs,
+                  stravaLatest,
+                  strydLatest,
+                );
+              });
+            })
+            .catch(function (err) {
+              console.error("run detail fetch failed", err);
+              if (loadingEl) loadingEl.style.display = "none";
+              renderDetailContent(workout, []);
+            });
         } else if (isBike) {
           fetch("/api/workouts/" + workoutId + "/splits")
             .then(function (r) {
@@ -3341,7 +3731,8 @@
     var sets = _parseSetsJson(ex);
     if (sets && sets.length) {
       return sets.reduce(function (v, s) {
-        return v + (s.weight || 0) * (s.reps || 0);
+        var w = s.weight_kg != null ? s.weight_kg : s.weight;
+        return v + (w || 0) * (s.reps || 0);
       }, 0);
     }
     if (ex.weight_kg != null && ex.reps != null && ex.sets != null) {
@@ -3404,7 +3795,7 @@
       );
       wAgg = _setAgg(
         use.map(function (s) {
-          return s.weight;
+          return s.weight_kg != null ? s.weight_kg : s.weight;
         }),
       );
       rpeAgg = _setAgg(
@@ -3632,20 +4023,13 @@
     });
 
   function renderRunView(full, prefs, stravaLatest, strydLatest) {
-    cachedDetailFull = full || null;
-    var contentEl = document.getElementById("dp-content");
-    if (!contentEl || !window.RunDetailView) return;
-    window.RunDetailView.render(contentEl, full, prefs, {
-      stravaLatest: stravaLatest,
-      strydLatest: strydLatest,
-    });
-    // Mount the quick-tag feeling row into the run view header (the view builds
-    // its own DOM string; we add the interactive row after render).
-    var w = full.workout || {};
-    var feelHost = document.getElementById("rd4-feeling");
-    if (feelHost && w.id) {
-      feelHost.appendChild(buildFeelingRow(w.id, w.feeling, "dp-feel"));
-    }
+    paintRunDetailDrawer(
+      full.workout || {},
+      full,
+      prefs,
+      stravaLatest,
+      strydLatest,
+    );
   }
 
   function renderDetailContent(workout, splits) {
@@ -3667,7 +4051,7 @@
 
     var sourceHtml = "";
     var dpIsStrava = isStravaWorkout(workout);
-    var dpIsStryd = !!workout.is_stryd_synced;
+    var dpIsStryd = isStrydWorkout(workout);
     if (dpIsStrava) {
       sourceHtml +=
         '<span class="dp-src-badge dp-src-badge--strava" title="strava">St</span>';
@@ -4190,6 +4574,12 @@
         "</div>";
     }
 
+    // ── Strength plan JSON (paste / sample) ─────────────────────────────────
+    var planPasteHtml = "";
+    if (!isCardio && workout.id) {
+      planPasteHtml = renderStrengthPlanPasteSection(workout);
+    }
+
     // ── Exercises section (LIFT / WOD) ─────────────────────────────────────
     var exercisesHtml = "";
     if (!isCardio && exercises.length) {
@@ -4283,12 +4673,15 @@
       '<div class="dp-view-stack">' +
       heroHtml +
       statsHtml +
+      planPasteHtml +
       segmentsHtml +
       intervalsHtml +
       splitsHtml +
       exercisesHtml +
       notesHtml +
       "</div>";
+
+    if (planPasteHtml) wireStrengthPlanPastePanel(workout);
 
     // Quick-tag effort feeling in the drawer header (interactive → mount after
     // the HTML string is injected). Shares patchFeeling with the log-list row.

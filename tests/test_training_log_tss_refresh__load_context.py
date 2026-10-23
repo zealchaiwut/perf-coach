@@ -1,4 +1,4 @@
-"""Training log must stay 200 when TSS refresh commits with include_load_context."""
+"""Training log must stay 200 with include_load_context (read path, no TSS commit)."""
 
 from datetime import date
 from unittest.mock import MagicMock, patch
@@ -16,7 +16,7 @@ from tests.test_surface_training_load_chart__528 import (
 
 
 def test_training_log_ok_after_tss_persist_with_snapshot():
-    """Regression: commit after persist must not detach today_snap (500 on /log)."""
+    """Regression: load_context snapshot fields must not 500 the training-log list."""
     client = _make_client()
     snap = _make_snap(55.0, 60.0, -5.0)
     run = MagicMock()
