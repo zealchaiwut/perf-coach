@@ -29,12 +29,7 @@
   // disagreed about the apostrophe, so identical content was safe on
   // some pages and attribute-injectable on others.
   function esc(s) {
-    if (win.AppCommon && win.AppCommon.escapeHtml) {
-      return win.AppCommon.escapeHtml(s);
-    }
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
+    return win.AppCommon.escapeHtml(s);
   }
 
   function dash(v) {
