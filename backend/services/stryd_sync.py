@@ -480,6 +480,7 @@ def sync_stryd_activities(
             "updated": updated,
             "upserted": created + updated,
             "stryd_activity_ids": ids,
+            "since_date": since_date,
         }
 
     except Exception as exc:
