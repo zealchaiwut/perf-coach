@@ -19072,6 +19072,32 @@ def get_athlete_monthly_summary(
     return JSONResponse(_mpayload)
 
 
+# ── Session consult prompt (race debrief clipboard) ───────────────────────────
+
+
+@app.get("/api/sessions/{session_id}/consult-prompt")
+def get_session_consult_prompt(session_id: str, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session_id")
+    from backend.services.session_consult import build_session_consult
+
+    with Session(engine) as session:
+        w = session.get(Workout, wid)
+        if w is None or w.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Session not found")
+        result = build_session_consult(wid, user_id=user.id, db=session)
+    return JSONResponse(
+        {
+            "kind": result.kind,
+            "prompt": result.prompt,
+            "chars": result.chars,
+            "missing": result.missing,
+        }
+    )
+
+
 # ── Intensity Distribution ───────────────────────────────────────────────────
 
 _LOW_BANDS = {"easy", "steady"}

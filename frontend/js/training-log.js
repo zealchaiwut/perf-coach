@@ -3322,6 +3322,82 @@
     });
   }
 
+  function _formatConsultChars(chars) {
+    if (chars >= 1000) return (Math.round(chars / 100) / 10) + "k chars";
+    return chars + " chars";
+  }
+
+  function closeConsultFallbackModal() {
+    var overlay = document.getElementById("dp-consult-overlay");
+    if (overlay) overlay.classList.remove("is-open");
+  }
+
+  function openConsultFallbackModal(text, successToast) {
+    var overlay = document.getElementById("dp-consult-overlay");
+    var area = document.getElementById("dp-consult-text");
+    if (!overlay || !area) return;
+    area.value = text || "";
+    overlay.classList.add("is-open");
+    area.focus();
+    area.select();
+    if (successToast) UIStates.showToast(successToast);
+  }
+
+  function copySessionConsultPrompt() {
+    if (!activeDetailWorkoutId || panelMode !== "view") return;
+    var btn = document.getElementById("dp-consult-btn");
+    var origHtml = btn ? btn.innerHTML : "";
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="ti ti-loader-2" aria-hidden="true"></i>';
+    }
+    fetch(
+      "/api/sessions/" + encodeURIComponent(activeDetailWorkoutId) + "/consult-prompt",
+      { credentials: "same-origin" },
+    )
+      .then(function (res) {
+        if (!res.ok) throw new Error("request failed");
+        return res.json();
+      })
+      .then(function (data) {
+        var label = data.kind === "race" ? "race debrief" : "session review";
+        var toast = "Copied · " + label + " · " + _formatConsultChars(data.chars || 0);
+        var prompt = data.prompt || "";
+        function afterCopy() {
+          UIStates.showToast(toast);
+          if (data.missing && data.missing.length) {
+            UIStates.showToast(
+              "Not available: " + data.missing.slice(0, 8).join(", "),
+            );
+          }
+        }
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          return navigator.clipboard
+            .writeText(prompt)
+            .then(afterCopy)
+            .catch(function () {
+              openConsultFallbackModal(
+                prompt,
+                "Ready · " + label + " · " + _formatConsultChars(data.chars || 0),
+              );
+            });
+        }
+        openConsultFallbackModal(
+          prompt,
+          "Ready · " + label + " · " + _formatConsultChars(data.chars || 0),
+        );
+      })
+      .catch(function () {
+        UIStates.showToast("Could not build consult prompt", true);
+      })
+      .finally(function () {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
+      });
+  }
+
   function saveDetailScreenshot() {
     if (_detailScreenshotBusy) return;
     if (panelMode !== "view") return;
@@ -5796,6 +5872,47 @@
       screenshotBtn.addEventListener("click", function (e) {
         e.stopPropagation();
         saveDetailScreenshot();
+      });
+    }
+
+    var consultBtn = document.getElementById("dp-consult-btn");
+    if (consultBtn) {
+      consultBtn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        copySessionConsultPrompt();
+      });
+    }
+
+    var consultClose = document.getElementById("dp-consult-close");
+    if (consultClose) {
+      consultClose.addEventListener("click", closeConsultFallbackModal);
+    }
+    var consultCopy = document.getElementById("dp-consult-copy");
+    if (consultCopy) {
+      consultCopy.addEventListener("click", function () {
+        var area = document.getElementById("dp-consult-text");
+        if (!area) return;
+        var text = area.value || "";
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard
+            .writeText(text)
+            .then(function () {
+              UIStates.showToast("Copied consult prompt");
+              closeConsultFallbackModal();
+            })
+            .catch(function () {
+              area.select();
+              UIStates.showToast("Select the text and copy manually", true);
+            });
+        } else {
+          area.select();
+        }
+      });
+    }
+    var consultOverlay = document.getElementById("dp-consult-overlay");
+    if (consultOverlay) {
+      consultOverlay.addEventListener("click", function (e) {
+        if (e.target === consultOverlay) closeConsultFallbackModal();
       });
     }
 
