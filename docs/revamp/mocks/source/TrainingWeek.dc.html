@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Training · Plan</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1f3b8a}a:hover{color:#0b1530}
+.card{background:#ffffff;border-radius:14px;box-shadow:0 2px 12px rgba(13,30,67,0.10),0 1px 3px rgba(13,30,67,0.06);padding:18px;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;min-width:0}
+.soft{background:#e3eaf8}
+.lbl{font-size:12px;font-weight:700;letter-spacing:0.1em;color:#5f6b84;text-transform:uppercase}
+.mono{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em}
+.sub{font-size:13px;color:#56627f}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.tab{font-size:14px;font-weight:700;color:#e3ecff;text-decoration:none;padding:9px 16px;border-radius:10px}
+.tab.on{background:#ffffff;color:#0b1530}
+.sv{font-size:13.5px;font-weight:700;color:#3c4a6b;text-decoration:none;padding:9px 16px;border-radius:8px}
+.sv.on{background:#0b1530;color:#ffffff}
+.btn{appearance:none;font:inherit;font-size:14px;font-weight:700;border-radius:10px;min-height:44px;cursor:pointer;padding:11px 16px}
+.tile{background:#f7f9fd;border-radius:11px;padding:12px 14px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.bx{position:relative;height:200px}
+.tgt{position:absolute;bottom:0;left:4%;right:4%;border:2px dashed #8ba7e6;border-bottom:0;border-radius:6px 6px 0 0;box-sizing:border-box}
+.act{position:absolute;bottom:0;left:18%;right:18%;background:#1f3b8a;border-radius:5px 5px 0 0}
+.val{position:absolute;left:0;right:0;text-align:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600}
+.ph{font-size:10.5px;font-weight:800;letter-spacing:0.08em;text-align:center;padding:5px 0;border-radius:6px}
+.sess{border-radius:11px;padding:11px;display:flex;flex-direction:column;gap:5px;min-width:0;text-decoration:none;color:#0b1530}
+.who{font-size:10px;font-weight:800;letter-spacing:0.08em}
+.dh{padding:2px 2px 5px;font-size:11px;font-weight:700;color:#5f6b84}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 32px 48px 56px; background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%); font-family: 'Inter Tight', system-ui, sans-serif; color: #0b1530; letter-spacing: -0.01em">
+<div style="max-width: 1344px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap">
+    <div style="color: #ffffff; display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 34px; font-weight: 700; letter-spacing: -0.025em">Training</span>
+      <span style="font-size: 15px; color: #e3ecff">Sunday, 8 November · Bangsaen42 (B race) next Sunday</span>
+    </div>
+    <nav style="display: flex; gap: 4px; background: rgba(11,21,48,0.3); padding: 5px; border-radius: 13px">
+      <a href="Main.dc.html" class="tab">Home</a>
+      <a href="TrainingWeek.dc.html" class="tab on">Training</a>
+      <a href="Performance.dc.html" class="tab">Performance</a>
+    </nav>
+  </div>
+
+  <div class="card" style="flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 12px 16px">
+    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+      <nav style="display: inline-flex; background: #eef2fb; border-radius: 10px; padding: 3px; gap: 2px">
+        <a href="TrainingWeek.dc.html" class="sv on">Plan</a>
+        <a href="TrainingLog.dc.html" class="sv">Log</a>
+        <a href="TrainingTrends.dc.html" class="sv">Trends</a>
+      </nav>
+      <span style="display: inline-flex; align-items: center; gap: 7px; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #16a34a"></span><b>Strava</b><span class="sub">synced 06:58</span></span>
+      <span style="display: inline-flex; align-items: center; gap: 7px; font-size: 13px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #16a34a"></span><b>Stryd</b><span class="sub">synced 06:58</span></span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px">
+      <button type="button" class="btn" style="background: #ffffff; color: #0b1530; border: 1px solid #c9d2e3; font-size: 13px">Sync now</button>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 20px 24px; gap: 16px">
+    <div class="row" style="flex-wrap: wrap">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="lbl">Road to Bangsaen21</span>
+        <span style="font-size: 19px; font-weight: 700">Load plan · 5 Oct → Sun 20 Dec</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px">
+        <span class="chip" style="background: #fff4d8; color: #6b4408; font-size: 12px; padding: 5px 10px">A race changed 8 Nov · was Bangsaen42</span>
+        <a href="#plan-settings" style="font-size: 13px; font-weight: 600">Change plan settings</a>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px">
+      <div class="tile"><span class="sub" style="font-size: 12px">A race</span><span style="font-size: 15px; font-weight: 700">Bangsaen21 · 20 Dec</span><span class="sub" style="font-size: 12px">half · goal 1:50:00</span></div>
+      <div class="tile"><span class="sub" style="font-size: 12px">To A race</span><span style="font-size: 15px; font-weight: 700">6 weeks</span></div>
+      <div class="tile"><span class="sub" style="font-size: 12px">B race in block</span><span style="font-size: 15px; font-weight: 700">Bangsaen42 · 15 Nov</span><span class="sub" style="font-size: 12px">counts ≈290 TSS</span></div>
+      <div class="tile"><span class="sub" style="font-size: 12px">Ramp</span><span style="font-size: 15px; font-weight: 700">+5% a week</span></div>
+      <div class="tile"><span class="sub" style="font-size: 12px">Peak</span><span style="font-size: 15px; font-weight: 700">1 week · 300 TSS</span></div>
+      <div class="tile"><span class="sub" style="font-size: 12px">Taper</span><span style="font-size: 15px; font-weight: 700">10 days · 75% → 40%</span></div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 8px; padding-top: 10px">
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 120px;"></div><div class="act" style="height: 127px; background: #1f3b8a"></div><span class="val" style="bottom: 131px; color: #0b1530">254</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">5 Oct</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 95px;"></div><div class="act" style="height: 78px; background: #1f3b8a"></div><span class="val" style="bottom: 99px; color: #0b1530">157</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">12 Oct</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 158px;"></div><div class="act" style="height: 176px; background: #b45309"></div><span class="val" style="bottom: 180px; color: #7a3a10">353 · +37</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">19 Oct</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 158px;"></div><div class="act" style="height: 176px; background: #b45309"></div><span class="val" style="bottom: 180px; color: #7a3a10">352 · +36</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">26 Oct</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 118px; border-color: #d9a441"></div><div class="act" style="height: 130px; background: #b45309"></div><span class="val" style="bottom: 134px; color: #7a3a10">260 · +23</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">2 Nov</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 208px; border-color: #b8c400; background: #fdffe8"></div><div class="act" style="height: 59px; background: repeating-linear-gradient(135deg, #8ba7e6 0 6px, #c7d7f5 6px 12px)"></div><div class="act" style="bottom: 59px; height: 145px; background: repeating-linear-gradient(135deg, #d4e400 0 6px, #eef87a 6px 12px); border-radius: 5px 5px 0 0"></div><span style="position: absolute; left: 0; right: 0; bottom: 120px; text-align: center; font-size: 10.5px; font-weight: 800; color: #4a5200">BS42</span><span class="val" style="bottom: 212px; color: #0b1530">118 + race</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px; font-weight: 700; color: #0b1530">9 Nov</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 65px; background: #f8faff"></div><span style="position: absolute; left: 50%; transform: translateX(-50%); bottom: 92px; font-size: 10.5px; font-weight: 800; color: #7a3a10; background: #fff1dc; border-radius: 6px; padding: 3px 6px; white-space: nowrap">CP 18 km</span><span class="val" style="bottom: 69px; color: #0b1530">130</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">16 Nov</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 120px; background: #f8faff"></div><span class="val" style="bottom: 124px; color: #0b1530">240</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">23 Nov</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 150px; background: #f8faff"></div><span class="val" style="bottom: 154px; color: #0b1530">300</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">30 Nov</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 112px; background: #f8faff; border-color: #d9a441"></div><span class="val" style="bottom: 116px; color: #0b1530">225</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">7 Dec</span>
+      </div>
+      <div class="col">
+        <div class="bx" style="height: 230px"><div class="tgt" style="height: 135px; border-color: #e07a7a; background: #fff8f8"></div><div class="act" style="bottom: 60px; height: 75px; background: repeating-linear-gradient(135deg, #d4e400 0 6px, #eef87a 6px 12px); border-radius: 5px 5px 0 0"></div><span style="position: absolute; left: 0; right: 0; bottom: 90px; text-align: center; font-size: 10.5px; font-weight: 800; color: #4a5200">BS21</span><span class="val" style="bottom: 139px; color: #0b1530">120 + race</span></div>
+        <span class="mono sub" style="text-align: center; font-size: 12px;">14 Dec</span>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 8px">
+      <div class="ph" style="grid-column: span 2; background: #eef2fb; color: #33405e">BUILD</div>
+      <div class="ph" style="grid-column: span 2; background: #e3eaf8; color: #1f3b8a">PEAK HOLD</div>
+      <div class="ph" style="background: #fff4d8; color: #6b4408">MINI-TAPER</div>
+      <div class="ph" style="background: #f4ff9e; color: #4a5200">B RACE</div>
+      <div class="ph" style="background: #e6f6ec; color: #2d5e10">RECOVER</div>
+      <div class="ph" style="background: #eef2fb; color: #33405e">REBUILD</div>
+      <div class="ph" style="background: #e3eaf8; color: #1f3b8a">PEAK</div>
+      <div class="ph" style="background: #fff4d8; color: #6b4408">TAPER</div>
+      <div class="ph" style="background: #fde8e8; color: #7a1a1a">A RACE</div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px">
+      <div style="background: #fff4d8; border-radius: 11px; padding: 12px 14px; display: flex; gap: 12px; align-items: flex-start; justify-content: space-between">
+        <span style="font-size: 13.5px; color: #6b4408; line-height: 1.5"><b>Checkpoint 18 km on Sat 21 Nov is six days after the marathon.</b> Your legs won't be ready. Run it easy, or move it to 28 Nov.</span>
+        <button type="button" class="btn" style="background: #ffffff; color: #6b4408; border: 1px solid #e8cf9f; font-size: 13px; padding: 8px 12px; min-height: 36px; white-space: nowrap">Move to 28 Nov</button>
+      </div>
+      <div style="background: #f7f9fd; border-radius: 11px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+        <span style="font-size: 13.5px; line-height: 1.5"><b>The marathon is the biggest load of the block</b> — about 290 TSS in one go. Recovery week sits at 40% so you rebuild into Bangsaen21 rather than through it.</span>
+        <span class="mono sub" style="font-size: 12px">Projected on 20 Dec · CTL 52 · TSB +14</span>
+      </div>
+    </div>
+
+    <div class="row" style="flex-wrap: wrap; border-top: 1px solid #eef1f7; padding-top: 12px">
+      <div style="display: flex; gap: 18px; flex-wrap: wrap">
+        <span class="sub" style="display: inline-flex; align-items: center; gap: 7px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #1f3b8a"></span>Done, on target</span>
+        <span class="sub" style="display: inline-flex; align-items: center; gap: 7px"><span style="width: 12px; height: 12px; border-radius: 3px; background: #b45309"></span>Done, over target</span>
+        <span class="sub" style="display: inline-flex; align-items: center; gap: 7px"><span style="width: 12px; height: 12px; border-radius: 3px; background: repeating-linear-gradient(135deg, #8ba7e6 0 3px, #c7d7f5 3px 6px)"></span>Planned</span>
+        <span class="sub" style="display: inline-flex; align-items: center; gap: 7px"><span style="width: 12px; height: 12px; border-radius: 3px; background: repeating-linear-gradient(135deg, #d4e400 0 3px, #eef87a 3px 6px)"></span>Race · estimated TSS</span>
+        <span class="sub" style="display: inline-flex; align-items: center; gap: 7px"><span style="width: 12px; height: 12px; border-radius: 3px; border: 2px dashed #8ba7e6; box-sizing: border-box"></span>Target</span>
+      </div>
+      <span style="font-size: 13px; font-weight: 600; color: #7a3a10">Peak hold and mini-taper each ran about 10% over</span>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 20px 24px; gap: 14px">
+    <div class="row" style="flex-wrap: wrap">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="lbl">This week's load · 9–15 Nov · B-race week</span>
+        <span class="sub">Where the target comes from, and how the planned sessions add up to it</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 10px">
+        <span class="chip" style="background: #dff5d6; color: #2d5e10; font-size: 12px; padding: 5px 10px">ON TARGET</span>
+        <span class="mono" style="font-size: 34px; font-weight: 600">118</span>
+        <span class="mono sub" style="font-size: 18px">/ 126 TSS</span>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr) 30px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center">
+      <div class="tile"><span class="sub" style="font-size: 12px">Baseline · peak-hold average</span><span class="mono" style="font-size: 22px; font-weight: 600">316 TSS</span></div>
+      <span class="mono sub" style="font-size: 20px; text-align: center">×</span>
+      <div class="tile"><span class="sub" style="font-size: 12px">B-race week factor</span><span class="mono" style="font-size: 22px; font-weight: 600">40%</span></div>
+      <span class="mono sub" style="font-size: 20px; text-align: center">=</span>
+      <div class="tile" style="background: #ffffff; border: 2px solid #1f3b8a"><span class="sub" style="font-size: 12px">Training target</span><span class="mono" style="font-size: 22px; font-weight: 600; color: #1f3b8a">126 TSS</span><span class="mono sub" style="font-size: 11.5px">+ the race, ≈290</span></div>
+      <div class="tile"><span class="sub" style="font-size: 12px">Guardrail · hard ceiling</span><span class="mono" style="font-size: 22px; font-weight: 600; color: #7a3a10">340</span><span class="mono sub" style="font-size: 11.5px">ACWR 0.92 · 28-day avg 270</span></div>
+    </div>
+    <div>
+      <div style="position: relative; height: 22px; border-radius: 8px; background: #eef2fb; overflow: hidden; display: flex">
+        <span style="width: 34.7%; background: repeating-linear-gradient(135deg, #6d93e8 0 6px, #a9c0ef 6px 12px)"></span>
+      </div>
+      <div style="position: relative; height: 0">
+        <span style="position: absolute; left: 37%; top: -28px; width: 3px; height: 34px; background: #0b1530; border-radius: 2px"></span>
+        <span style="position: absolute; right: 0; top: -28px; width: 3px; height: 34px; background: #b45309; border-radius: 2px"></span>
+      </div>
+      <div style="display: flex; gap: 18px; margin-top: 10px; flex-wrap: wrap">
+        <span class="sub">Logged <b class="mono" style="color: #0b1530">0</b></span>
+        <span class="sub">Planned <b class="mono" style="color: #0b1530">118</b></span>
+        <span class="sub">Target <b class="mono" style="color: #0b1530">126</b> (black tick)</span>
+        <span class="sub">Ceiling <b class="mono" style="color: #7a3a10">340</b> (amber tick)</span>
+        <span style="margin-left: auto; font-size: 13px; font-weight: 700; color: #2d5e10">8 TSS left to fill</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 16px">
+    <div style="display: flex; align-items: center; gap: 10px">
+      <button type="button" class="btn" style="background: #ffffff; color: #0b1530; border: 1px solid #c9d2e3" aria-label="Previous week">‹</button>
+      <span style="font-size: 17px; font-weight: 700">Week of 9 – 15 Nov</span>
+      <button type="button" class="btn" style="background: #ffffff; color: #0b1530; border: 1px solid #c9d2e3" aria-label="Next week">›</button>
+      <span class="mono sub" style="margin-left: 6px">118 / 126 TSS · on target</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px">
+      <button type="button" class="btn" style="background: #ffffff; color: #0b1530; border: 1px solid #c9d2e3; font-size: 13px">Import coach week</button>
+      <a href="TrainingPlanEdit.dc.html" class="btn" style="background: #ffffff; color: #0b1530; border: 1px solid #c9d2e3; font-size: 13px; text-decoration: none; display: inline-flex; align-items: center">+ New session</a>
+      <button type="button" class="btn" style="background: #ffffff; color: #0b1530; border: 1px solid #c9d2e3; font-size: 13px">Export</button>
+    </div>
+  </div>
+
+  <button type="button" style="appearance: none; font: inherit; text-align: left; cursor: pointer; border: 0; border-radius: 14px; padding: 16px 20px; background: #0b1530; color: #ffffff; display: flex; align-items: center; justify-content: space-between; gap: 16px">
+    <span style="display: flex; flex-direction: column; gap: 3px">
+      <span style="font-size: 16px; font-weight: 700">Suggest sessions</span>
+      <span class="mono" style="font-size: 12.5px; color: #c9d5ef">fill the last 8 TSS · race week: mobility and drills only · respects rest days and the ramp rule</span>
+    </span>
+    <span style="font-size: 22px; color: #e4ff52">›</span>
+  </button>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) 316px; gap: 16px; align-items: start">
+
+    <div class="card" style="padding: 14px">
+      <div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px">
+
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div class="dh">MON <span class="mono" style="font-size: 14px; color: #0b1530">9</span></div>
+          <div class="sess" style="background: #f4f6fb; border: 1px dashed #c9d2e3; align-items: center; padding: 18px 10px"><span class="sub" style="font-size: 12px">Rest day</span></div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div class="dh">TUE <span class="mono" style="font-size: 14px; color: #0b1530">10</span></div>
+          <div class="sess" style="background: #f0fdf4; border: 1px solid #bbf7d0">
+            <span class="who" style="color: #1e3fb0">COACH · LOCKED</span>
+            <span style="font-size: 13.5px; font-weight: 600; line-height: 1.3">Easy 40 min</span>
+            <span class="mono sub" style="font-size: 12px">38 TSS</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div class="dh">WED <span class="mono" style="font-size: 14px; color: #0b1530">11</span></div>
+          <a href="TrainingPlanEdit.dc.html" class="sess" style="background: #f5f3ff; border: 1px solid #ddd6fe">
+            <span class="who" style="color: #4c1d95">SUPPORT</span>
+            <span style="font-size: 13.5px; font-weight: 600; line-height: 1.3">Mobility + drills</span>
+            <span class="mono sub" style="font-size: 12px">14 TSS · 6 exercises</span>
+            <span style="font-size: 12px; font-weight: 700; color: #4c1d95">Edit</span>
+          </a>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div class="dh">THU <span class="mono" style="font-size: 14px; color: #0b1530">12</span></div>
+          <div class="sess" style="background: #fef2f2; border: 1px solid #fca5a5">
+            <span class="who" style="color: #1e3fb0">COACH · LOCKED</span>
+            <span style="font-size: 13.5px; font-weight: 600; line-height: 1.3">Primer + 4 × 20 s strides</span>
+            <span class="mono sub" style="font-size: 12px">28 TSS</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div class="dh">FRI <span class="mono" style="font-size: 14px; color: #0b1530">13</span></div>
+          <div class="sess" style="background: #f4f6fb; border: 1px dashed #c9d2e3; align-items: center; padding: 18px 10px"><span class="sub" style="font-size: 12px">Rest day</span></div>
+          <span class="sub" style="font-size: 11.5px; text-align: center">Travel to Bangsaen</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div class="dh">SAT <span class="mono" style="font-size: 14px; color: #0b1530">14</span></div>
+          <div class="sess" style="background: #f0fdf4; border: 1px solid #bbf7d0">
+            <span class="who" style="color: #1e3fb0">COACH · LOCKED</span>
+            <span style="font-size: 13.5px; font-weight: 600; line-height: 1.3">Shakeout 20 min</span>
+            <span class="mono sub" style="font-size: 12px">18 TSS</span>
+          </div>
+          <a href="TrainingPlanEdit.dc.html" class="sess" style="background: #f5f3ff; border: 2px solid #7c5cd6">
+            <span class="who" style="color: #4c1d95">SUPPORT · EDITING</span>
+            <span style="font-size: 13.5px; font-weight: 600; line-height: 1.3">Pre-race mobility</span>
+            <span class="mono sub" style="font-size: 12px">10 TSS · 5 exercises</span>
+            <span style="font-size: 12px; font-weight: 700; color: #4c1d95">Edit</span>
+          </a>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px">
+          <div class="dh">SUN <span class="mono" style="font-size: 14px; color: #0b1530">15</span></div>
+          <div class="sess" style="background: #fbffe0; border: 1px solid #c9d400">
+            <span class="who" style="color: #6b4408">B RACE</span>
+            <span style="font-size: 13.5px; font-weight: 700; line-height: 1.3">Bangsaen42</span>
+            <span class="mono sub" style="font-size: 12px">goal 4:30:00</span>
+            <span class="sub" style="font-size: 11.5px; line-height: 1.35">Gels at 40 / 70 / 100 / 130 · ≈290 TSS</span>
+          </div>
+        </div>
+
+      </div>
+      <p class="sub" style="margin: 8px 4px 2px; font-size: 12.5px">Coach sessions are locked. Drag support sessions between days, or click one to edit its exercises — the totals above update as you go.</p>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px">
+
+      <div class="card">
+        <span class="lbl">Next up</span>
+        <div style="display: flex; align-items: flex-start; gap: 12px">
+          <span style="width: 10px; height: 44px; border-radius: 5px; background: #bbf7d0; flex-shrink: 0"></span>
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <span style="font-size: 16px; font-weight: 700">Tue 10 · Easy 40 min</span>
+            <span class="sub">Monday is a rest day</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card soft">
+        <div class="row"><span class="lbl">Coach week</span><span class="chip" style="background: #dff5d6; color: #2d5e10">IMPORTED</span></div>
+        <span class="sub" style="line-height: 1.5">4 sessions from his photo, Sat 7 Nov. Locked on the board.</span>
+        <a href="#import" style="font-size: 13px; font-weight: 600">Re-import</a>
+      </div>
+
+      <div class="card">
+        <div class="row"><span class="lbl">From Performance</span><a href="Performance.dc.html" style="font-size: 13px; font-weight: 600">Why</a></div>
+        <span class="sub" style="line-height: 1.5">Economy has the most room. Plyo and heavy calf work are queued for the rebuild from 23 Nov — not race week, not recovery week.</span>
+      </div>
+
+      <div class="card soft">
+        <span class="lbl">Rules in play</span>
+        <div style="display: flex; flex-direction: column; gap: 9px">
+          <div style="display: flex; gap: 9px; font-size: 13px; color: #33405e; line-height: 1.4"><span style="color: #2d5e10; font-weight: 800; width: 34px; flex-shrink: 0">OK</span><span>Rest days Mon and Fri clear</span></div>
+          <div style="display: flex; gap: 9px; font-size: 13px; color: #33405e; line-height: 1.4"><span style="color: #2d5e10; font-weight: 800; width: 34px; flex-shrink: 0">OK</span><span>No loaded lifting in a race week</span></div>
+          <div style="display: flex; gap: 9px; font-size: 13px; color: #33405e; line-height: 1.4"><span style="color: #2d5e10; font-weight: 800; width: 34px; flex-shrink: 0">OK</span><span>At most 4 days in a row (3)</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2320}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
