@@ -101,6 +101,7 @@ class ConsultPrompt:
     prompt: str
     chars: int
     missing: list[str]
+    notes: list[str]
 
 
 ScoreReader = Callable[[Session, uuid.UUID, date], dict]
@@ -194,7 +195,11 @@ def _find_linked_race(session: Session, workout: Workout) -> tuple[Optional[Race
 
 
 def _race_prediction_block(
-    session: Session, race: Race, workout_date: date, missing: list[str]
+    session: Session,
+    race: Race,
+    workout_date: date,
+    missing: list[str],
+    notes: list[str],
 ) -> tuple[str, str, str, Optional[int]]:
     pre = (
         session.query(RacePrediction)
@@ -217,7 +222,7 @@ def _race_prediction_block(
         .first()
     )
     if cur:
-        missing.append("pre-race estimate snapshot")
+        notes.append("pre-race estimate uses latest stored snapshot (none before race day)")
         est = _fmt_duration(cur.predicted_seconds)
         band = _na(cur.band_seconds, suffix=" s band") if cur.band_seconds else NOT_AVAILABLE
         return est, band, f"current ({cur.prediction_date.isoformat()})", cur.predicted_seconds
@@ -492,7 +497,7 @@ def _trim_prompt_size(
     prompt: str,
     lap_section: str,
     rows: list[dict],
-    missing: list[str],
+    notes: list[str],
 ) -> tuple[str, list[dict]]:
     """Drop GAP/cadence columns, then thin lap rows if still too long."""
     if len(prompt) <= MAX_PROMPT_CHARS:
@@ -505,19 +510,19 @@ def _trim_prompt_size(
             break
         if step == 0:
             include_gap = False
-            missing.append("prompt_trim: dropped GAP column")
+            notes.append("prompt trimmed: dropped GAP column")
         elif step == 1:
             include_cadence = False
-            missing.append("prompt_trim: dropped cadence column")
+            notes.append("prompt trimmed: dropped cadence column")
         elif step == 2:
             working = working[::2]
-            missing.append("prompt_trim: lap rows every 2 km")
+            notes.append("prompt trimmed: lap rows every 2 km")
         elif step == 3:
             working = working[:40]
-            missing.append("prompt_trim: lap row cap")
+            notes.append("prompt trimmed: lap row cap")
         else:
             working = working[:20]
-            missing.append("prompt_trim: lap row hard cap")
+            notes.append("prompt trimmed: lap row hard cap")
         new_section = _lap_table_markdown(
             working, include_gap=include_gap, include_cadence=include_cadence
         )
@@ -538,11 +543,14 @@ def build_session_consult(
     reader = score_reader or _default_score_reader
     generated = now or datetime.now(timezone.utc)
     missing: list[str] = []
+    notes: list[str] = []
 
     from backend.db import engine
     from sqlalchemy.orm import Session as OrmSession
 
     def _build(session: Session, uid: uuid.UUID) -> ConsultPrompt:
+        missing.clear()
+        notes.clear()
         workout = session.get(Workout, session_id)
         if workout is None or workout.user_id != uid:
             raise ValueError("session_not_found")
@@ -568,8 +576,10 @@ def build_session_consult(
         )
         race, race_inferred = _find_linked_race(session, workout)
         kind = "race" if race is not None else "session"
-        if race_inferred:
-            missing.append("race link inferred by date+distance")
+        if race_inferred and race is not None:
+            notes.append(
+                f"race linked by date+distance (no explicit workout link) — {race.name}"
+            )
 
         lap_rows = collapse_lap_rows(_lap_rows_from_splits(splits), force_per_km=len(splits) > LAP_ROW_COLLAPSE_THRESHOLD)
         lap_section = _lap_table_markdown(lap_rows)
@@ -609,7 +619,7 @@ def build_session_consult(
 
         if kind == "race" and race is not None:
             est, band, est_label, pred_secs = _race_prediction_block(
-                session, race, workout.workout_date, missing
+                session, race, workout.workout_date, missing, notes
             )
             goal_pace = _fmt_pace(
                 float(race.goal_pace_seconds_per_km) if race.goal_pace_seconds_per_km else None
@@ -625,6 +635,7 @@ def build_session_consult(
                 [
                     "",
                     "## Race",
+                    f"race_link: {'inferred (date+distance)' if race_inferred else 'explicit'}",
                     f"name: {race.name}",
                     f"priority: {race.priority}",
                     f"distance_km: {_na(float(race.distance_km) if race.distance_km is not None else None)}",
@@ -721,8 +732,14 @@ def build_session_consult(
             )
 
         prompt = "\n".join(body)
-        prompt, _ = _trim_prompt_size(prompt, lap_section, lap_rows, missing)
-        return ConsultPrompt(kind=kind, prompt=prompt, chars=len(prompt), missing=sorted(set(missing)))
+        prompt, _ = _trim_prompt_size(prompt, lap_section, lap_rows, notes)
+        return ConsultPrompt(
+            kind=kind,
+            prompt=prompt,
+            chars=len(prompt),
+            missing=sorted(set(missing)),
+            notes=sorted(set(notes)),
+        )
 
     if db is not None:
         if user_id is None:

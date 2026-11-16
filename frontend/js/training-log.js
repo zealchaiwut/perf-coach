@@ -3365,9 +3365,12 @@
         var prompt = data.prompt || "";
         function afterCopy() {
           UIStates.showToast(toast);
+          if (data.notes && data.notes.length) {
+            UIStates.showToast("Note: " + data.notes.slice(0, 2).join(" · "));
+          }
           if (data.missing && data.missing.length) {
             UIStates.showToast(
-              "Not available: " + data.missing.slice(0, 8).join(", "),
+              "Gaps in data: " + data.missing.slice(0, 8).join(", "),
             );
           }
         }

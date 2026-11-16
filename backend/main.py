@@ -19094,6 +19094,7 @@ def get_session_consult_prompt(session_id: str, user: User = Depends(resolve_use
             "prompt": result.prompt,
             "chars": result.chars,
             "missing": result.missing,
+            "notes": result.notes,
         }
     )
 

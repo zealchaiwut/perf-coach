@@ -248,10 +248,10 @@ def test_size_guard_drops_columns():
     base = "x" * (MAX_PROMPT_CHARS - 2000)
     prompt = base + "\n## Laps\n" + lap_md + "\n"
     assert len(prompt) > MAX_PROMPT_CHARS
-    missing: list[str] = []
-    trimmed, _ = _trim_prompt_size(prompt, lap_md, rows, missing)
+    notes: list[str] = []
+    trimmed, _ = _trim_prompt_size(prompt, lap_md, rows, notes)
     assert len(trimmed) <= MAX_PROMPT_CHARS
-    assert any("prompt_trim" in m for m in missing)
+    assert any("prompt trimmed" in m for m in notes)
 
 
 def test_scores_reader_patch():

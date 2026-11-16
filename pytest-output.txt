@@ -1,0 +1,672 @@
+........................................................................ [  0%]
+.s...................................................................... [  1%]
+........................................................................ [  2%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  4%]
+.................................................FFFFF...F.............F [  5%]
+..F..................................................................... [  6%]
+........................................................................ [  6%]
+........F.F.F..F..F.F................................................... [  7%]
+..................................................................F..... [  8%]
+........................................................................ [  8%]
+.......................................F..........F..................... [  9%]
+F................................F.F.................................... [ 10%]
+...........FFFFF......F................................................. [ 10%]
+........................................................................ [ 11%]
+...........................FF........................................... [ 12%]
+........................................................................ [ 13%]
+........................................FFF.F........................F.. [ 13%]
+.........F............................FF..F............................. [ 14%]
+........................................................................ [ 15%]
+........................................................................ [ 15%]
+........................................................................ [ 16%]
+...............................F.F.......FF............................. [ 17%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+...................F.................................................... [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+.................................FF..................................... [ 23%]
+........................................sssss........................... [ 24%]
+........................................................................ [ 24%]
+.........FF............................................................. [ 25%]
+........................................................................ [ 26%]
+..............................................................F.F....... [ 26%]
+..............................................................s..s.s..ss [ 27%]
+ssss.ss.ssss.ss..sss.s.ssssssss..s..sss.ss.s...s...ss.ssss.ssssss..ss... [ 28%]
+...sssss.s.ssss.s...sssss.ss....ssss.s.sss..s.ssssss..ssss.ss.s..s.ssss. [ 28%]
+s.s.sssssss.....s.ss...sssssss....s.ssss.ssssssss.s.sss.s..s.sssssss...s [ 29%]
+..s.s.sss.ssss.s..sss..s.ss..ssssss...s.s.ss..ss.sss.s.ssss.sssss...sss. [ 30%]
+..s.sss..s.sss....s.ss.ss.s..sss.s.ssss..s.ss.ss.s....ss.s.s..ssssss.ss. [ 30%]
+ssss.ss..sss.s.ssssssss..s..sss.ss.sss.s.s.ss.ssss.ssssssssss....s.sssss [ 31%]
+sssssss.s.s.sssss.s....sssss.s.sss.ss.ssssss..ssss.ssss.ss.ssss.sss.ssss [ 32%]
+ssss...ss.sss.s..s.s..ssssss.ss.ssss.ss..sss.s.ssssssss..s..sss.ss.s...s [ 32%]
+.s.ss.ssss.ssssss..ss......sssss.s.ssss.s...sssss.ss....ssssss.ssssss.ss [ 33%]
+ssss..ssss.ss.s..s.ssss.s.s.sssssss..s..ssssss.......................... [ 34%]
+.s.............F............FFFFF...........FFFFFF.FFF.................. [ 35%]
+........................................................................ [ 35%]
+.....................................F......F........................... [ 36%]
+.FFFFFF............FFFFFF.FF........FFFF................................ [ 37%]
+........................................................................ [ 37%]
+......FFFFFFF........................................................... [ 38%]
+........................................................................ [ 39%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+..................................................................F..... [ 41%]
+.......FF.FF............................................................ [ 42%]
+...F....F............................................................... [ 43%]
+....FF.................................................................. [ 43%]
+........................................................................ [ 44%]
+....................................................FFF.F.............F. [ 45%]
+.......................F................................................ [ 46%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+.......................FFF..F........................................... [ 48%]
+...........................................FFFFFFFFF.FFFFFF............. [ 48%]
+....................................................................F... [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 50%]
+........................................................................ [ 51%]
+........................................................................ [ 52%]
+..............F......................................................... [ 52%]
+........................................................................ [ 53%]
+.................................................................FFFFFF. [ 54%]
+.......F...................F.....F...................................... [ 54%]
+........................................................................ [ 55%]
+...........................FFF..F....................................... [ 56%]
+.............s.......................................................... [ 57%]
+........................................................................ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 59%]
+......................................F................................. [ 60%]
+........................................................................ [ 61%]
+........................................................................ [ 61%]
+........................................................................ [ 62%]
+.....................................F.................................. [ 63%]
+........................................................................ [ 63%]
+.......F................................................................ [ 64%]
+............................F........................................... [ 65%]
+........................................................................ [ 65%]
+........................................................................ [ 66%]
+........................................................................ [ 67%]
+........................................................................ [ 68%]
+........................................................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+........................................................................ [ 72%]
+............FFF......F.................................................. [ 73%]
+.........................................FF......................F...... [ 74%]
+......F.........................................F.F..................... [ 74%]
+..............................FF.FF.FFFF................................ [ 75%]
+......................FFF...................FF.......................... [ 76%]
+........................................................................ [ 76%]
+..........F.................................................s........... [ 77%]
+........................................................................ [ 78%]
+........................................................................ [ 79%]
+........................................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 81%]
+........................FFFFF.F.FF.FF................................... [ 82%]
+...................................................................F.... [ 83%]
+........................................................................ [ 83%]
+...............................................FFFFFFFFFFFFFF.F......... [ 84%]
+FFF.....FFFF........F...FF....................................FFFFFFFFFF [ 85%]
+.................FF....................FFFFFF........................... [ 85%]
+.....................................................................FF. [ 86%]
+FF....FFFFFF............................................................ [ 87%]
+...........................................F..............F............F [ 87%]
+F.F..........F.......................................................... [ 88%]
+......................................................ssss.ss...ssss.... [ 89%]
+....FFFFFFFF.FFFFFFF...FF...........FF..FFFFF.FFFF.FFFFF................ [ 89%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+............FFF......................................................... [ 92%]
+............................................ss................F...FFFFFF [ 92%]
+..FFF..FFF.............................................................. [ 93%]
+.....................FF...................................F............. [ 94%]
+..................................F.................................F... [ 94%]
+......F..................................................F.FF.....F..... [ 95%]
+........................................................................ [ 96%]
+............................sssss.F.......F...........F................. [ 96%]
+..........F......FFFFFFF...F............F............................... [ 97%]
+........................................................................ [ 98%]
+.FFFFFFFFFFFF.F.FF.FFFF.FFF............................................. [ 98%]
+......F................................................................. [ 99%]
+.........................................                                [100%]
+=============================== warnings summary ===============================
+backend/routers/strength_sessions.py:45
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:45: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("session_date")
+
+backend/routers/strength_sessions.py:54
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:54: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("sets")
+
+backend/routers/strength_sessions.py:60
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:60: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("reps")
+
+backend/routers/strength_sessions.py:66
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:66: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("load")
+
+backend/routers/strength_sessions.py:72
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:72: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("session_rpe")
+
+backend/routers/strength_sessions.py:78
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:78: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("duration_minutes")
+
+backend/routers/strength_sessions.py:95
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:95: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("session_date")
+
+backend/routers/strength_sessions.py:105
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:105: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("sets")
+
+backend/routers/strength_sessions.py:111
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:111: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("reps")
+
+backend/routers/strength_sessions.py:117
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:117: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("load")
+
+backend/routers/strength_sessions.py:123
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:123: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("session_rpe")
+
+backend/routers/strength_sessions.py:129
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:129: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("duration_minutes")
+
+backend/routers/strength_sessions.py:144
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:144: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("session_date")
+
+backend/routers/strength_sessions.py:153
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:153: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("foot_contacts")
+
+backend/routers/strength_sessions.py:159
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:159: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("plyo_phase")
+
+backend/routers/strength_sessions.py:169
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:169: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("exercises")
+
+backend/routers/strength_sessions.py:179
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:179: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("exercises")
+
+backend/routers/strength_sessions.py:192
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:192: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("session_date")
+
+backend/routers/strength_sessions.py:202
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:202: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("foot_contacts")
+
+backend/routers/strength_sessions.py:208
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/strength_sessions.py:208: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("plyo_phase")
+
+backend/routers/fuel.py:50
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/fuel.py:50: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("entry_date")
+
+backend/routers/fuel.py:60
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/fuel.py:60: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("meat_g", "rice_g", "eggs", "fruit_g", "other_kcal")
+
+backend/routers/fuel.py:66
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/fuel.py:66: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("oil_tsp", "other_protein_g", "other_carbs_g", "other_fat_g")
+
+backend/routers/injury_log.py:52
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:52: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("kind")
+
+backend/routers/injury_log.py:58
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:58: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("severity")
+
+backend/routers/injury_log.py:64
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:64: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("started_on")
+
+backend/routers/injury_log.py:72
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:72: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("ended_on")
+
+backend/routers/injury_log.py:99
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:99: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("kind")
+
+backend/routers/injury_log.py:105
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:105: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("severity")
+
+backend/routers/injury_log.py:111
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:111: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("started_on")
+
+backend/routers/injury_log.py:120
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/injury_log.py:120: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("ended_on")
+
+backend/routers/coach.py:40
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/coach.py:40: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("race_distance")
+
+backend/routers/coach.py:48
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/coach.py:48: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("target_time")
+
+backend/routers/coach.py:54
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/coach.py:54: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("race_date")
+
+backend/routers/coach.py:317
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/coach.py:317: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator("kind")
+
+backend/worker_app.py:1597
+tests/test_quiet_worker__poll.py::test_idle_poll_interval_default
+tests/test_quiet_worker__poll.py::test_idle_poll_interval_override
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/worker_app.py:1597: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event("startup")
+
+.venv/lib/python3.12/site-packages/fastapi/applications.py:4598
+tests/test_quiet_worker__poll.py::test_idle_poll_interval_default
+tests/test_quiet_worker__poll.py::test_idle_poll_interval_override
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/.venv/lib/python3.12/site-packages/fastapi/applications.py:4598: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+tests/test_1759_scoped_read_only_api_token.py::test_cookie_session_still_works
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/tests/test_1759_scoped_read_only_api_token.py:144: DeprecationWarning: There is no current event loop
+    user = asyncio.get_event_loop().run_until_complete(resolve_user(mock_request))
+
+tests/test_auto_periodize_put_response__1676.py::test_put_settings_response_carries_auto_periodize[off]
+tests/test_auto_periodize_put_response__1676.py::test_put_settings_response_carries_auto_periodize[on]
+tests/test_auto_periodize_put_response__1676.py::test_put_without_auto_periodize_still_reports_current_value
+tests/test_auto_periodize_put_response__1676.py::test_put_response_matches_settings_read_back
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/routers/fuel.py:120: PydanticDeprecatedSince20: The `dict` method is deprecated; use `model_dump` instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    fields = body.dict(exclude_unset=True)
+
+tests/test_home_strip_habits__438.py::test_habits_block_includes_streak
+tests/test_home_strip_habits__438.py::test_habits_block_includes_auto_fill_source
+tests/test_home_strip_habits__438.py::test_habits_block_streak_zero_when_no_logs
+tests/test_home_strip_habits__438.py::test_readiness_block_logged_true_when_metrics_exist
+tests/test_home_strip_habits__438.py::test_readiness_block_logged_false_when_no_metrics
+tests/test_today_recommendation__1352.py::test_apply_patch_mutates_only_todays_session
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/backend/services/muscle_load_acwr.py:232: SAWarning: Coercing Subquery object into a select() for use in IN(); please pass a select() construct explicitly
+    .filter(WorkoutExercise.workout_id.in_(workout_ids_q))
+
+tests/test_query_tightening__1298.py::test_resolve_user_dep_still_returns_user_object
+tests/test_users_admin_auth__loophole1.py::test_get_users_works_with_admin_cookie
+tests/test_users_admin_auth__loophole1.py::test_post_users_works_with_admin_cookie
+tests/test_users_admin_auth__loophole1.py::test_patch_users_works_with_admin_cookie
+tests/test_users_admin_auth__loophole1.py::test_delete_users_works_with_admin_cookie
+  /Users/chaiwutchaianuchittrakul/dev/perf-coach/uat/.venv/lib/python3.12/site-packages/starlette/testclient.py:459: DeprecationWarning: Setting per-request cookies=<...> is being deprecated, because the expected behaviour on cookie persistence is ambiguous. Set cookies directly on the client instance instead.
+    return super().request(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac6_load_field_present_with_scalar_input
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac6_load_field_matches_scalar_input
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac6_load_field_matches_per_day_list
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac6_all_six_required_keys_present
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac3_none_load_uses_recent_avg_from_fitness_state
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac3_reason_non_empty_when_load_assumed_via_kwarg
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac8_per_day_list_load_values_correct
+FAILED tests/test_add_forward_form_projection_to_target_date__710.py::test_ac8_two_day_regression_load_field_correct
+FAILED tests/test_align_backfill_run_count_filter__1041.py::TestBackfillUsesExactMatch::test_backfill_source_uses_exact_equality_for_workout_type
+FAILED tests/test_align_backfill_run_count_filter__1041.py::TestBothPathsUseSameFilter::test_backfill_uses_exact_equality
+FAILED tests/test_align_backfill_run_count_filter__1041.py::TestTrailRunNotCounted::test_trail_run_workout_not_counted_by_backfill
+FAILED tests/test_align_backfill_run_count_filter__1041.py::TestFunRunNotCounted::test_fun_run_workout_not_counted_by_backfill
+FAILED tests/test_align_backfill_run_count_filter__1041.py::TestRunIsCounted::test_canonical_run_workout_counted_by_backfill
+FAILED tests/test_align_backfill_run_count_filter__1041.py::TestRunIsCounted::test_backfill_and_performance_endpoint_agree_on_run_count
+FAILED tests/test_audit_home_widgets__347.py::test_no_source_code_modified - ...
+FAILED tests/test_backfill_lap_classification__914.py::TestPerformanceTabScoresAfterBackfill::test_classified_easy_runs_produce_numeric_endurance_score
+FAILED tests/test_backfill_lap_classification__914.py::TestRecomputePipelineLogic::test_classify_then_score_pipeline_produces_numeric_result
+FAILED tests/test_backfill_lap_classification__932.py::TestPerformanceScoresAfterBackfillAC8::test_easy_band_laps_produce_numeric_endurance_score
+FAILED tests/test_backfill_recompute_scores__1023.py::TestScoresAfterBackfillAC5::test_endurance_score_is_numeric_with_enough_easy_runs
+FAILED tests/test_backfill_recompute_scores__1023.py::TestScoresAfterBackfillAC5::test_endurance_score_non_null_after_backfill_prepares_data
+FAILED tests/test_banister_param_fitting__1203.py::test_successful_fit_returns_tuple
+FAILED tests/test_banister_param_fitting__1203.py::test_successful_fit_tuple_values_are_floats
+FAILED tests/test_banister_param_fitting__1203.py::test_successful_fit_tau_within_plausible_range
+FAILED tests/test_banister_param_fitting__1203.py::test_successful_fit_with_exactly_14_observations
+FAILED tests/test_banister_param_fitting__1203.py::test_successful_fit_with_large_dataset
+FAILED tests/test_banister_param_fitting__1203.py::test_data_gate_boundary_14_passes
+FAILED tests/test_build_habit_insights_ui_panel__884.py::test_ac8_mobile_breakpoint_exists
+FAILED tests/test_build_habit_insights_ui_panel__884.py::test_ac8_tablet_breakpoint_exists
+FAILED tests/test_classify_laps_before_scoring__1019.py::TestEnduranceScoringNonEmptyWhenLapQualifies::test_endurance_score_key_present_with_qualifying_runs
+FAILED tests/test_classify_laps_before_scoring__1019.py::TestEnduranceScoringNonEmptyWhenLapQualifies::test_endurance_score_is_numeric_with_easy_runs
+FAILED tests/test_classify_laps_before_scoring__1019.py::TestEnduranceScoringNonEmptyWhenLapQualifies::test_endurance_score_has_trend_list
+FAILED tests/test_classify_laps_before_scoring__1019.py::TestEnduranceScoringNonEmptyWhenLapQualifies::test_endurance_score_from_assembled_runs_is_non_empty
+FAILED tests/test_classify_laps_before_scoring__911.py::TestNumericScoresWithThresholds::test_endurance_score_is_numeric_with_classified_laps
+FAILED tests/test_classify_laps_before_scoring__911.py::TestEndpointRunAssembly::test_numeric_scores_produced_from_assembled_runs
+FAILED tests/test_classify_laps_before_scoring__928.py::TestNoHardcodedThresholds::test_score_function_reads_bands_from_zone_constants_arg
+FAILED tests/test_classify_laps_before_scoring__928.py::TestNumericScoresWithClassifiedRuns::test_endurance_score_numeric_when_runs_classified
+FAILED tests/test_classify_laps_before_scoring__928.py::TestNumericScoresWithClassifiedRuns::test_assembled_runs_from_mock_workouts_produce_numeric_endurance_score
+FAILED tests/test_coach_facts__dream.py::test_dream_prefers_a_race_and_checkpoints
+FAILED tests/test_coach_facts__projection_sot.py::test_estimate_for_a_race_uses_helper_not_ctl_sqrt
+FAILED tests/test_coach_facts__reflection.py::test_reflection_next_session_cites_matching_focus_rank
+FAILED tests/test_coach_facts__reflection.py::test_reflection_next_session_cites_focus
+FAILED tests/test_compute_normalized_power_at_ingest__671.py::test_reingest_without_power_preserves_existing_np
+FAILED tests/test_daily_brief.py::test_build_brief_today_tomorrow_dates - Ass...
+FAILED tests/test_daily_brief.py::test_service_and_script_same_v2_shape - Ass...
+FAILED tests/test_document_hermes_read_api__1453.py::test_document_hermes_read_api__read_only_note
+FAILED tests/test_document_hermes_read_api__1453.py::test_document_hermes_read_api__binding_confirmed
+FAILED tests/test_edit_habits__454.py::TestEditActionPresent::test_daily_grid_row_has_actions_toggle
+FAILED tests/test_edit_habits__454.py::TestEditActionPresent::test_weekly_section_has_actions_toggle
+FAILED tests/test_exc_info_autofill_recompute_warning__557.py::test_autofill_warning_exc_info_matches_daily_update_style
+FAILED tests/test_expand_habit_icon_library__456.py::test_daily_grid_icon_size_at_least_28
+FAILED tests/test_expand_habit_icon_library__456.py::test_archived_list_icon_size_at_least_28
+FAILED tests/test_expand_habit_icon_library__456.py::test_habit_icon_chip_css_width_at_least_28
+FAILED tests/test_expand_habit_icon_library__456.py::test_icon_picker_option_size_increased
+FAILED tests/test_expand_habit_icon_library__456.py::test_icon_picker_is_scrollable
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_export_brief_degraded_gap_analysis_failure
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_export_brief_degraded_training_verdict_failure
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_export_brief_exit_nonzero_on_gap_analysis_error
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_export_brief_exit_nonzero_on_training_verdict_error
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_export_brief_happy_path_no_degraded_signal
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_export_brief_degraded_partial_success
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_downstream_consumer_can_read_degraded_flag
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_advisories_degraded_in_payload_schema
+FAILED tests/test_export_brief_degraded_signal__1486.py::test_advisories_degraded_false_when_no_errors
+FAILED tests/test_final_polish__443.py::test_outbound_link_edit_target - Asse...
+FAILED tests/test_final_polish__443.py::test_home_summary_endpoint_requires_user
+FAILED tests/test_fix_dead_chart_zones__516.py::test_ac2_past_w_is_not_5_percent
+FAILED tests/test_fix_dead_chart_zones__516.py::test_ac2_past_w_is_visible_zone
+FAILED tests/test_fix_dead_chart_zones__516.py::test_ac3_comment_past_pct_matches_code
+FAILED tests/test_fix_dead_chart_zones__516.py::test_ac3_comment_future_pct_matches_code
+FAILED tests/test_fix_dead_chart_zones__516.py::test_ac3_comment_current_pct_matches_derived_center
+FAILED tests/test_fix_dead_chart_zones__516.py::test_ac4_past_zone_tint_code_present
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_flag_defined_at_module_level
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_flag_initialized_to_false
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_upgrade_sets_flag_true_in_add_branch
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_upgrade_uses_global_declaration
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_downgrade_contains_drop_column_for_lap_type
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_downgrade_references_flag
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_functional_fresh_db_drop_column
+FAILED tests/test_fix_downgrade_lap_type_column_handling__762.py::test_functional_preexisting_column_alter_to_nullable
+FAILED tests/test_fix_duration_curve_data_gap__985.py::TestEndpointTriggersRebuild::test_rebuild_called_when_curve_absent
+FAILED tests/test_fix_duration_curve_data_gap__985.py::TestEndpointTriggersRebuild::test_rebuild_not_called_when_curve_exists
+FAILED tests/test_fix_duration_curve_data_gap__985.py::TestEndpointTriggersRebuild::test_fetch_and_detect_called_after_rebuild
+FAILED tests/test_fix_duration_curve_data_gap__985.py::TestEndpointTriggersRebuild::test_endpoint_returns_200_with_pr_keys
+FAILED tests/test_fix_n1_query_workouts__492.py::test_ac_a_exercise_count_not_per_row_with_5_workouts
+FAILED tests/test_fix_n1_query_workouts__492.py::test_ac_a_exercise_count_not_per_row_with_20_workouts
+FAILED tests/test_fix_n1_query_workouts__492.py::test_ac_c_query_count_constant_regardless_of_workout_count
+FAILED tests/test_fix_n1_query_workouts__492.py::test_ac_b_workout_list_dict_uses_preloaded_strava_attributes
+FAILED tests/test_fix_n1_query_workouts__492.py::test_ac_d_response_shape_unchanged
+FAILED tests/test_fix_n1_query_workouts__492.py::test_ac_d_exercise_count_value_matches_aggregate
+FAILED tests/test_fix_n1_query_workouts__492.py::test_ac_d_exercise_count_zero_for_workout_with_no_exercises
+FAILED tests/test_global_sync_status_bar__600.py::test_auto_poll_called_in_init
+FAILED tests/test_global_sync_status_bar__600.py::test_dismiss_stops_poll - a...
+FAILED tests/test_global_sync_status_bar__600.py::test_idle_status_does_not_throw
+FAILED tests/test_global_sync_status_bar__600.py::test_polling_stops_after_success
+FAILED tests/test_global_sync_status_bar__600.py::test_polling_stops_on_error
+FAILED tests/test_groq_llm_client__1311.py::test_groq_llm_client__llm_enabled_requires_both_flags_and_key
+FAILED tests/test_groq_llm_client__1311.py::test_groq_llm_client__model_defaults
+FAILED tests/test_habit_autofill.py::TestACd_WorkoutDateChangeRecomputesBothWeeks::test_patch_date_change_calls_recompute_for_both_weeks
+FAILED tests/test_habit_autofill.py::TestACe_DeleteWorkoutRemovesAutofillLogs::test_delete_triggers_recompute_for_workout_week
+FAILED tests/test_habits_log_progress__388.py::TestACa_DailyCheckmarkIncrements::test_post_log_returns_201
+FAILED tests/test_habits_log_progress__388.py::TestACa_DailyCheckmarkIncrements::test_post_log_default_value_is_1_for_daily_checkmark
+FAILED tests/test_habits_log_progress__388.py::TestACa_DailyCheckmarkIncrements::test_post_log_upsert_updates_existing
+FAILED tests/test_habits_log_progress__388.py::TestACb_LogWeekStartBangkok::test_wednesday_log_date_gets_monday_week_start
+FAILED tests/test_habits_log_progress__388.py::TestACf_DeleteLog::test_delete_existing_log_returns_204
+FAILED tests/test_habits_redesign_polish__435.py::test_modal_css_present_in_html
+FAILED tests/test_home_widgets.py::test_weight_summary_shape - AssertionError...
+FAILED tests/test_home_widgets.py::test_weight_summary_no_entries - KeyError:...
+FAILED tests/test_home_widgets.py::test_weight_summary_sparkline_length - Ass...
+FAILED tests/test_home_widgets.py::test_weight_summary_table_absent - KeyErro...
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_modal_markup_exists
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_new_button_opens_modal_not_navigation
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_trigger_buttons_wired_to_open_modal
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_form_has_all_required_fields
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_date_field_is_date_input
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_submit_posts_to_workouts_endpoint
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_submit_refreshes_list_without_full_reload
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_submit_sends_required_payload_fields
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_open_full_form_link_present
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_validation_function_exists
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_inline_error_containers_exist
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_submit_blocks_when_invalid
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_close_button_exists_and_wired
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_backdrop_dismiss
+FAILED tests/test_inline_quick_add_workout_modal__522.py::test_escape_key_closes_modal
+FAILED tests/test_is_strava_workout_pk_fallback__1656.py::TestDetailEndpointExposesStravaActivityPk::test_workout_detail_includes_strava_activity_pk
+FAILED tests/test_lean_program__sprints.py::test_enough_logged_days_recalibrates_maintenance
+FAILED tests/test_lt_css_dedupe_home__316.py::test_single_log_today_card_section
+FAILED tests/test_lt_css_dedupe_home__316.py::test_lt_grid_defined_once - Ass...
+FAILED tests/test_lt_css_dedupe_home__316.py::test_lt_input_defined_once - As...
+FAILED tests/test_lt_css_dedupe_home__316.py::test_lt_save_btn_defined_once
+FAILED tests/test_lt_css_dedupe_home__316.py::test_lt_feedback_defined_once
+FAILED tests/test_lt_css_dedupe_home__316.py::test_lt_grid_responsive_override_once
+FAILED tests/test_migrate_habits_page_gradient_design__428.py::test_ac2_wheel_empty_state_text_in_js
+FAILED tests/test_migrate_habits_page_gradient_design__428.py::test_ac14_wheel_empty_state_in_js
+FAILED tests/test_migrate_habits_page_gradient_design__428.py::test_ac18_home_html_habits_widget_links_to_habits
+FAILED tests/test_mobile_daily_metrics_fast_log__394.py::test_ac8_banner_element_exists
+FAILED tests/test_mobile_daily_metrics_fast_log__394.py::test_ac8_banner_cta_button_exists
+FAILED tests/test_mobile_daily_metrics_fast_log__394.py::test_ac8_banner_before_main_content
+FAILED tests/test_mobile_daily_metrics_fast_log__394.py::test_ac9_cta_opens_form_in_js
+FAILED tests/test_normalize_strava_source__530.py::test_ac1_helper_checks_source_strava
+FAILED tests/test_plan_bundle_perf__hotpaths.py::test_race_readiness_impl_skips_recompute_when_shared_data_passed
+FAILED tests/test_plan_suggestions__1315.py::TestFallbackSuggestions::test_taper_when_race_within_14_days
+FAILED tests/test_plateau_detection__1356.py::test_plateau_not_triggered_when_adherence_below_70_pct
+FAILED tests/test_rebuild_progress_card__460.py::test_e_today_row_tinted_red_when_behind
+FAILED tests/test_rebuild_progress_card__460.py::test_e_today_row_tinted_green_when_ahead
+FAILED tests/test_rebuild_progress_card__460.py::test_e_on_chart_hint_present
+FAILED tests/test_rebuild_recent_entries_card__425.py::test_ac1_card_title_contains_last_14_days
+FAILED tests/test_rebuild_weight_hero__459.py::test_hero_stacks_only_at_640px
+FAILED tests/test_rebuild_weight_hero__459.py::test_no_orphaned_hero_stacking_rule_outside_640px
+FAILED tests/test_rebuild_weight_hero__459.py::test_card_b_log_today_label - ...
+FAILED tests/test_rebuild_weight_hero__459.py::test_card_b_409_handled_with_patch_fallback
+FAILED tests/test_rebuild_weight_svg_chart__464.py::test_ac13_touch_events - ...
+FAILED tests/test_rebuild_weight_svg_chart__464.py::test_ac14_svg_viewbox_900_280
+FAILED tests/test_reconcile_workouts__303.py::test_reconcile_creates_workout_for_unmatched_strava_activity
+FAILED tests/test_reconcile_workouts__303.py::test_reconcile_updates_existing_matched_workout
+FAILED tests/test_reconcile_workouts__303.py::test_reconcile_merged_run_keeps_strava_distance_when_both_sources
+FAILED tests/test_reconcile_workouts__303.py::test_reconcile_idempotent_second_run_no_duplicates
+FAILED tests/test_reconcile_workouts__303.py::test_reconcile_increments_current_per_activity
+FAILED tests/test_reconcile_workouts__303.py::test_reconcile_sets_total_from_activity_count
+FAILED tests/test_reconcile_workouts__303.py::test_strava_sync_worker_phases_pulling_then_reconciling_then_success
+FAILED tests/test_reconcile_workouts__303.py::test_strava_sync_worker_reconcile_error_marks_job_error
+FAILED tests/test_rename_sbadge2_to_sbadgeStryd__402.py::test_sbadgeStryd_present
+FAILED tests/test_rename_sbadge2_to_sbadgeStryd__402.py::test_sbadgeStryd_has_stryd_class
+FAILED tests/test_rename_sbadge2_to_sbadgeStryd__402.py::test_sbadgeStryd_appended_to_wrap
+FAILED tests/test_render_projected_time_curve_chart__1113.py::test_ac10_history_finish_times_non_null
+FAILED tests/test_resolve_user__278.py::test_resolve_user_session_path - fast...
+FAILED tests/test_route_strip_run_view_and_strength_detail__648.py::test_r4_strava_link_conditional
+FAILED tests/test_settings_integrations__285.py::test_strava_sync_not_connected_returns_400
+FAILED tests/test_settings_integrations__285.py::test_strava_sync_no_activities_returns_zero
+FAILED tests/test_settings_integrations__285.py::test_strava_sync_upserts_activities_and_returns_count
+FAILED tests/test_settings_integrations__285.py::test_strava_sync_strava_api_error_returns_502
+FAILED tests/test_settings_integrations__285.py::test_strava_sync_single_page_returns_correct_count
+FAILED tests/test_show_workout_metrics_mobile__527.py::test_entry_metric_rule_present_on_mobile
+FAILED tests/test_show_workout_metrics_mobile__527.py::test_source_badge_markup_is_icon_sized
+FAILED tests/test_show_workout_metrics_mobile__527.py::test_rows_wrap_to_avoid_overflow_on_mobile
+FAILED tests/test_show_workout_metrics_mobile__527.py::test_mobile_rules_scoped_to_max_599
+FAILED tests/test_show_workout_metrics_mobile__527.py::test_desktop_entry_metric_default_is_flex
+FAILED tests/test_snapshot_mode_run_view__916.py::test_ac12_snapshot_card_max_width_for_screenshot
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_has_lt_date_nav_wrapper
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_has_prev_button
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_has_next_button
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_has_today_button
+FAILED tests/test_standardize_date_navigation__326.py::test_home_html_has_nav_button_css
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_today_btn_disabled_when_on_today
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_today_btn_active_class_when_on_today
+FAILED tests/test_standardize_date_navigation__326.py::test_home_html_today_btn_active_css
+FAILED tests/test_standardize_date_navigation__326.py::test_home_html_next_btn_disabled_when_on_today
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_has_add_iso_days_helper
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_has_navigate_date_to
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_prev_calls_navigate_minus_one
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_next_calls_navigate_plus_one
+FAILED tests/test_standardize_date_navigation__326.py::test_home_js_today_nav_btn_calls_navigate_today
+FAILED tests/test_standardize_date_navigation__326.py::test_training_log_js_week_today_disabled_when_current_week
+FAILED tests/test_standardize_date_navigation__326.py::test_training_log_js_edit_link_uses_training_route
+FAILED tests/test_standardize_date_navigation__326.py::test_training_log_js_edit_link_includes_return_param
+FAILED tests/test_standardize_date_navigation__326.py::test_training_log_js_return_url_includes_week_param
+FAILED tests/test_standardize_date_navigation__326.py::test_home_page_reachable
+FAILED tests/test_standardize_date_navigation__326.py::test_training_log_page_reachable
+FAILED tests/test_standardize_date_navigation__326.py::test_calendar_page_reachable
+FAILED tests/test_standardize_date_navigation__326.py::test_training_page_reachable
+FAILED tests/test_stdlib_only_auth_primitives__274.py::test_read_session_cookie_returns_dict
+FAILED tests/test_stdlib_only_auth_primitives__274.py::test_set_session_sets_httponly_lax_cookie
+FAILED tests/test_stdlib_only_auth_primitives__274.py::test_clear_session_deletes_cookie
+FAILED tests/test_strava_e2e_polish__381.py::TestTrainingLogSourceFields::test_c1_source_field_present
+FAILED tests/test_strava_e2e_polish__381.py::TestTrainingLogSourceFields::test_c2_is_stryd_synced_false_when_no_stryd_pk
+FAILED tests/test_strava_e2e_polish__381.py::TestTrainingLogSourceFields::test_c3_is_stryd_synced_true_when_stryd_pk_present
+FAILED tests/test_strava_e2e_polish__381.py::TestTrainingLogSourceFields::test_c4_strava_source_field_value
+FAILED tests/test_strava_e2e_polish__381.py::TestTrainingLogSourceFields::test_c5_manual_source_default
+FAILED tests/test_strava_e2e_polish__381.py::TestStravaDataQuality::test_d1_returns_200_with_expected_shape
+FAILED tests/test_strava_e2e_polish__381.py::TestStravaDataQuality::test_d2_all_fields_are_non_negative_integers
+FAILED tests/test_strava_e2e_polish__381.py::TestStravaDataQuality::test_d3_missing_user_id_returns_400
+FAILED tests/test_strava_e2e_polish__381.py::TestStravaDataQuality::test_d4_invalid_user_id_returns_4xx
+FAILED tests/test_strava_e2e_polish__381.py::TestStravaDataQuality::test_d5_correct_counts_returned
+FAILED tests/test_strava_power.py::test_workout_dict_includes_avg_power_w_from_linked_strava_activity
+FAILED tests/test_strava_power.py::test_workout_dict_avg_power_w_none_when_no_strava_activity
+FAILED tests/test_strava_sync_background_job__302.py::test_strava_sync_returns_202
+FAILED tests/test_strava_sync_background_job__302.py::test_strava_sync_worker_success
+FAILED tests/test_strava_sync_background_job__302.py::test_strava_sync_409_when_already_running
+FAILED tests/test_strava_sync_background_job__302.py::test_strava_sync_disconnected_user_job_ends_with_error
+FAILED tests/test_strava_sync_background_job__302.py::test_strava_sync_http_error_marks_job_error
+FAILED tests/test_strava_sync_background_job__302.py::test_strava_sync_worker_sets_phase_pulling_strava
+FAILED tests/test_stryd_connect__193.py::test_connect_success - assert 401 ==...
+FAILED tests/test_stryd_connect__193.py::test_connect_response_has_no_sensitive_fields
+FAILED tests/test_stryd_connect__193.py::test_connect_wrong_password_via_service
+FAILED tests/test_stryd_connect__193.py::test_connect_stryd_5xx_returns_502
+FAILED tests/test_stryd_connect__193.py::test_connect_invalid_email_returns_422
+FAILED tests/test_stryd_connect__193.py::test_connect_empty_password_returns_422
+FAILED tests/test_stryd_connect__193.py::test_connect_missing_password_returns_422
+FAILED tests/test_stryd_connect__193.py::test_connect_password_stored_encrypted
+FAILED tests/test_stryd_connect__193.py::test_connect_idempotent_upsert - ass...
+FAILED tests/test_stryd_connect__193.py::test_connect_sets_expiry_25_days - a...
+FAILED tests/test_sync_arch_cancel_hook__307.py::test_claude_md_names_stryd_sync_endpoint
+FAILED tests/test_sync_job_registry__301.py::test_get_sync_status_401_for_anonymous
+FAILED tests/test_sync_status_bar__304.py::test_polling_interval_is_4_seconds
+FAILED tests/test_sync_status_bar__304.py::test_polling_stops_on_non_running_status
+FAILED tests/test_sync_status_bar__304.py::test_sync_bar_refresh_stops_and_restarts_poll
+FAILED tests/test_sync_status_bar__304.py::test_do_poll_called_in_init - Asse...
+FAILED tests/test_training_log.py::test_training_log_load_context_present_with_enough_data
+FAILED tests/test_training_log.py::test_training_log_load_context_null_with_insufficient_data
+FAILED tests/test_training_log.py::test_training_log_interpretation_matches_threshold[50.0-44.0-6.0-Fresh]
+FAILED tests/test_training_log.py::test_training_log_interpretation_matches_threshold[50.0-52.0--2.0-Neutral]
+FAILED tests/test_training_log.py::test_training_log_interpretation_matches_threshold[50.0-60.0--10.0-Productive (high load)]
+FAILED tests/test_training_log.py::test_training_log_interpretation_matches_threshold[50.0-70.0--20.0-Overreached (high risk)]
+FAILED tests/test_training_log.py::test_training_log_interpretation_matches_threshold[70.0-65.0-5.0-Fresh, well-trained]
+FAILED tests/test_training_log.py::test_training_log_interpretation_matches_threshold[20.0-22.0--2.0-Neutral, undertrained]
+FAILED tests/test_training_log.py::test_training_log_falls_back_to_on_demand_when_no_snapshot
+FAILED tests/test_training_log__262.py::test_load_context_present_with_enough_data
+FAILED tests/test_training_log__262.py::test_load_context_null_with_insufficient_data
+FAILED tests/test_training_log__262.py::test_interpretation_matches_threshold[10.0-Fresh]
+FAILED tests/test_training_log__262.py::test_interpretation_matches_threshold[-2.0-Neutral]
+FAILED tests/test_training_log__262.py::test_interpretation_matches_threshold[-10.0-Productive]
+FAILED tests/test_training_log__262.py::test_interpretation_matches_threshold[-20.0-Overreached]
+FAILED tests/test_training_log__262.py::test_weeks_field_unchanged - assert 4...
+FAILED tests/test_training_log_close_button_grey__642.py::test_ac1_dp_icon_btn_uses_text_sub_token
+FAILED tests/test_training_log_sync_buttons__305.py::test_strava_sync_uses_post
+FAILED tests/test_training_log_sync_buttons__305.py::test_202_calls_sync_bar_refresh
+FAILED tests/test_training_log_sync_buttons__305.py::test_set_busy_disables_strava_button
+FAILED tests/test_training_log_sync_buttons__305.py::test_poll_status_calls_set_busy_true_on_running
+FAILED tests/test_training_log_sync_buttons__305.py::test_stryd_button_disabled_in_html
+FAILED tests/test_training_log_sync_buttons__305.py::test_poll_status_calls_set_busy_false_on_idle
+FAILED tests/test_training_log_sync_buttons__305.py::test_poll_timer_stopped_on_idle
+FAILED tests/test_training_log_sync_buttons__305.py::test_no_sync_feedback_id_in_html
+FAILED tests/test_training_log_sync_buttons__305.py::test_stryd_has_coming_soon_class
+FAILED tests/test_training_log_sync_buttons__305.py::test_coming_soon_badge_css_defined
+FAILED tests/test_training_log_sync_buttons__305.py::test_stryd_title_attribute
+FAILED tests/test_training_log_sync_buttons__305.py::test_strava_button_in_html
+FAILED tests/test_training_log_sync_buttons__305.py::test_sync_poll_called_on_domcontentloaded
+FAILED tests/test_training_log_sync_buttons__305.py::test_strava_click_handler_wired_on_domcontentloaded
+FAILED tests/test_training_log_sync_buttons__305.py::test_poll_uses_setinterval
+FAILED tests/test_training_log_sync_buttons__305.py::test_poll_stops_via_clearinterval
+FAILED tests/test_users_admin_auth__loophole1.py::test_post_users_works_with_admin_cookie
+FAILED tests/test_users_admin_auth__loophole1.py::test_patch_users_works_with_admin_cookie
+FAILED tests/test_users_admin_auth__loophole1.py::test_delete_users_works_with_admin_cookie
+FAILED tests/test_week_strip_day_pills__523.py::test_week_strip_day_pills__tapping_filters_log_list
+FAILED tests/test_week_strip_day_pills__523.py::test_week_strip_day_pills__deselect_on_already_selected_tap
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_pill_is_a_button_not_a_div
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_pill_carries_its_date
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_select_day_handler_exists
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_select_day_sets_date_filter_and_refreshes
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_pills_wired_to_select_day
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_render_invokes_scroll_on_load
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_pills_are_natively_keyboard_operable
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_pill_has_accessible_label
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_selected_state_marked_in_markup
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_toggle_clears_filter_when_reselecting
+FAILED tests/test_week_strip_day_pills_interactive__523.py::test_render_computes_selection_from_single_day_filter
+FAILED tests/test_weekly_summary__1314.py::TestFrontendCard::test_weekly_summary_card_in_training_log
+FAILED tests/test_weekly_summary__1314.py::TestFrontendCard::test_weekly_summary_js_present
+FAILED tests/test_weekly_volume_load_chart__641.py::test_ac7_chart_card_uses_token_based_styling
+FAILED tests/test_weight_chart_three_zone_redesign__633.py::test_ac17_no_new_root_colors
+FAILED tests/test_weight_hero_422.py::test_card_b_log_today_label - Assertion...
+FAILED tests/test_weight_hero_422.py::test_js_handles_409_fallback_to_patch
+FAILED tests/test_weight_polish__342.py::test_f_home_js_no_weight_html_reference_in_weight_card
+FAILED tests/test_weight_polish__342.py::test_h_weight_targets_js_has_empty_state
+FAILED tests/test_weight_polish__342.py::test_h_weight_targets_js_null_safe_active_card
+FAILED tests/test_weight_polish__342.py::test_k_weight_targets_js_has_empty_state_comment
+FAILED tests/test_weight_svg_chart_423.py::test_ac1_svg_viewbox_900_280 - Ass...
+FAILED tests/test_weight_svg_chart_423.py::test_ac5_milestones_ahead_tag - As...
+FAILED tests/test_weight_svg_chart_423.py::test_ac9_goal_circle_different_from_intermediate
+FAILED tests/test_weight_tracking_polish__415.py::test_ac6_home_weight_widget_click_navigates_to_weight
+FAILED tests/test_weight_tracking_polish__415.py::test_ac8_targets_history_empty_state_element
+FAILED tests/test_weight_tracking_polish__415.py::test_ac8_targets_history_empty_state_text
+FAILED tests/test_weight_tracking_polish__415.py::test_ac8_targets_history_empty_shown_by_js
+FAILED tests/test_weight_tracking_polish__415.py::test_ac8_targets_page_handles_null_active_target
+FAILED tests/test_weight_tracking_polish__415.py::test_ac9_null_target_renders_form_instead
+FAILED tests/test_weight_tracking_polish__415.py::test_ac9_renderpage_checks_active_target
+FAILED tests/test_weight_tracking_polish__415.py::test_ac9_no_unchecked_property_access_on_null_target
+FAILED tests/test_weight_tracking_polish__415.py::test_ac10_js_hides_loading_on_render
+FAILED tests/test_weight_tracking_polish__415.py::test_ac13_weight_targets_page_title
+FAILED tests/test_wire_weekly_summary__355.py::test_weekly_summary_widget_container_exists_in_html
+FAILED tests/test_wire_weekly_summary__355.py::test_weekly_summary_js_function_exists
+FAILED tests/test_wire_weekly_summary__355.py::test_weekly_summary_this_week_heading
+FAILED tests/test_wire_weekly_summary__355.py::test_weekly_summary_renders_workout_count
+FAILED tests/test_wire_weekly_summary__355.py::test_weekly_summary_renders_type_breakdown_with_icons
+FAILED tests/test_wire_weekly_summary__355.py::test_weekly_summary_renders_totals
+FAILED tests/test_wire_weekly_summary__355.py::test_weekly_summary_fetches_home_weekly_summary_endpoint
+FAILED tests/test_wire_weekly_summary__355.py::test_delta_pills_exist_in_js
+FAILED tests/test_wire_weekly_summary__355.py::test_delta_pills_positive_green
+FAILED tests/test_wire_weekly_summary__355.py::test_delta_pills_negative_red
+FAILED tests/test_wire_weekly_summary__355.py::test_delta_pill_classes_defined_in_html
+FAILED tests/test_wire_weekly_summary__355.py::test_bar_chart_uses_svg - Asse...
+FAILED tests/test_wire_weekly_summary__355.py::test_bar_chart_has_7_bars - As...
+FAILED tests/test_wire_weekly_summary__355.py::test_bar_chart_rest_day_gray
+FAILED tests/test_wire_weekly_summary__355.py::test_bar_chart_today_accent - ...
+FAILED tests/test_wire_weekly_summary__355.py::test_five_home_api_endpoints_referenced
+FAILED tests/test_wire_weekly_summary__355.py::test_centralized_fetch_helper_exists
+FAILED tests/test_wire_weekly_summary__355.py::test_centralized_helper_handles_errors
+FAILED tests/test_wire_weekly_summary__355.py::test_readiness_widget_uses_helper
+FAILED tests/test_wire_weekly_summary__355.py::test_performance_widget_uses_helper
+FAILED tests/test_wire_weekly_summary__355.py::test_recent_workouts_widget_uses_home_endpoint
+FAILED tests/test_wire_weekly_summary__355.py::test_each_widget_has_independent_error_state
+FAILED tests/test_worker_read_auth__1601.py::test_valid_token_is_accepted - a...
+332 failed, 9668 passed, 481 skipped, 57 warnings in 366.22s (0:06:06)
