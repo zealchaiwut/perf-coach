@@ -2005,6 +2005,20 @@
         color: var(--ink);
       }
 
+      .dp-consult-btn {
+        width: auto;
+        min-width: 34px;
+        padding: 0 10px;
+        gap: 5px;
+        border: 1px solid #e2e8f0;
+      }
+
+      .dp-consult-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 1;
+      }
+
       .dp-position-group {
         display: flex;
         align-items: center;
@@ -4304,6 +4318,33 @@
           <div class="modal-actions">
             <button type="button" id="tl-confirm-cancel" class="btn-secondary">Cancel</button>
             <button type="button" id="tl-confirm-ok" class="btn-danger">Confirm</button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        id="dp-consult-overlay"
+        class="modal-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dp-consult-title"
+      >
+        <div class="modal-box" style="max-width: min(640px, 92vw)">
+          <h2 id="dp-consult-title" style="margin: 0 0 8px; font-size: 1.05rem">
+            Copy consult prompt
+          </h2>
+          <p style="margin: 0 0 10px; color: var(--text-sub); font-size: 0.85rem">
+            Clipboard blocked — select all and copy, or use the button below.
+          </p>
+          <textarea
+            id="dp-consult-text"
+            readonly
+            rows="14"
+            style="width: 100%; font-size: 0.8rem; font-family: ui-monospace, monospace"
+          ></textarea>
+          <div class="modal-actions">
+            <button type="button" id="dp-consult-close" class="btn-secondary">Close</button>
+            <button type="button" id="dp-consult-copy" class="btn-primary">Copy</button>
           </div>
         </div>
       </div>
@@ -8825,6 +8866,16 @@
               type="button"
             >
               <i class="ti ti-camera" aria-hidden="true"></i>
+            </button>
+            <button
+              id="dp-consult-btn"
+              class="dp-icon-btn dp-consult-btn"
+              aria-label="Copy consult prompt for Claude"
+              title="Copy a prompt with laps, scores and past races for Claude"
+              type="button"
+            >
+              <i class="ti ti-messages" aria-hidden="true"></i>
+              <span class="dp-consult-label">Consult</span>
             </button>
             <button
               id="dp-overflow-btn"
