@@ -2718,8 +2718,38 @@
       .dp-json-save-btn:hover { background: var(--primary-dark, #2563eb); }
       .dp-json-save-btn:disabled { opacity: 0.55; cursor: not-allowed; }
       .dp-json-msg { font-size: 11px; color: var(--ink-2); }
-      .dp-json-msg--err { color: var(--danger, #ef4444); }
       .dp-json-msg--ok  { color: var(--success, #22c55e); }
+
+      .dp-plan-paste--empty {
+        background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+        border: 1px dashed var(--border, #e2e8f0);
+        border-radius: 12px;
+        padding: 12px 14px 14px;
+      }
+      .dp-plan-paste-lead { margin-bottom: 10px; }
+      .dp-plan-paste-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .dp-plan-btn {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 7px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--primary, #3b82f6);
+        background: var(--primary, #3b82f6);
+        color: #fff;
+        cursor: pointer;
+      }
+      .dp-plan-btn--ghost {
+        background: #fff;
+        color: var(--ink, #0f172a);
+        border-color: var(--border, #e2e8f0);
+      }
+      .dp-plan-json-ta { min-height: 160px; }
+      .dp-plan-json-ta--collapsed { display: none; }
 
       /* ── Action bar ── */
       .dp-actions-bar {
@@ -9625,9 +9655,9 @@
     <script src="js/lib/training-format.js"></script>
     <script src="js/lib/load-readiness-tiles.js?v=20260801a"></script>
     <script src="js/zone2-constants.js"></script>
-    <script src="js/lib/run-detail-view.js?v=20261010f"></script>
+    <script src="js/lib/run-detail-view.js?v=20261023f"></script>
     <script src="js/training.js"></script>
-    <script src="js/training-log.js?v=20261010f"></script>
+    <script src="js/training-log.js?v=20261023g"></script>
     <script src="js/checklist-ui.js?v=20260929e"></script>
     <script src="js/training-performance.js?v=20260929n"></script>
     <script src="js/lib/plan-session-helpers.js?v=20260810phasea1"></script>

@@ -23,7 +23,7 @@ from sqlalchemy.dialects.postgresql import insert as _pg_insert
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import StravaActivity
+from backend.models import StravaActivity, StrydActivity
 from backend.services import reconcile as _reconcile
 from backend.services.strava import refresh_token_if_needed
 from backend.services.workout_merge import clean_hr
@@ -189,6 +189,22 @@ def run_strava_sync(
         recorder.mark_error(uid, str(exc))
 
 
+def _stryd_activity_ids_since(uid: _uuid.UUID, since: _date_cls) -> list[str]:
+    """Stryd rows already in DB from since (merge when API returns nothing new)."""
+    cutoff = _datetime(since.year, since.month, since.day, tzinfo=_timezone.utc)
+    with Session(engine) as session:
+        return list(
+            session.execute(
+                select(StrydActivity.stryd_activity_id)
+                .where(
+                    StrydActivity.user_id == uid,
+                    StrydActivity.start_time >= cutoff,
+                )
+                .order_by(StrydActivity.start_time)
+            ).scalars().all()
+        )
+
+
 def _upsert_form_metrics_incremental(uid: _uuid.UUID, stryd_activity_ids: list) -> None:
     """Upsert run_form_metrics rows for the given external Stryd activity string IDs.
 
@@ -241,19 +257,31 @@ def run_stryd_sync(
         recorder.set_phase(uid, "pulling_stryd")
         result = _stryd_sync.sync_stryd_activities(str(uid), since_date=since, full=full, heal=full)
         recorder.increment(uid, current=result["upserted"], items_synced=result["upserted"])
-        if result["upserted"] == 0 and not full:
+        all_ids = list(result.get("stryd_activity_ids") or [])
+        if not full and not all_ids:
+            resolved_since = result.get("since_date") or since
+            if resolved_since is not None:
+                if isinstance(resolved_since, str):
+                    try:
+                        resolved_since = _date_cls.fromisoformat(resolved_since)
+                    except ValueError:
+                        resolved_since = None
+                if resolved_since is not None:
+                    all_ids = _stryd_activity_ids_since(uid, resolved_since)
+        if not full and not all_ids and result["upserted"] == 0:
             recorder.mark_success(uid)
             return
         recorder.set_phase(uid, "reconciling")
         if full:
             _reconcile.reconcile_workouts(uid, uid)
         else:
-            all_ids = result.get("stryd_activity_ids") or []
-            _reconcile.reconcile_workouts(
-                uid,
-                uid,
-                stryd_activity_ids=all_ids[-_DAILY_RECONCILE_LIMIT:],
-            )
+            reconcile_ids = all_ids[-_DAILY_RECONCILE_LIMIT:] if all_ids else []
+            if reconcile_ids:
+                _reconcile.reconcile_workouts(
+                    uid,
+                    uid,
+                    stryd_activity_ids=reconcile_ids,
+                )
         run_plan_matcher(uid)
         # Extract running-dynamics into run_form_metrics (incremental path).
         # Uses the full stryd_activity_ids list (not DAILY_RECONCILE_LIMIT-trimmed)

@@ -11,6 +11,7 @@ from backend.services.reconcile import (
     _TOLERANCE,
     _build_workout_index,
     _find_in_index,
+    _find_stryd_partner_via_strava,
     reconcile_workouts,
 )
 
@@ -54,6 +55,7 @@ def _strava_act(uid, start_time, name="Morning Run", activity_type="Run", distan
 def _stryd_act(uid, start_time, name="Stryd Run", distance_km=10.8, duration_seconds=3600, avg_hr=145):
     act = MagicMock()
     act.id = uuid.uuid4()
+    act.stryd_activity_id = f"stryd-{act.id}"
     act.user_id = uid
     act.start_time = start_time
     act.name = name
@@ -91,10 +93,13 @@ def _make_session(strava_acts, stryd_acts, existing_workouts):
     session.__enter__ = lambda s: s
     session.__exit__ = MagicMock(return_value=False)
 
-    def query_side_effect(model):
+    def query_side_effect(model, *columns):
         from backend.models import StravaActivity, StrydActivity, Workout
         q = MagicMock()
         q.filter.return_value = q
+        if columns:
+            q.all.return_value = []
+            return q
         if model is StravaActivity:
             q.all.return_value = strava_acts
         elif model is StrydActivity:
@@ -172,6 +177,23 @@ def test_reconcile_updates_existing_matched_workout():
     session.add.assert_not_called()
     assert w.strava_activity_pk == act.id
     session.commit.assert_called_once()
+
+
+def test_stryd_partner_via_strava_when_workout_start_time_differs():
+    """Strava-first: Stryd merges via linked Strava activity times, not workout.start_time."""
+    uid = _make_uid()
+    strava_t = datetime(2026, 6, 1, 9, 0, 0, tzinfo=timezone.utc)
+    stryd_t = datetime(2026, 6, 1, 9, 4, 0, tzinfo=timezone.utc)
+    strava = _strava_act(uid, strava_t)
+    stryd = _stryd_act(uid, stryd_t)
+    w = _workout(uid, datetime(2026, 6, 1, 8, 0, 0, tzinfo=timezone.utc))
+    w.strava_activity_pk = strava.id
+    w.source = "strava"
+    w.stryd_activity_pk = None
+    partner = _find_stryd_partner_via_strava(
+        stryd, [w], {strava.id: strava}, _TOLERANCE,
+    )
+    assert partner is w
 
 
 def test_reconcile_merged_run_keeps_strava_distance_when_both_sources():
