@@ -280,7 +280,7 @@ _NULL_FITNESS = {
 }
 
 
-def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str]) -> dict:
+def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str], db: Session) -> dict:
     """CTL/ATL/TSB/ACWR from the snapshot table — the sole source every other
     consumer (readiness card, season chart) reads. No independent recompute."""
     from backend.services.coach_plan import _TARGET_CTL
@@ -297,7 +297,9 @@ def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str]) -> di
     series_start = bangkok_week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
     snaps = get_snapshot_series(str(user_id), series_start, today)
     roll_by_week = {
-        r["week_start"]: r for r in weekly_rollups(str(user_id), series_start, today, today=today)
+        r["week_start"]: r for r in weekly_rollups(
+            str(user_id), series_start, today, session=db, today=today
+        )
     }
 
     by_date = {s["date"]: s for s in snaps}
@@ -862,12 +864,17 @@ _NULL_TRAINING = {"weekly_rollups": [], "skipped_planned": [], "sessions": []}
 _SKIPPED_STATUSES = ("missed", "missed_auto", "missed_manual")
 
 
-def _session_row(workout, exercise_counts: dict) -> dict:
+def _session_row(workout, exercise_counts: dict, prefs=None) -> dict:
     """One flat session object. No ``structure`` blob — it triples the payload
     and adds nothing a coach message can use."""
+    from backend.services.session_tss import session_tss
+    from backend.services.weekly_rollup import session_local_date
+
+    local_d = session_local_date(workout)
+    counted = session_tss(workout, prefs=prefs)
     row = {
-        "date": workout.workout_date.isoformat(),
-        "dow": _DOW[workout.workout_date.weekday()],
+        "date": local_d.isoformat(),
+        "dow": _DOW[local_d.weekday()],
         "type": workout.workout_type,
         "name": workout.name,
         "duration_min": (
@@ -875,7 +882,7 @@ def _session_row(workout, exercise_counts: dict) -> dict:
             if workout.duration_seconds
             else None
         ),
-        "tss": _f(workout.tss, 1),
+        "tss": _f(counted.get("tss"), 1),
     }
     if workout.run_subtype:
         row["subtype"] = workout.run_subtype
@@ -908,17 +915,22 @@ def _session_row(workout, exercise_counts: dict) -> dict:
 def _assemble_training(db: Session, user, today: _date, window_days: int) -> dict:
     from sqlalchemy import func
 
-    from backend.models import PlannedSession, Workout, WorkoutExercise
+    from backend.models import PlannedSession, UserPreferences, Workout, WorkoutExercise
     from backend.services.weekly_rollup import bangkok_week_start, rollup_for_export, weekly_rollups
 
     window_start = today - _timedelta(days=window_days - 1)
+    rollup_start = bangkok_week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
+    effective_start = min(window_start, rollup_start)
+    buffer_start = effective_start - _timedelta(days=1)
+    current_week_end = bangkok_week_start(today) + _timedelta(days=6)
+    query_end = max(today, current_week_end)
 
     workouts = (
         db.query(Workout)
         .filter(
             Workout.user_id == user.id,
-            Workout.workout_date >= window_start,
-            Workout.workout_date <= today,
+            Workout.workout_date >= buffer_start,
+            Workout.workout_date <= query_end,
         )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nullslast())
         .all()
@@ -934,9 +946,13 @@ def _assemble_training(db: Session, user, today: _date, window_days: int) -> dic
         ):
             exercise_counts[wid] = int(count)
 
-    sessions = [_session_row(w, exercise_counts) for w in workouts]
+    prefs = (
+        db.query(UserPreferences)
+        .filter(UserPreferences.user_id == user.id)
+        .first()
+    )
+    sessions = [_session_row(w, exercise_counts, prefs) for w in workouts]
 
-    rollup_start = bangkok_week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
     rollups_raw = weekly_rollups(str(user.id), rollup_start, today, session=db, today=today)
     weekly_rollups_list: list[dict] = []
     for row in rollups_raw:
@@ -1404,7 +1420,7 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         goal_distance = ((goal.get("race") or {}) or {}).get("distance")
         fitness = _safe(
             "fitness",
-            lambda: _assemble_fitness(user.id, today, goal_distance),
+            lambda: _assemble_fitness(user.id, today, goal_distance, db),
             dict(_NULL_FITNESS),
             degraded,
         )

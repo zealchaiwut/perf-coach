@@ -1425,9 +1425,9 @@ def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
     from backend.services.weekly_rollup import normalize_week_start, weekly_rollup
 
     ws = normalize_week_start(week_start)
-    roll = weekly_rollup(str(uid), ws)
 
     with Session(engine) as session:
+        roll = weekly_rollup(str(uid), ws, session=session)
         workouts = (
             session.query(Workout)
             .filter(

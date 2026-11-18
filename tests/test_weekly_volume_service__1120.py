@@ -55,32 +55,51 @@ def _mock_session(workouts):
     return mock_session
 
 
+def _rollup_payload(workouts):
+    tss_total = sum(float(w.tss or 0) for w in workouts)
+    dist_vals = [float(w.distance_km) for w in workouts if w.distance_km is not None]
+    return {
+        "distance_km": round(sum(dist_vals), 3) if dist_vals else 0.0,
+        "tss_total": tss_total,
+        "session_count": len(workouts),
+        "hours": 0.0,
+    }
+
+
 # ── AC5 case 1: zero workouts ─────────────────────────────────────────────────
 
 def test_zero_workouts_returns_zero_distance():
     """AC5: distance_km is 0.0 when no workouts exist in the window."""
-    with patch("backend.services.training_load.Session", return_value=_mock_session([])):
+    with patch("backend.services.training_load.Session", return_value=_mock_session([])), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload([])
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert result["distance_km"] == 0.0
 
 
 def test_zero_workouts_returns_zero_tss():
     """AC5: total_tss is 0.0 when no workouts exist in the window."""
-    with patch("backend.services.training_load.Session", return_value=_mock_session([])):
+    with patch("backend.services.training_load.Session", return_value=_mock_session([])), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload([])
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert result["total_tss"] == 0.0
 
 
 def test_zero_workouts_returns_zero_session_count():
     """AC5: session_count is 0 when no workouts exist in the window."""
-    with patch("backend.services.training_load.Session", return_value=_mock_session([])):
+    with patch("backend.services.training_load.Session", return_value=_mock_session([])), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload([])
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert result["session_count"] == 0
 
 
 def test_zero_workouts_returns_empty_workout_types():
     """AC5: workout_types is empty list when no workouts exist."""
-    with patch("backend.services.training_load.Session", return_value=_mock_session([])):
+    with patch("backend.services.training_load.Session", return_value=_mock_session([])), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload([])
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert result["workout_types"] == []
 
@@ -93,7 +112,9 @@ def test_multiple_workouts_session_count():
         _make_workout(distance_km=10.5, tss=70.0, workout_type="Run"),
         _make_workout(distance_km=None, tss=45.0, workout_type="Strength"),
     ]
-    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)):
+    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload(workouts)
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert result["session_count"] == 2
 
@@ -105,7 +126,9 @@ def test_multiple_workouts_distance_sum():
         _make_workout(distance_km=5.0, tss=30.0, workout_type="Run"),
         _make_workout(distance_km=None, tss=45.0, workout_type="Strength"),
     ]
-    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)):
+    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload(workouts)
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert abs(result["distance_km"] - 15.5) < 0.01
 
@@ -116,7 +139,9 @@ def test_multiple_workouts_tss_sum():
         _make_workout(distance_km=10.5, tss=70.0, workout_type="Run"),
         _make_workout(distance_km=None, tss=45.0, workout_type="Strength"),
     ]
-    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)):
+    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload(workouts)
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert abs(result["total_tss"] - 115.0) < 0.01
 
@@ -127,7 +152,9 @@ def test_multiple_workouts_types_list():
         _make_workout(distance_km=10.5, tss=70.0, workout_type="Run"),
         _make_workout(distance_km=None, tss=45.0, workout_type="Strength"),
     ]
-    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)):
+    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload(workouts)
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert result["workout_types"] == ["Run", "Strength"]
 
@@ -136,7 +163,9 @@ def test_multiple_workouts_types_list():
 
 def test_return_has_all_required_keys():
     """AC1: function returns all four required keys."""
-    with patch("backend.services.training_load.Session", return_value=_mock_session([])):
+    with patch("backend.services.training_load.Session", return_value=_mock_session([])), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload([])
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert "distance_km" in result
     assert "total_tss" in result
@@ -150,7 +179,9 @@ def test_workouts_with_no_tss_excluded_from_sum():
         _make_workout(distance_km=8.0, tss=None, workout_type="Run"),
         _make_workout(distance_km=None, tss=50.0, workout_type="Strength"),
     ]
-    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)):
+    with patch("backend.services.training_load.Session", return_value=_mock_session(workouts)), patch(
+        "backend.services.weekly_rollup.weekly_rollup", return_value=_rollup_payload(workouts)
+    ):
         result = get_weekly_volume(_USER_ID, _WEEK_START, _WEEK_END)
     assert abs(result["total_tss"] - 50.0) < 0.01
     assert result["session_count"] == 2

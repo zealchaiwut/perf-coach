@@ -87,13 +87,32 @@ def _make_workout(
     return _make_row(workout_type, tss, distance_km, workout_date)
 
 
-def _mock_session(rows):
-    mock_session = MagicMock()
-    mock_session.__enter__ = MagicMock(return_value=mock_session)
-    mock_session.__exit__ = MagicMock(return_value=False)
-    # Endpoint now uses: session.query(...).filter(...).group_by(...).all()
-    mock_session.query.return_value.filter.return_value.group_by.return_value.all.return_value = rows
-    return mock_session
+def _rollup_weeks_from_rows(rows):
+    """Map legacy SQL GROUP BY row mocks to weekly_rollups() return shape."""
+    by_week: dict[str, dict] = {}
+    for r in rows:
+        mon = r.week_mon.date().isoformat()
+        bucket = by_week.setdefault(
+            mon,
+            {
+                "week_start": mon,
+                "tss_run": 0.0,
+                "tss_strength": 0.0,
+                "tss_support_other": 0.0,
+                "tss_total": 0.0,
+                "distance_km": 0.0,
+            },
+        )
+        wt = (r.workout_type or "").lower()
+        if wt == "run":
+            bucket["tss_run"] += float(r.sum_tss)
+        elif wt == "strength":
+            bucket["tss_strength"] += float(r.sum_tss)
+        else:
+            bucket["tss_support_other"] += float(r.sum_tss)
+        bucket["tss_total"] += float(r.sum_tss)
+        bucket["distance_km"] += float(r.sum_dist or 0)
+    return list(by_week.values())
 
 
 # ── AC1: endpoint exists and accepts from/to params ──────────────────────────
@@ -102,8 +121,10 @@ def test_weekly_endpoint_returns_200_with_valid_range():
     """AC1: GET /api/training-load/weekly with valid from/to returns 200."""
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-01&to=2025-03-31"
             )
@@ -146,8 +167,10 @@ def test_weekly_endpoint_response_has_weeks_array():
     """AC2: response body contains a 'weeks' array."""
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-12"
             )
@@ -163,8 +186,10 @@ def test_weekly_endpoint_week_has_required_fields():
     run = _make_workout("run", tss=50.0, distance_km=10.0, workout_date="2025-01-07")
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([run])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([run]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-12"
             )
@@ -184,8 +209,10 @@ def test_weekly_endpoint_no_full_workout_objects_in_response():
     run = _make_workout("run", tss=50.0, distance_km=10.0, workout_date="2025-01-07")
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([run])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([run]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-12"
             )
@@ -205,8 +232,10 @@ def test_weekly_endpoint_aggregates_tss_correctly():
     lift = _make_workout("strength", tss=30.0, distance_km=0.0, workout_date="2025-01-08")
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([run, lift])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([run, lift]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-12"
             )
@@ -223,8 +252,10 @@ def test_weekly_endpoint_aggregates_distance_correctly():
     w2 = _make_workout("run", tss=30.0, distance_km=5.0, workout_date="2025-01-09")
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([w1, w2])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([w1, w2]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-12"
             )
@@ -242,8 +273,10 @@ def test_weekly_endpoint_splits_run_and_strength_tss():
     lift = _make_workout("strength", tss=30.0, distance_km=0.0, workout_date="2025-01-08")
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([run, lift])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([run, lift]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-12"
             )
@@ -262,8 +295,10 @@ def test_weekly_endpoint_returns_correct_week_start():
     run = _make_workout("run", tss=20.0, distance_km=5.0, workout_date="2025-01-09")  # Thursday
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([run])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([run]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-12"
             )
@@ -280,8 +315,10 @@ def test_weekly_endpoint_groups_multiple_weeks():
     w2 = _make_workout("run", tss=35.0, distance_km=7.0, workout_date="2025-01-14")  # week of Jan 13
     client = _make_client()
     try:
-        with patch("backend.main.Session") as mock_cls:
-            mock_cls.return_value = _mock_session([w1, w2])
+        with patch(
+            "backend.services.weekly_rollup.weekly_rollups",
+            return_value=_rollup_weeks_from_rows([w1, w2]),
+        ):
             resp = client.get(
                 "/api/training-load/weekly?from=2025-01-06&to=2025-01-20"
             )

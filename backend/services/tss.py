@@ -1258,11 +1258,12 @@ def persist_running_tss(workout_id, session) -> dict:
 
     refresh_workout_tss_storage(session, workout, power_tss=power_tss)
 
+    if result.get("method") and result["method"] != "none":
+        workout.tss_method = result["method"]
+
     out = dict(result)
-    if workout.tss is not None:
-        out["tss"] = int(round(workout.tss))
-    if workout.tss_method:
-        out["method"] = workout.tss_method
+    if result.get("tss") is not None:
+        out["tss"] = int(round(result["tss"]))
     return out
 
 
