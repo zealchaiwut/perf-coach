@@ -309,6 +309,9 @@ class Workout(Base):
     run_subtype = Column(String(20), nullable=True)
     remarks = Column(Text, nullable=True)
     tss = Column(Float, nullable=True)
+    tss_power = Column(Float, nullable=True)
+    tss_stryd = Column(Float, nullable=True)
+    tss_method_override = Column(String(20), nullable=True)
     tss_source = Column(String(20), nullable=True)
     tss_method = Column(String(20), nullable=True)
     source = Column(String(20), nullable=True)
@@ -966,6 +969,7 @@ class UserPreferences(Base):
     atl_days = Column(Integer, nullable=True)
     scale_constant = Column(Float, nullable=True)
     max_tss = Column(Integer, nullable=True)
+    tss_method_default = Column(String(20), nullable=False, server_default=text("'power'"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 

@@ -47,6 +47,7 @@ from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import compute_strength_tss as _compute_strength_tss
 from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
+from backend.services.session_tss import session_tss as _session_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
     current_load,
@@ -6429,8 +6430,9 @@ def _compute_session_signals(w: Workout) -> dict:
     }
 
 
-def _workout_dict(w: Workout, exercises: list) -> dict:
+def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = None) -> dict:
     strava_act = getattr(w, "strava_activity", None)
+    _tss = _session_tss(w, prefs=prefs)
     return {
         "id": str(w.id),
         "user_id": str(w.user_id),
@@ -6439,9 +6441,11 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "workout_type": w.workout_type,
         "run_subtype": w.run_subtype,
         "remarks": w.remarks,
-        "tss": int(w.tss) if w.tss is not None else None,
+        "tss": int(_tss["tss"]) if _tss.get("tss") is not None else None,
         "tss_source": w.tss_source,
-        "tss_method": w.tss_method,
+        "tss_method": _tss.get("method") or w.tss_method,
+        "tss_power": int(_tss["tss_power"]) if _tss.get("tss_power") is not None else None,
+        "tss_stryd": int(_tss["tss_stryd"]) if _tss.get("tss_stryd") is not None else None,
         "source": w.source,
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
@@ -10165,16 +10169,10 @@ def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
 
 
 def _workout_list_tss(w, splits, prefs) -> float | None:
-    """App-computed TSS for training-log list/chart rollups (read path — no DB write)."""
-    if w.tss_source == "manual" and w.tss is not None:
-        return float(w.tss)
-    wt = (w.workout_type or "").lower()
-    if "run" not in wt:
-        return float(w.tss) if w.tss is not None else None
-    computed = _compute_running_tss(w, splits or [], prefs or UserPreferences())
-    if computed.get("tss") is not None:
-        return float(computed["tss"])
-    return float(w.tss) if w.tss is not None else None
+    """Counted session TSS for training-log list/chart rollups (read path — no DB write)."""
+    del splits  # counted TSS uses stored dual-method values, not live recompute
+    val = _session_tss(w, prefs=prefs or None).get("tss")
+    return float(val) if val is not None else None
 
 
 @app.get("/api/training-log")
@@ -13879,6 +13877,7 @@ _PREFS_DEFAULTS = {
     "zone2_hr_min": 130,
     "zone2_hr_max": 155,
     "weekly_zone2_target_min": 150,
+    "tss_method_default": "power",
 }
 
 _PREFS_EDITABLE = {"ftp_w", "threshold_hr", "threshold_pace_seconds_per_km", "display_name", "week_start_day", "timezone"}
@@ -13910,6 +13909,7 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
         "timezone": prefs.timezone,
         "ctl_days": prefs.ctl_days,
         "atl_days": prefs.atl_days,
+        "tss_method_default": getattr(prefs, "tss_method_default", None) or "power",
     }
 
 
@@ -13990,6 +13990,7 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
     birth_date = body.get("birth_date", _PREFS_SENTINEL)
     height_cm = body.get("height_cm", _PREFS_SENTINEL)
     athlete_context = body.get("athlete_context", _PREFS_SENTINEL)
+    tss_method_default = body.get("tss_method_default", _PREFS_SENTINEL)
 
     errors = []
     if ftp_w is not _PREFS_SENTINEL and ftp_w is not None:
@@ -14048,6 +14049,12 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 "field": "athlete_context",
                 "msg": f"athlete_context must be ≤ {_ATHLETE_CONTEXT_MAX_CHARS} characters",
             })
+    if tss_method_default is not _PREFS_SENTINEL and tss_method_default is not None:
+        if tss_method_default not in ("power", "stryd"):
+            errors.append({
+                "field": "tss_method_default",
+                "msg": "tss_method_default must be 'power' or 'stryd'",
+            })
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
@@ -14084,6 +14091,9 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             prefs.week_start_day = week_start_day
         if timezone is not _PREFS_SENTINEL:
             prefs.timezone = timezone
+        _prior_tss_method_default = getattr(prefs, "tss_method_default", None) or "power"
+        if tss_method_default is not _PREFS_SENTINEL:
+            prefs.tss_method_default = tss_method_default or "power"
 
         _identity_sent = any(
             f is not _PREFS_SENTINEL for f in (birth_date, height_cm, athlete_context)
@@ -14107,8 +14117,26 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
         _threshold_fields_changed = any(
             f is not _PREFS_SENTINEL for f in (ftp_w, threshold_hr, threshold_pace)
         )
+        _tss_method_default_changed = (
+            tss_method_default is not _PREFS_SENTINEL
+            and (tss_method_default or "power") != _prior_tss_method_default
+        )
         session.commit()
         session.refresh(prefs)
+        if _tss_method_default_changed:
+            from backend.services.session_tss import recompute_counted_tss_for_user
+
+            try:
+                recompute_counted_tss_for_user(session, uid)
+                session.commit()
+            except Exception as _tss_exc:
+                _logging.getLogger(__name__).warning(
+                    "recompute_counted_tss_for_user failed for user %s: %s",
+                    uid,
+                    _tss_exc,
+                    exc_info=True,
+                )
+            _trigger_performance_backfill_background(uid)
         if _threshold_fields_changed:
             try:
                 _recompute_user_running_tss(uid, session)
