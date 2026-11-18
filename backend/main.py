@@ -13006,9 +13006,9 @@ def get_training_load_weekly(
 
     Each week bucket contains only run_tss, strength_tss, total_tss, and
     total_distance_km — no per-workout serialization.  Week boundaries are
-    Monday-to-Sunday (ISO week semantics).
+    Monday-to-Sunday (Bangkok semantics via weekly_rollup).
     """
-    import re as _re
+    from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups
 
     uid = current_user.id
     today = _today_bkk()
@@ -13025,68 +13025,49 @@ def get_training_load_weekly(
     if (to_d - from_d).days > 365:
         raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
 
-    _RUN_RE = _re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", _re.IGNORECASE)
-    _LIFT_RE = _re.compile(r"^(lift|strength|wod|crossfit)", _re.IGNORECASE)
-
-    with Session(engine) as session:
-        # SQL-side GROUP BY (week_monday, workout_type) so we aggregate TSS and
-        # distance in the database rather than loading every Workout row.
-        week_monday = func.date_trunc(
-            "week", _sa_cast(Workout.workout_date, _sa_DateTime),
-        )
-        rows = (
-            session.query(
-                week_monday.label("week_mon"),
-                Workout.workout_type,
-                func.coalesce(func.sum(Workout.tss), 0).label("sum_tss"),
-                func.coalesce(func.sum(Workout.distance_km), 0).label("sum_dist"),
-            )
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= from_d,
-                Workout.workout_date <= to_d,
-            )
-            .group_by(week_monday, Workout.workout_type)
-            .all()
-        )
-
-    weeks_map: dict = {}
-    for row in rows:
-        # date_trunc returns a datetime; convert to ISO date string (Monday)
-        wm = row.week_mon
-        if hasattr(wm, "date"):
-            mon_key = wm.date().isoformat()
-        else:
-            mon_key = str(wm)[:10]
-        if mon_key not in weeks_map:
-            weeks_map[mon_key] = {"run_tss": 0.0, "strength_tss": 0.0, "total_distance_km": 0.0}
-        tss = float(row.sum_tss or 0)
-        dist = float(row.sum_dist or 0)
-        wt = (row.workout_type or "").strip()
-        if _RUN_RE.match(wt):
-            weeks_map[mon_key]["run_tss"] += tss
-        elif _LIFT_RE.match(wt):
-            weeks_map[mon_key]["strength_tss"] += tss
-        elif dist > 0:
-            weeks_map[mon_key]["run_tss"] += tss
-        else:
-            weeks_map[mon_key]["strength_tss"] += tss
-        weeks_map[mon_key]["total_distance_km"] += dist
-
+    rollups = weekly_rollups(str(uid), bangkok_week_start(from_d), bangkok_week_start(to_d), today=today)
     weeks = []
-    for mon_key in sorted(weeks_map):
-        agg = weeks_map[mon_key]
-        run_tss = round(agg["run_tss"], 2)
-        strength_tss = round(agg["strength_tss"], 2)
+    for row in rollups:
+        strength_tss = round(row["tss_strength"] + row["tss_support_other"], 2)
         weeks.append({
-            "week_start": mon_key,
-            "run_tss": run_tss,
+            "week_start": row["week_start"],
+            "run_tss": row["tss_run"],
             "strength_tss": strength_tss,
-            "total_tss": round(run_tss + strength_tss, 2),
-            "total_distance_km": round(agg["total_distance_km"], 2),
+            "total_tss": row["tss_total"],
+            "total_distance_km": row["distance_km"],
         })
 
     return JSONResponse({"weeks": weeks})
+
+
+@app.get("/api/weekly-rollup")
+def get_weekly_rollup_endpoint(
+    week_start: Optional[str] = Query(default=None),
+    from_week: Optional[str] = Query(default=None, alias="from"),
+    to_week: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Canonical week totals for plan/log headers (revamp P0-4)."""
+    from backend.services.weekly_rollup import normalize_week_start, weekly_rollup, weekly_rollups
+
+    today = _today_bkk()
+    if week_start is not None:
+        try:
+            ws = normalize_week_start(_date.fromisoformat(week_start))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
+
+    if from_week is not None and to_week is not None:
+        try:
+            fw = normalize_week_start(_date.fromisoformat(from_week))
+            tw = normalize_week_start(_date.fromisoformat(to_week))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="from/to must be YYYY-MM-DD")
+        return JSONResponse({"weeks": weekly_rollups(str(user.id), fw, tw, today=today)})
+
+    ws = normalize_week_start(today)
+    return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
 
 
 @app.post("/api/training-load/recompute")
@@ -18378,7 +18359,9 @@ def get_plan_week_load(
         clamped = target_week["clamped"] if target_week else False
         acwr_ceiling = target_week["ceiling"] if target_week else _static_acwr_ceiling
 
-        logged_tss = _get_weekly_volume(str(user.id), query_week_start, query_week_end)["total_tss"]
+        from backend.services.weekly_rollup import weekly_rollup as _weekly_rollup
+
+        logged_tss = _weekly_rollup(str(user.id), query_week_start, today=today)["tss_total"]
         planned_tss = _week_planned_tss(
             db, user.id, query_week_start, query_week_end, estimate_baseline, today
         )

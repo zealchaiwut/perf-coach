@@ -1422,37 +1422,28 @@ def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
         vals = [_to_float(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
         return round(sum(vals), 3) if vals else None
 
-    from backend.models import UserPreferences
-    from backend.services.session_tss import session_tss
+    from backend.services.weekly_rollup import normalize_week_start, weekly_rollup
+
+    ws = normalize_week_start(week_start)
+    roll = weekly_rollup(str(uid), ws)
 
     with Session(engine) as session:
         workouts = (
             session.query(Workout)
             .filter(
                 Workout.user_id == uid,
-                Workout.workout_date >= week_start,
+                Workout.workout_date >= ws,
                 Workout.workout_date <= week_end,
             )
             .all()
         )
-        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
-
-    session_count = len(workouts)
-    raw_distance = _sum_float_attr(workouts, "distance_km")
-    tss_vals = []
-    for w in workouts:
-        val = session_tss(w, prefs=prefs).get("tss")
-        if val is not None:
-            tss_vals.append(val)
-    raw_tss = round(sum(tss_vals), 3) if tss_vals else None
-    raw_duration = _sum_float_attr(workouts, "duration_seconds")
-    workout_types = [w.workout_type for w in workouts]
+        workout_types = [w.workout_type for w in workouts]
 
     return {
-        "distance_km": raw_distance if raw_distance is not None else 0.0,
-        "total_tss": round(raw_tss, 2) if raw_tss is not None else 0.0,
-        "session_count": session_count,
-        "duration_seconds": raw_duration if raw_duration is not None else 0.0,
+        "distance_km": roll["distance_km"],
+        "total_tss": roll["tss_total"],
+        "session_count": roll["session_count"],
+        "duration_seconds": roll["hours"] * 3600.0,
         "workout_types": workout_types,
     }
 
