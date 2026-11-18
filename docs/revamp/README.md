@@ -6,6 +6,9 @@ point at a stable file path and each phase checkpoint can compare the running ap
 [INDEX.md](INDEX.md) lists every screen with its source, preview, screenshot and the phase that
 builds it.
 
+**[SPEC.md](SPEC.md)** — glossary, mock-vs-issue rules, revamp flag, definition of done, and
+checkpoint procedure for all revamp work (Phase 0 contract).
+
 ## What's here
 
 | Folder | Contents | Edit? |
