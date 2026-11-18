@@ -214,9 +214,15 @@ async def _no_cache_frontend(request, call_next):
     return response
 
 
+def _revamp_ui_enabled() -> bool:
+    return os.getenv("REVAMP_UI", "0").strip().lower() in ("1", "true", "yes")
+
+
 def _is_guarded_path(path: str) -> bool:
     """Return True if this path requires authentication (HTML page guard only)."""
     if path == "/":
+        return True
+    if path.startswith("/v2/") and _revamp_ui_enabled():
         return True
     clean = path.lstrip("/")
     if clean in _PAGES:
@@ -5794,6 +5800,39 @@ def _serve_dev_mobile():
 
 
 app.add_api_route("/dev/mobile", _serve_dev_mobile, include_in_schema=False)
+
+
+_V2_ROUTE_FILES = {
+    "/v2/home": "v2-home.html",
+    "/v2/training/plan": "v2-training-plan.html",
+    "/v2/training/log": "v2-training-log.html",
+    "/v2/training/trends": "v2-training-trends.html",
+    "/v2/performance": "v2-performance.html",
+    "/v2/components": "v2-components.html",
+}
+
+
+def _serve_v2_page(filename: str):
+    if not _revamp_ui_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(str(_static_root / "frontend" / "pages" / filename))
+
+
+def _redirect_v2_training_root():
+    if not _revamp_ui_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    return RedirectResponse(url="/v2/training/plan", status_code=302)
+
+
+for _v2_path, _v2_file in _V2_ROUTE_FILES.items():
+    app.add_api_route(_v2_path, lambda f=_v2_file: _serve_v2_page(f), include_in_schema=False)
+
+app.add_api_route("/v2/training", _redirect_v2_training_root, include_in_schema=False)
+
+
+@app.get("/api/revamp-ui")
+def get_revamp_ui_status():
+    return JSONResponse({"enabled": _revamp_ui_enabled()})
 
 
 def _serve_projection_redirect():

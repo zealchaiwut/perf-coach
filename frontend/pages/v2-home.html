@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home (revamp) – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css">
+</head>
+<body class="rv-page">
+  <div class="rv-shell">
+    <header class="rv-shell-head">
+      <div>
+        <h1 class="rv-title">Home</h1>
+        <p class="rv-subtitle">Phase 0 shell — content arrives in later sprints.</p>
+      </div>
+      <nav aria-label="Primary">
+        <ul class="rv-tabnav">
+          <li><a class="rv-tab" href="/v2/home" aria-current="page">Home</a></li>
+          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
+          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
+          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/admin">Admin</a></li>
+        </ul>
+      </nav>
+    </header>
+    <p class="rv-row"><a class="rv-btn rv-btn--secondary" href="/home">Back to classic app</a></p>
+    <section class="rv-card" aria-labelledby="rv-empty-h">
+      <h2 id="rv-empty-h" class="rv-label">Coming soon</h2>
+      <p>Readiness, week summary, and quick actions will live here.</p>
+    </section>
+  </div>
+  <script>
+    fetch("/api/auth/me").then(function (r) { return r.ok ? r.json() : null; }).then(function (u) {
+      if (u && u.is_admin) document.getElementById("rv-admin-tab").hidden = false;
+    });
+  </script>
+</body>
+</html>
