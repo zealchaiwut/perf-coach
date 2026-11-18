@@ -11,7 +11,8 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from backend.services.performance_scores import _latest_race_perf, get_performance_payload
+from backend.services import performance_scores as _performance_scores
+from backend.services.performance_scores import _latest_race_perf
 
 
 def _axis_from_payload_block(block: Optional[dict]) -> dict[str, Any]:
@@ -38,7 +39,7 @@ def _axis_from_payload_block(block: Optional[dict]) -> dict[str, Any]:
 def get_scores(user_id: uuid.UUID, as_of: Optional[date] = None) -> dict[str, Any]:
     """Return overall endurance/speed scores for the athlete."""
     del as_of  # live compute path uses today; as-of callers use history via consult
-    payload = get_performance_payload(user_id)
+    payload = _performance_scores.get_performance_payload(user_id)
     state = payload.get("state")
     overall = {
         "endurance": _axis_from_payload_block(payload.get("endurance")),

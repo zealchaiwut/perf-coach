@@ -23,7 +23,7 @@ def _payload():
 
 
 def test_get_scores_overall_matches_performance_payload():
-    with patch.object(score_reader, "get_performance_payload", return_value=_payload()):
+    with patch("backend.services.performance_scores.get_performance_payload", return_value=_payload()):
         out = score_reader.get_scores("00000000-0000-0000-0000-000000000001")
     assert out["overall"]["speed"]["score"] == 47.0
     assert out["overall"]["endurance"]["score"] == 41.0
@@ -45,12 +45,15 @@ def test_race_specific_can_differ_from_overall():
 
 
 def test_export_and_reader_same_speed():
-    with patch.object(score_reader, "get_performance_payload", return_value=_payload()):
+    import uuid
+
+    uid = uuid.uuid4()
+    with patch("backend.services.performance_scores.get_performance_payload", return_value=_payload()):
         from backend.services.coach_export import _assemble_performance
 
-        user = SimpleNamespace(id="00000000-0000-0000-0000-000000000001")
+        user = SimpleNamespace(id=uid)
         perf = _assemble_performance(user)
-        reader = score_reader.get_scores(user.id)
+        reader = score_reader.get_scores(uid)
     assert perf["overall"]["speed"]["score"] == reader["overall"]["speed"]["score"]
 
 
