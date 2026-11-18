@@ -108,28 +108,10 @@ ScoreReader = Callable[[Session, uuid.UUID, date], dict]
 
 
 def _default_score_reader(session: Session, user_id: uuid.UUID, as_of: date) -> dict:
-    """Read canonical endurance/speed from performance_score_history (no recompute)."""
-    row = (
-        session.query(PerformanceScoreHistory)
-        .filter(
-            PerformanceScoreHistory.user_id == user_id,
-            PerformanceScoreHistory.score_date <= as_of,
-            PerformanceScoreHistory.formula_version == _PERF_FORMULA_VERSION,
-        )
-        .order_by(
-            PerformanceScoreHistory.score_date.desc(),
-            PerformanceScoreHistory.created_at.desc(),
-        )
-        .first()
-    )
-    anchor = _latest_race_perf(session, user_id, as_of=as_of)
-    return {
-        "endurance": row.endurance if row else None,
-        "speed": row.speed if row else None,
-        "as_of_date": row.score_date.isoformat() if row and row.score_date else NOT_AVAILABLE,
-        "anchor_date": anchor.get("date") if anchor else NOT_AVAILABLE,
-        "anchor_effort": round(anchor["perf"], 1) if anchor and anchor.get("perf") is not None else NOT_AVAILABLE,
-    }
+    """Read scores through the canonical reader (revamp P0-5)."""
+    from backend.services.score_reader import consult_score_reader
+
+    return consult_score_reader(session, user_id, as_of)
 
 
 def _na(value, *, suffix: str = "") -> str:
