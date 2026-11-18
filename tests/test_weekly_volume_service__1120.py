@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,19 +25,33 @@ _WEEK_END = date(2026, 7, 5)    # Sunday
 
 
 def _make_workout(distance_km=None, tss=None, workout_type="Run"):
-    w = MagicMock()
-    w.distance_km = distance_km
-    w.tss = tss
-    w.workout_type = workout_type
-    return w
+    return SimpleNamespace(
+        distance_km=distance_km,
+        duration_seconds=None,
+        tss=tss,
+        tss_power=float(tss) if tss is not None else None,
+        tss_stryd=None,
+        tss_method_override=None,
+        tss_source="calculated",
+        tss_method=None,
+        workout_type=workout_type,
+    )
 
 
 def _mock_session(workouts):
     """Return a context-manager mock whose query().filter().all() returns workouts."""
+    prefs = SimpleNamespace(tss_method_default="power")
     mock_session = MagicMock()
     mock_session.__enter__ = MagicMock(return_value=mock_session)
     mock_session.__exit__ = MagicMock(return_value=False)
-    mock_session.query.return_value.filter.return_value.all.return_value = workouts
+
+    def _query(_model):
+        q = MagicMock()
+        q.filter.return_value.all.return_value = workouts
+        q.filter.return_value.first.return_value = prefs
+        return q
+
+    mock_session.query.side_effect = _query
     return mock_session
 
 

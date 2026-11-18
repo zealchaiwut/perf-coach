@@ -1422,6 +1422,9 @@ def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
         vals = [_to_float(getattr(w, attr)) for w in workouts if getattr(w, attr, None) is not None]
         return round(sum(vals), 3) if vals else None
 
+    from backend.models import UserPreferences
+    from backend.services.session_tss import session_tss
+
     with Session(engine) as session:
         workouts = (
             session.query(Workout)
@@ -1432,10 +1435,16 @@ def get_weekly_volume(user_id: str, week_start: date, week_end: date) -> dict:
             )
             .all()
         )
+        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
 
     session_count = len(workouts)
     raw_distance = _sum_float_attr(workouts, "distance_km")
-    raw_tss = _sum_float_attr(workouts, "tss")
+    tss_vals = []
+    for w in workouts:
+        val = session_tss(w, prefs=prefs).get("tss")
+        if val is not None:
+            tss_vals.append(val)
+    raw_tss = round(sum(tss_vals), 3) if tss_vals else None
     raw_duration = _sum_float_attr(workouts, "duration_seconds")
     workout_types = [w.workout_type for w in workouts]
 

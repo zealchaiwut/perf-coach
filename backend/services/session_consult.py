@@ -481,8 +481,14 @@ def _previous_race_lines(session: Session, races: Iterable[Race]) -> list[str]:
 
 
 def _tss_lines(workout: Workout, stryd: Optional[StrydActivity], missing: list[str]) -> str:
-    app_tss = workout.tss
-    app_method = workout.tss_method or workout.tss_source
+    from backend.services.session_tss import session_tss
+
+    counted = session_tss(
+        workout,
+        stryd_tss=stryd.tss if stryd else None,
+    )
+    app_tss = counted.get("tss")
+    app_method = counted.get("method") or workout.tss_method or workout.tss_source
     stryd_tss = stryd.tss if stryd else None
     canonical = _na(int(app_tss) if app_tss is not None else None)
     parts = [f"app counts: {canonical} ({_na(app_method)})"]
