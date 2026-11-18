@@ -292,8 +292,13 @@ def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str]) -> di
     tsb = _f(load.get("tsb"))
     acwr = _f(load.get("acwr"), 3)
 
-    series_start = _week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
+    from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups
+
+    series_start = bangkok_week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
     snaps = get_snapshot_series(str(user_id), series_start, today)
+    roll_by_week = {
+        r["week_start"]: r for r in weekly_rollups(str(user_id), series_start, today, today=today)
+    }
 
     by_date = {s["date"]: s for s in snaps}
     weekly_series: list[dict] = []
@@ -308,11 +313,10 @@ def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str]) -> di
             if (ws + _timedelta(days=d)) in by_date
         ]
         end_snap = week_snaps[-1] if week_snaps else None
-        # ACWR needs a full 28-day chronic window; the snapshot layer already
-        # returns None for days that don't have one (see acwr.py's _MIN_DAYS).
+        rollup = roll_by_week.get(ws.isoformat(), {})
         weekly_series.append({
             "week_start": ws.isoformat(),
-            "tss": _f(sum(float(s["tss"] or 0) for s in week_snaps), 1),
+            "tss": _f(rollup.get("tss_total"), 1),
             "ctl_end": _f(end_snap["ctl"], 1) if end_snap else None,
             "atl_end": _f(end_snap["atl"], 1) if end_snap else None,
             "tsb_end": _f(end_snap["tsb"], 1) if end_snap else None,
@@ -905,7 +909,7 @@ def _assemble_training(db: Session, user, today: _date, window_days: int) -> dic
     from sqlalchemy import func
 
     from backend.models import PlannedSession, Workout, WorkoutExercise
-    from backend.services.training_load import get_weekly_volume
+    from backend.services.weekly_rollup import bangkok_week_start, rollup_for_export, weekly_rollups
 
     window_start = today - _timedelta(days=window_days - 1)
 
@@ -932,28 +936,15 @@ def _assemble_training(db: Session, user, today: _date, window_days: int) -> dic
 
     sessions = [_session_row(w, exercise_counts) for w in workouts]
 
-    rollup_start = _week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
-    weekly_rollups: list[dict] = []
-    for i in range(ROLLUP_WEEKS):
-        ws = rollup_start + _timedelta(weeks=i)
-        if ws > today:
-            break
-        we = ws + _timedelta(days=6)
-        # Clamp to today: a rollup must cover the same span as `sessions`, or the
-        # two disagree the moment a workout is dated ahead (pre-logged session,
-        # timezone edge) and the export contradicts itself.
-        vol = get_weekly_volume(str(user.id), ws, min(we, today))
-        types = [t for t in (vol.get("workout_types") or []) if t]
-        weekly_rollups.append({
-            "week_start": ws.isoformat(),
-            "sessions": vol["session_count"],
-            "tss": _f(vol["total_tss"], 1),
-            "distance_km": _f(vol["distance_km"], 1),
-            "hours": _f((vol["duration_seconds"] or 0) / 3600.0, 1),
-            "runs": sum(1 for t in types if t.lower() == "run"),
-            "strength": sum(1 for t in types if t.lower() in ("strength", "plyo")),
-            "partial": we > today,
-        })
+    rollup_start = bangkok_week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
+    rollups_raw = weekly_rollups(str(user.id), rollup_start, today, session=db, today=today)
+    weekly_rollups_list: list[dict] = []
+    for row in rollups_raw:
+        exp = rollup_for_export(row)
+        exp["tss"] = _f(exp["tss"], 1)
+        exp["distance_km"] = _f(exp["distance_km"], 1)
+        exp["hours"] = _f(exp["hours"], 1)
+        weekly_rollups_list.append(exp)
 
     # ``skipped_planned`` reads the status plan_matching already assigned (a
     # planned session with no workout inside its ±1-day window is marked
@@ -986,7 +977,7 @@ def _assemble_training(db: Session, user, today: _date, window_days: int) -> dic
         names_by_date.setdefault(w.workout_date.isoformat(), w.name)
 
     return {
-        "weekly_rollups": weekly_rollups,
+        "weekly_rollups": weekly_rollups_list,
         "skipped_planned": skipped,
         "sessions": sessions,
         "_names_by_run_id": names_by_run_id,
