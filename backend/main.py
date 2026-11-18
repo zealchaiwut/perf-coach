@@ -47,6 +47,7 @@ from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import compute_strength_tss as _compute_strength_tss
 from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
+from backend.services.session_tss import session_tss as _session_tss
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
     current_load,
@@ -213,9 +214,15 @@ async def _no_cache_frontend(request, call_next):
     return response
 
 
+def _revamp_ui_enabled() -> bool:
+    return os.getenv("REVAMP_UI", "0").strip().lower() in ("1", "true", "yes")
+
+
 def _is_guarded_path(path: str) -> bool:
     """Return True if this path requires authentication (HTML page guard only)."""
     if path == "/":
+        return True
+    if path.startswith("/v2/") and _revamp_ui_enabled():
         return True
     clean = path.lstrip("/")
     if clean in _PAGES:
@@ -5795,6 +5802,39 @@ def _serve_dev_mobile():
 app.add_api_route("/dev/mobile", _serve_dev_mobile, include_in_schema=False)
 
 
+_V2_ROUTE_FILES = {
+    "/v2/home": "v2-home.html",
+    "/v2/training/plan": "v2-training-plan.html",
+    "/v2/training/log": "v2-training-log.html",
+    "/v2/training/trends": "v2-training-trends.html",
+    "/v2/performance": "v2-performance.html",
+    "/v2/components": "v2-components.html",
+}
+
+
+def _serve_v2_page(filename: str):
+    if not _revamp_ui_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(str(_static_root / "frontend" / "pages" / filename))
+
+
+def _redirect_v2_training_root():
+    if not _revamp_ui_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    return RedirectResponse(url="/v2/training/plan", status_code=302)
+
+
+for _v2_path, _v2_file in _V2_ROUTE_FILES.items():
+    app.add_api_route(_v2_path, lambda f=_v2_file: _serve_v2_page(f), include_in_schema=False)
+
+app.add_api_route("/v2/training", _redirect_v2_training_root, include_in_schema=False)
+
+
+@app.get("/api/revamp-ui")
+def get_revamp_ui_status():
+    return JSONResponse({"enabled": _revamp_ui_enabled()})
+
+
 def _serve_projection_redirect():
     # Projection was merged into the Training → Projection sub-tab
     # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework;
@@ -6420,7 +6460,11 @@ def _compute_session_signals(w: Workout) -> dict:
     else:
         hint = "No signal recorded for this session."
 
+    from backend.services.score_reader import session_signal
+
+    block = session_signal(w)["session_signal"]
     return {
+        "session_signal": block,
         "endurance_signal": float(es) if es is not None else None,
         "endurance_signal_note": endurance_note,
         "speed_signal": float(ss) if ss is not None else None,
@@ -6429,8 +6473,9 @@ def _compute_session_signals(w: Workout) -> dict:
     }
 
 
-def _workout_dict(w: Workout, exercises: list) -> dict:
+def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = None) -> dict:
     strava_act = getattr(w, "strava_activity", None)
+    _tss = _session_tss(w, prefs=prefs)
     return {
         "id": str(w.id),
         "user_id": str(w.user_id),
@@ -6439,9 +6484,11 @@ def _workout_dict(w: Workout, exercises: list) -> dict:
         "workout_type": w.workout_type,
         "run_subtype": w.run_subtype,
         "remarks": w.remarks,
-        "tss": int(w.tss) if w.tss is not None else None,
+        "tss": int(_tss["tss"]) if _tss.get("tss") is not None else None,
         "tss_source": w.tss_source,
-        "tss_method": w.tss_method,
+        "tss_method": _tss.get("method") or w.tss_method,
+        "tss_power": int(_tss["tss_power"]) if _tss.get("tss_power") is not None else None,
+        "tss_stryd": int(_tss["tss_stryd"]) if _tss.get("tss_stryd") is not None else None,
         "source": w.source,
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
@@ -10165,16 +10212,10 @@ def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
 
 
 def _workout_list_tss(w, splits, prefs) -> float | None:
-    """App-computed TSS for training-log list/chart rollups (read path — no DB write)."""
-    if w.tss_source == "manual" and w.tss is not None:
-        return float(w.tss)
-    wt = (w.workout_type or "").lower()
-    if "run" not in wt:
-        return float(w.tss) if w.tss is not None else None
-    computed = _compute_running_tss(w, splits or [], prefs or UserPreferences())
-    if computed.get("tss") is not None:
-        return float(computed["tss"])
-    return float(w.tss) if w.tss is not None else None
+    """Counted session TSS for training-log list/chart rollups (read path — no DB write)."""
+    del splits  # counted TSS uses stored dual-method values, not live recompute
+    val = _session_tss(w, prefs=prefs or None).get("tss")
+    return float(val) if val is not None else None
 
 
 @app.get("/api/training-log")
@@ -13004,9 +13045,9 @@ def get_training_load_weekly(
 
     Each week bucket contains only run_tss, strength_tss, total_tss, and
     total_distance_km — no per-workout serialization.  Week boundaries are
-    Monday-to-Sunday (ISO week semantics).
+    Monday-to-Sunday (Bangkok semantics via weekly_rollup).
     """
-    import re as _re
+    from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups
 
     uid = current_user.id
     today = _today_bkk()
@@ -13023,68 +13064,49 @@ def get_training_load_weekly(
     if (to_d - from_d).days > 365:
         raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
 
-    _RUN_RE = _re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", _re.IGNORECASE)
-    _LIFT_RE = _re.compile(r"^(lift|strength|wod|crossfit)", _re.IGNORECASE)
-
-    with Session(engine) as session:
-        # SQL-side GROUP BY (week_monday, workout_type) so we aggregate TSS and
-        # distance in the database rather than loading every Workout row.
-        week_monday = func.date_trunc(
-            "week", _sa_cast(Workout.workout_date, _sa_DateTime),
-        )
-        rows = (
-            session.query(
-                week_monday.label("week_mon"),
-                Workout.workout_type,
-                func.coalesce(func.sum(Workout.tss), 0).label("sum_tss"),
-                func.coalesce(func.sum(Workout.distance_km), 0).label("sum_dist"),
-            )
-            .filter(
-                Workout.user_id == uid,
-                Workout.workout_date >= from_d,
-                Workout.workout_date <= to_d,
-            )
-            .group_by(week_monday, Workout.workout_type)
-            .all()
-        )
-
-    weeks_map: dict = {}
-    for row in rows:
-        # date_trunc returns a datetime; convert to ISO date string (Monday)
-        wm = row.week_mon
-        if hasattr(wm, "date"):
-            mon_key = wm.date().isoformat()
-        else:
-            mon_key = str(wm)[:10]
-        if mon_key not in weeks_map:
-            weeks_map[mon_key] = {"run_tss": 0.0, "strength_tss": 0.0, "total_distance_km": 0.0}
-        tss = float(row.sum_tss or 0)
-        dist = float(row.sum_dist or 0)
-        wt = (row.workout_type or "").strip()
-        if _RUN_RE.match(wt):
-            weeks_map[mon_key]["run_tss"] += tss
-        elif _LIFT_RE.match(wt):
-            weeks_map[mon_key]["strength_tss"] += tss
-        elif dist > 0:
-            weeks_map[mon_key]["run_tss"] += tss
-        else:
-            weeks_map[mon_key]["strength_tss"] += tss
-        weeks_map[mon_key]["total_distance_km"] += dist
-
+    rollups = weekly_rollups(str(uid), bangkok_week_start(from_d), bangkok_week_start(to_d), today=today)
     weeks = []
-    for mon_key in sorted(weeks_map):
-        agg = weeks_map[mon_key]
-        run_tss = round(agg["run_tss"], 2)
-        strength_tss = round(agg["strength_tss"], 2)
+    for row in rollups:
+        strength_tss = round(row["tss_strength"] + row["tss_support_other"], 2)
         weeks.append({
-            "week_start": mon_key,
-            "run_tss": run_tss,
+            "week_start": row["week_start"],
+            "run_tss": row["tss_run"],
             "strength_tss": strength_tss,
-            "total_tss": round(run_tss + strength_tss, 2),
-            "total_distance_km": round(agg["total_distance_km"], 2),
+            "total_tss": row["tss_total"],
+            "total_distance_km": row["distance_km"],
         })
 
     return JSONResponse({"weeks": weeks})
+
+
+@app.get("/api/weekly-rollup")
+def get_weekly_rollup_endpoint(
+    week_start: Optional[str] = Query(default=None),
+    from_week: Optional[str] = Query(default=None, alias="from"),
+    to_week: Optional[str] = Query(default=None, alias="to"),
+    user: User = Depends(resolve_user),
+):
+    """Canonical week totals for plan/log headers (revamp P0-4)."""
+    from backend.services.weekly_rollup import normalize_week_start, weekly_rollup, weekly_rollups
+
+    today = _today_bkk()
+    if week_start is not None:
+        try:
+            ws = normalize_week_start(_date.fromisoformat(week_start))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
+
+    if from_week is not None and to_week is not None:
+        try:
+            fw = normalize_week_start(_date.fromisoformat(from_week))
+            tw = normalize_week_start(_date.fromisoformat(to_week))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="from/to must be YYYY-MM-DD")
+        return JSONResponse({"weeks": weekly_rollups(str(user.id), fw, tw, today=today)})
+
+    ws = normalize_week_start(today)
+    return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
 
 
 @app.post("/api/training-load/recompute")
@@ -13879,6 +13901,7 @@ _PREFS_DEFAULTS = {
     "zone2_hr_min": 130,
     "zone2_hr_max": 155,
     "weekly_zone2_target_min": 150,
+    "tss_method_default": "power",
 }
 
 _PREFS_EDITABLE = {"ftp_w", "threshold_hr", "threshold_pace_seconds_per_km", "display_name", "week_start_day", "timezone"}
@@ -13910,6 +13933,7 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
         "timezone": prefs.timezone,
         "ctl_days": prefs.ctl_days,
         "atl_days": prefs.atl_days,
+        "tss_method_default": getattr(prefs, "tss_method_default", None) or "power",
     }
 
 
@@ -13990,6 +14014,7 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
     birth_date = body.get("birth_date", _PREFS_SENTINEL)
     height_cm = body.get("height_cm", _PREFS_SENTINEL)
     athlete_context = body.get("athlete_context", _PREFS_SENTINEL)
+    tss_method_default = body.get("tss_method_default", _PREFS_SENTINEL)
 
     errors = []
     if ftp_w is not _PREFS_SENTINEL and ftp_w is not None:
@@ -14048,6 +14073,12 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 "field": "athlete_context",
                 "msg": f"athlete_context must be ≤ {_ATHLETE_CONTEXT_MAX_CHARS} characters",
             })
+    if tss_method_default is not _PREFS_SENTINEL and tss_method_default is not None:
+        if tss_method_default not in ("power", "stryd"):
+            errors.append({
+                "field": "tss_method_default",
+                "msg": "tss_method_default must be 'power' or 'stryd'",
+            })
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
@@ -14084,6 +14115,9 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             prefs.week_start_day = week_start_day
         if timezone is not _PREFS_SENTINEL:
             prefs.timezone = timezone
+        _prior_tss_method_default = getattr(prefs, "tss_method_default", None) or "power"
+        if tss_method_default is not _PREFS_SENTINEL:
+            prefs.tss_method_default = tss_method_default or "power"
 
         _identity_sent = any(
             f is not _PREFS_SENTINEL for f in (birth_date, height_cm, athlete_context)
@@ -14107,8 +14141,26 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
         _threshold_fields_changed = any(
             f is not _PREFS_SENTINEL for f in (ftp_w, threshold_hr, threshold_pace)
         )
+        _tss_method_default_changed = (
+            tss_method_default is not _PREFS_SENTINEL
+            and (tss_method_default or "power") != _prior_tss_method_default
+        )
         session.commit()
         session.refresh(prefs)
+        if _tss_method_default_changed:
+            from backend.services.session_tss import recompute_counted_tss_for_user
+
+            try:
+                recompute_counted_tss_for_user(session, uid)
+                session.commit()
+            except Exception as _tss_exc:
+                _logging.getLogger(__name__).warning(
+                    "recompute_counted_tss_for_user failed for user %s: %s",
+                    uid,
+                    _tss_exc,
+                    exc_info=True,
+                )
+            _trigger_performance_backfill_background(uid)
         if _threshold_fields_changed:
             try:
                 _recompute_user_running_tss(uid, session)
@@ -18346,7 +18398,9 @@ def get_plan_week_load(
         clamped = target_week["clamped"] if target_week else False
         acwr_ceiling = target_week["ceiling"] if target_week else _static_acwr_ceiling
 
-        logged_tss = _get_weekly_volume(str(user.id), query_week_start, query_week_end)["total_tss"]
+        from backend.services.weekly_rollup import weekly_rollup as _weekly_rollup
+
+        logged_tss = _weekly_rollup(str(user.id), query_week_start, today=today)["tss_total"]
         planned_tss = _week_planned_tss(
             db, user.id, query_week_start, query_week_end, estimate_baseline, today
         )

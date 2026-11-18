@@ -1354,10 +1354,31 @@
     window.SyncPoller.checkNow();
   };
 
+  function injectRevampLink() {
+    fetch("/api/revamp-ui")
+      .then(function (r) {
+        return r.ok ? r.json() : { enabled: false };
+      })
+      .then(function (body) {
+        if (!body || !body.enabled) return;
+        var links = document.getElementById("gn-links");
+        if (!links || links.querySelector("[data-revamp-link]")) return;
+        var a = document.createElement("a");
+        a.className = "gn-link";
+        a.href = "/v2/home";
+        a.setAttribute("data-revamp-link", "1");
+        a.innerHTML =
+          '<i class="ti ti-layout-grid" aria-hidden="true"></i><span>New UI</span>';
+        links.appendChild(a);
+      })
+      .catch(function () {});
+  }
+
   function init() {
     ensureIconFont();
     injectStyles();
     buildNav();
+    injectRevampLink();
     buildSyncBar();
     window.addEventListener("resize", _positionGlobalNav);
     window.addEventListener("load", _positionGlobalNav);
