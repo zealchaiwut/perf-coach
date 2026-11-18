@@ -428,10 +428,14 @@ def _assemble_performance(user) -> dict:
             "endurance": dict(_NULL_SCORE),
             "speed": dict(_NULL_SCORE),
         }
+    endurance = _score_block(payload.get("endurance"))
+    speed = _score_block(payload.get("speed"))
     return {
         "state": "scored",
-        "endurance": _score_block(payload.get("endurance")),
-        "speed": _score_block(payload.get("speed")),
+        "overall": {"endurance": endurance, "speed": speed},
+        # Legacy keys — same objects as overall.* (tests + downstream parsers).
+        "endurance": endurance,
+        "speed": speed,
     }
 
 

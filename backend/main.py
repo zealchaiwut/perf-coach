@@ -6421,7 +6421,11 @@ def _compute_session_signals(w: Workout) -> dict:
     else:
         hint = "No signal recorded for this session."
 
+    from backend.services.score_reader import session_signal
+
+    block = session_signal(w)["session_signal"]
     return {
+        "session_signal": block,
         "endurance_signal": float(es) if es is not None else None,
         "endurance_signal_note": endurance_note,
         "speed_signal": float(ss) if ss is not None else None,
