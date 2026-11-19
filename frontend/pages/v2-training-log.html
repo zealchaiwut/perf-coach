@@ -10,23 +10,65 @@
 <body class="rv-page">
   <div class="rv-shell">
     <header class="rv-shell-head">
-      <div><h1 class="rv-title">Training</h1><p class="rv-subtitle">Session log shell.</p></div>
+      <div>
+        <h1 class="rv-title">Training</h1>
+        <p class="rv-subtitle">Session log</p>
+      </div>
       <nav aria-label="Primary">
         <ul class="rv-tabnav">
           <li><a class="rv-tab" href="/v2/home">Home</a></li>
           <li><a class="rv-tab" href="/v2/training/plan" aria-current="page">Training</a></li>
           <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
+          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/admin">Admin</a></li>
         </ul>
       </nav>
     </header>
-    <nav aria-label="Training views">
-      <ul class="rv-subnav">
-        <li style="flex:1"><a class="rv-seg" href="/v2/training/plan">Plan</a></li>
-        <li style="flex:1"><a class="rv-seg" href="/v2/training/log" aria-current="page">Log</a></li>
-        <li style="flex:1"><a class="rv-seg" href="/v2/training/trends">Trends</a></li>
-      </ul>
-    </nav>
-    <section class="rv-card"><p>Log list and week headers will use <code>/api/weekly-rollup</code>.</p></section>
+
+    <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
+      <nav class="rv-segnav" aria-label="Training views">
+        <a href="/v2/training/plan">Plan</a>
+        <a href="/v2/training/log" aria-current="page">Log</a>
+        <a href="/v2/training/trends">Trends</a>
+      </nav>
+      <div class="rv-row" id="v2-sync-toolbar"></div>
+    </section>
+
+    <section class="rv-card rv-stack" id="v2-month-section" aria-labelledby="v2-month-h">
+      <div class="rv-row" style="justify-content: space-between">
+        <h2 id="v2-month-h" class="rv-label" style="margin:0">Month</h2>
+        <div id="v2-month-nav" class="rv-row"></div>
+      </div>
+      <div id="v2-month-body"></div>
+    </section>
+
+    <section class="rv-card rv-stack" id="v2-chart-section" aria-labelledby="v2-chart-h">
+      <h2 id="v2-chart-h" class="rv-label">Weekly volume</h2>
+      <p class="rv-subtitle" style="margin:0">Click a week to jump to it in the list below.</p>
+      <div id="v2-chart-body" class="rv-chart-wrap"></div>
+    </section>
+
+    <section class="rv-card rv-stack" id="v2-list-section" aria-labelledby="v2-list-h">
+      <h2 id="v2-list-h" class="rv-label">Sessions</h2>
+      <div id="v2-list-filters" class="rv-row"></div>
+      <div id="v2-list-body"></div>
+    </section>
   </div>
+
+  <div id="v2-drawer-backdrop" class="rv-drawer-backdrop" hidden></div>
+  <aside id="v2-drawer" class="rv-drawer rv-drawer--wide" role="dialog" aria-modal="true" aria-labelledby="v2-drawer-title" hidden>
+    <div class="rv-drawer-scroll" id="v2-drawer-body"></div>
+  </aside>
+  <div id="v2-toast" class="rv-toast" role="status" aria-live="polite"></div>
+
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/lib/sync-poller.js"></script>
+  <script src="/js/lib/v2-sync-toolbar.js"></script>
+  <script src="/js/v2-run-drawer.js"></script>
+  <script src="/js/v2-training-log.js"></script>
+  <script>
+    fetch("/api/auth/me").then(function (r) { return r.ok ? r.json() : null; }).then(function (u) {
+      if (u && u.is_admin) document.getElementById("rv-admin-tab").hidden = false;
+    });
+  </script>
 </body>
 </html>
