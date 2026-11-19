@@ -75,6 +75,16 @@ def session_tss(
     return {"tss": None, "method": None, "tss_power": power, "tss_stryd": stryd}
 
 
+def tss_dual_values_differ_notice(power: Optional[float], stryd: Optional[float]) -> bool:
+    """True when both TSS values exist and differ by ≥10% of the larger (P1-7)."""
+    if power is None or stryd is None:
+        return False
+    larger = max(abs(power), abs(stryd))
+    if larger <= 0:
+        return False
+    return abs(power - stryd) / larger >= 0.10
+
+
 def _pick_method(
     method: str,
     power: Optional[float],

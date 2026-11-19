@@ -47,7 +47,19 @@ from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import compute_strength_tss as _compute_strength_tss
 from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
-from backend.services.session_tss import session_tss as _session_tss
+from backend.services.session_tss import (
+    session_tss as _session_tss,
+    tss_dual_values_differ_notice as _tss_dual_values_differ_notice,
+)
+from backend.services.plan_match_payload import (
+    is_missed_planned as _is_missed_planned,
+    plan_match_map as _plan_match_map,
+    planned_item_status as _planned_item_status,
+    planned_source as _planned_source,
+    planned_tss_estimate as _planned_tss_estimate,
+)
+from backend.services.sync_provider_status import build_providers as _sync_build_providers
+from backend.services.training_month import training_month as _training_month
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
     current_load,
@@ -5955,6 +5967,7 @@ class WorkoutPatch(BaseModel):
     fuelled: Optional[bool] = None
     # Running drills alongside this session. null clears it back to unknown.
     drills_minutes: Optional[int] = None
+    tss_method_override: Optional[str] = None
     # Full exercise list to replace this workout's exercises (same shape as
     # WorkoutIn.exercises / the /exercises/replace endpoint). The Form editor
     # has always sent this on edit; before this field existed pydantic silently
@@ -6489,6 +6502,7 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "tss_method": _tss.get("method") or w.tss_method,
         "tss_power": int(_tss["tss_power"]) if _tss.get("tss_power") is not None else None,
         "tss_stryd": int(_tss["tss_stryd"]) if _tss.get("tss_stryd") is not None else None,
+        "tss_method_override": getattr(w, "tss_method_override", None),
         "source": w.source,
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
@@ -7222,6 +7236,13 @@ def get_workout_full(
         }
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
+        _counted_tss = _session_tss(workout, prefs=prefs)
+        response_body["tss_block"] = {
+            **_counted_tss,
+            "tss_dual_notice": _tss_dual_values_differ_notice(
+                _counted_tss.get("tss_power"), _counted_tss.get("tss_stryd")
+            ),
+        }
         return JSONResponse(response_body)
 
 
@@ -7499,6 +7520,18 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                         detail="feeling must be one of: " + ", ".join(sorted(_FEELING_VALUES)),
                     )
                 workout.feeling = fl
+        if "tss_method_override" in body.model_fields_set:
+            ov = body.tss_method_override
+            if ov is None or (isinstance(ov, str) and ov.strip() == ""):
+                workout.tss_method_override = None
+            else:
+                ov = ov.strip().lower()
+                if ov not in ("power", "stryd"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="tss_method_override must be 'power' or 'stryd'",
+                    )
+                workout.tss_method_override = ov
         # Replace the exercise list when the client sent one (the Form editor
         # always does on edit) — same delete-and-recreate as /exercises/replace,
         # so per-exercise fields like rpe/sets_json actually persist.
@@ -10226,6 +10259,8 @@ def get_training_log(
     search: Optional[str] = Query(default=None),
     include_rest: bool = Query(default=False),
     include_load_context: bool = Query(default=False),
+    include_plan: bool = Query(default=False),
+    canonical_week_totals: bool = Query(default=False),
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
@@ -10320,6 +10355,18 @@ def get_training_log(
             session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
         )
 
+        exercise_counts: dict = {}
+        wids = [w.id for w in workouts]
+        if wids:
+            for row in (
+                session.query(WorkoutExercise.workout_id, func.count(WorkoutExercise.id))
+                .filter(WorkoutExercise.workout_id.in_(wids))
+                .group_by(WorkoutExercise.workout_id)
+            ):
+                exercise_counts[row[0]] = int(row[1])
+
+        plan_matches = _plan_match_map(session, wids) if wids else {}
+
         if today_snap is not None:
             snap_ctl = round(today_snap.ctl, 1)
             snap_atl = round(today_snap.atl, 1)
@@ -10349,9 +10396,67 @@ def get_training_log(
                 "notes": w.remarks or "",
                 "feeling": w.feeling,
                 "weight_context": w.remarks,
+                "plan_match": plan_matches.get(str(w.id)),
+                "speed_signal": w.speed_signal,
+                "speed_signal_basis": w.speed_signal_basis,
+                "exercise_count": exercise_counts.get(w.id, 0),
+                "start_time": w.start_time.isoformat() if w.start_time else None,
+                "avg_power": w.avg_power,
             }
             for w in workouts
         ]
+
+        if include_plan:
+            missed_rows = (
+                session.query(PlannedSession)
+                .filter(
+                    PlannedSession.user_id == uid,
+                    PlannedSession.planned_date >= from_d,
+                    PlannedSession.planned_date <= to_d,
+                    PlannedSession.matched_workout_id.is_(None),
+                )
+                .all()
+            )
+            for p in missed_rows:
+                if not _is_missed_planned(p, today):
+                    continue
+                workout_entries.append(
+                    {
+                        "date": str(p.planned_date),
+                        "type": p.session_type,
+                        "run_subtype": None,
+                        "id": f"plan:{p.id}",
+                        "title": p.name or p.session_type.title(),
+                        "duration_seconds": None,
+                        "duration_minutes": None,
+                        "distance_km": None,
+                        "avg_hr": None,
+                        "elevation_m": None,
+                        "average_pace_seconds_per_km": None,
+                        "tss": _planned_tss_estimate(session, p),
+                        "source": _planned_source(p.session_type),
+                        "strava_activity_url": None,
+                        "is_stryd_synced": False,
+                        "has_strava": False,
+                        "has_stryd": False,
+                        "notes": p.notes or "",
+                        "feeling": None,
+                        "weight_context": None,
+                        "plan_match": {
+                            "planned_id": str(p.id),
+                            "planned_name": p.name,
+                            "planned_tss": _planned_tss_estimate(session, p),
+                            "source": _planned_source(p.session_type),
+                        },
+                        "speed_signal": None,
+                        "speed_signal_basis": None,
+                        "exercise_count": 0,
+                        "start_time": None,
+                        "avg_power": None,
+                        "row_kind": "missed_plan",
+                        "planned_status": _planned_item_status(p, today),
+                    }
+                )
 
     all_entries = workout_entries + rest_entries
     all_entries.sort(key=lambda e: e["date"], reverse=True)
@@ -10381,7 +10486,7 @@ def get_training_log(
     for key in week_order:
         wk = weeks_map[key]
         ws = wk["workouts"]
-        weeks.append({
+        week_row = {
             "week_start": wk["week_start"],
             "week_end": wk["week_end"],
             "label": wk["label"],
@@ -10393,7 +10498,21 @@ def get_training_log(
                 "total_tss": sum((w.get("tss") or 0) for w in ws),
                 "total_time_minutes": sum((w.get("duration_minutes") or 0) for w in ws),
             },
-        })
+        }
+        if canonical_week_totals:
+            from backend.services.weekly_rollup import weekly_rollup as _weekly_rollup
+
+            rollup = _weekly_rollup(str(uid), _date.fromisoformat(key), today=today)
+            week_row["rollup"] = rollup
+            week_row["summary"] = {
+                "workout_count": rollup.get("session_count", len(ws)),
+                "total_distance_km": rollup.get("distance_km", 0),
+                "total_tss": rollup.get("tss_total", 0),
+                "total_time_minutes": round((rollup.get("hours") or 0) * 60, 1),
+                "planned_tss": rollup.get("planned_tss"),
+                "target_tss": rollup.get("target_tss"),
+            }
+        weeks.append(week_row)
 
     response: dict = {"weeks": weeks}
     if include_load_context:
@@ -13109,6 +13228,25 @@ def get_weekly_rollup_endpoint(
     return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
 
 
+@app.get("/api/training/month")
+def get_training_month(
+    month: str = Query(..., description="YYYY-MM"),
+    user: User = Depends(resolve_user),
+):
+    """Month board grid (revamp P1-3): full Mon–Sun weeks overlapping the month."""
+    try:
+        parts = month.strip().split("-")
+        if len(parts) != 2:
+            raise ValueError
+        y, m = int(parts[0]), int(parts[1])
+        anchor = _date(y, m, 1)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="month must be YYYY-MM")
+    with Session(engine) as session:
+        payload = _training_month(session, user.id, anchor, today=_today_bkk())
+    return JSONResponse(payload)
+
+
 @app.post("/api/training-load/recompute")
 def recompute_training_load(
     from_date: str = Query(alias="from"),
@@ -13737,6 +13875,18 @@ def post_plan_check(body: PlanCheckIn, current_user: User = Depends(resolve_user
 
 # ── Sync status endpoint ───────────────────────────────────────────────────────
 
+
+def _sync_status_with_providers(user: User, payload: dict) -> dict:
+    """Attach revamp per-provider sync fields without breaking legacy readers."""
+    out = dict(payload)
+    try:
+        with Session(engine) as session:
+            out["providers"] = _sync_build_providers(session, user.id, job_snapshot=out)
+    except Exception as exc:
+        _logging.getLogger(__name__).warning("sync_status providers failed: %s", exc)
+    return out
+
+
 @app.get("/api/sync/status")
 async def get_sync_status(user: User = Depends(resolve_user)):
     job = _sync_jobs.snapshot(user.id)
@@ -13746,7 +13896,7 @@ async def get_sync_status(user: User = Depends(resolve_user)):
             "started_at": job["started_at"].isoformat() if job["started_at"] else None,
             "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
         }
-        return JSONResponse(serialized)
+        return JSONResponse(_sync_status_with_providers(user, serialized))
 
     # No in-process job — check worker_job_runs for a delegated job.
     from backend.models import WorkerJobRun as _WorkerJobRun
@@ -13768,7 +13918,7 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 .limit(1)
             ).scalar_one_or_none()
         if wjr is not None:
-            return JSONResponse({
+            return JSONResponse(_sync_status_with_providers(user, {
                 "status": wjr.status,
                 "phase": wjr.phase,
                 "source": "worker",
@@ -13777,7 +13927,7 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 "error": wjr.error,
                 "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
                 "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
-            })
+            }))
     except Exception as _wjr_exc:
         _logging.getLogger(__name__).warning(
             "sync_status: worker_job_runs query failed: %s", _wjr_exc
@@ -13791,16 +13941,16 @@ async def get_sync_status(user: User = Depends(resolve_user)):
         from backend.services import job_queue as _jq
         pending = _jq.pending_for_user(user.id)
         if pending is not None:
-            return JSONResponse({
+            return JSONResponse(_sync_status_with_providers(user, {
                 "status": "pending" if pending["status"] == "queued" else "running",
                 "source": "queue",
                 "job_type": pending["job_type"],
                 "enqueued_at": pending["created_at"].isoformat() if pending["created_at"] else None,
-            })
+            }))
     except Exception:
         pass
 
-    return JSONResponse({"status": "idle"})
+    return JSONResponse(_sync_status_with_providers(user, {"status": "idle"}))
 
 
 @app.get("/api/queue")
