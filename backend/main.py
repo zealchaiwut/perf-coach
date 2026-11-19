@@ -7243,6 +7243,46 @@ def get_workout_full(
                 _counted_tss.get("tss_power"), _counted_tss.get("tss_stryd")
             ),
         }
+        plan_match = _plan_match_map(session, [wid]).get(str(wid))
+        response_body["plan_match"] = plan_match
+        if plan_match and plan_match.get("planned_tss") is not None:
+            actual_tss = _counted_tss.get("tss")
+            planned_tss = float(plan_match["planned_tss"])
+            delta = (float(actual_tss) - planned_tss) if actual_tss is not None else None
+            pct = (
+                round((delta / planned_tss) * 100, 1)
+                if delta is not None and planned_tss > 0
+                else None
+            )
+            response_body["plan_vs_actual"] = {
+                "planned_tss": planned_tss,
+                "actual_tss": actual_tss,
+                "delta_tss": round(delta, 1) if delta is not None else None,
+                "delta_pct": pct,
+                "warn": abs(pct or 0) > 10 if pct is not None else False,
+                "planned_name": plan_match.get("planned_name"),
+            }
+        else:
+            response_body["plan_vs_actual"] = None
+        form_row = (
+            session.query(RunFormMetrics)
+            .filter(RunFormMetrics.workout_id == wid, RunFormMetrics.user_id == workout.user_id)
+            .first()
+        )
+        if form_row is not None:
+            response_body["form"] = {
+                "gct_ms": float(form_row.gct_ms) if form_row.gct_ms is not None else None,
+                "lss_kn_m": float(form_row.lss_kn_m) if form_row.lss_kn_m is not None else None,
+                "vertical_oscillation_cm": (
+                    float(form_row.vertical_oscillation_cm)
+                    if form_row.vertical_oscillation_cm is not None
+                    else None
+                ),
+                "cadence_spm": float(form_row.cadence_spm) if form_row.cadence_spm is not None else None,
+            }
+        else:
+            response_body["form"] = None
+        response_body.update(_compute_session_signals(workout))
         return JSONResponse(response_body)
 
 

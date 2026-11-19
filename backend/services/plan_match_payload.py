@@ -96,6 +96,26 @@ def is_missed_planned(row: PlannedSession, today) -> bool:
     return planned_item_status(row, today) == "missed"
 
 
+def who_label(*, kind: str, source: str, status: str) -> str:
+    """Mock-style card header (TrainingLog preview)."""
+    st = (status or "").lower()
+    if st == "missed":
+        return "MISSED"
+    if kind == "rest":
+        return "REST"
+    if kind == "race":
+        return "B RACE"
+    if source == "unplanned":
+        if kind in ("strength", "plyo"):
+            return "STRENGTH · UNPLANNED" if kind == "strength" else "PLYO · UNPLANNED"
+        return "RUN" if kind.startswith("run") or kind == "quality_run" else kind.upper()
+    if source == "coach":
+        return "COACH · LOCKED" if st == "planned" else "COACH"
+    if source == "support":
+        return "SUPPORT"
+    return kind.replace("_", " ").upper()
+
+
 def session_kind_for_workout(workout: Workout) -> str:
     wt = (workout.workout_type or "").lower()
     if "race" in wt:

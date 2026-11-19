@@ -20,6 +20,7 @@ def test_training_month_week_starts_are_mondays():
         assert ws.weekday() == 0
         assert len(week["days"]) == 7
         assert "rollup" in week
+        assert "target_meta" in week
 
 
 def _any_user_id(session):

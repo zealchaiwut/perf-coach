@@ -16,6 +16,7 @@ from backend.services.plan_match_payload import (
     planned_source,
     planned_tss_estimate,
     session_kind_for_workout,
+    who_label,
 )
 from backend.services.session_tss import session_tss
 from backend.services.training_load import estimate_historical_pace_and_tss, estimate_planned_session_metrics
@@ -59,15 +60,17 @@ def _workout_item(
         source = match.get("source") or "coach"
     else:
         source = "unplanned"
+    status = "done"
     return {
         "id": str(w.id),
         "kind": kind,
         "source": source,
+        "who": who_label(kind=kind, source=source, status=status),
         "name": w.name or "Session",
         "tss": round(float(tss), 1) if tss is not None else None,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_min": round(w.duration_seconds / 60, 1) if w.duration_seconds else None,
-        "status": "done",
+        "status": status,
         "workout_id": str(w.id),
         "planned_id": None,
     }
@@ -76,10 +79,12 @@ def _workout_item(
 def _planned_item(session: Session, row: PlannedSession, today: date) -> dict[str, Any]:
     st = planned_item_status(row, today)
     kind = _planned_kind(row.session_type)
+    src = planned_source(row.session_type)
     return {
         "id": f"plan:{row.id}",
         "kind": kind,
-        "source": planned_source(row.session_type),
+        "source": src,
+        "who": who_label(kind=kind, source=src, status=st),
         "name": row.name or row.session_type.title(),
         "tss": planned_tss_estimate(session, row),
         "distance_km": None,
@@ -87,6 +92,26 @@ def _planned_item(session: Session, row: PlannedSession, today: date) -> dict[st
         "status": st,
         "workout_id": str(row.matched_workout_id) if row.matched_workout_id else None,
         "planned_id": str(row.id),
+    }
+
+
+def _week_target_meta(rollup: dict) -> dict:
+    """Target bar helpers for the month WEEK column."""
+    actual = float(rollup.get("tss_total") or 0)
+    target = rollup.get("target_tss")
+    planned = rollup.get("planned_tss")
+    if target is None and planned:
+        target = float(planned) + actual if rollup.get("partial") else float(planned)
+    if target is None or target <= 0:
+        return {"target_tss": None, "delta": None, "on_target": None, "bar_pct": None}
+    delta = round(actual - target, 1)
+    on_target = abs(delta) <= target * 0.05
+    bar_pct = min(100, round((actual / target) * 100))
+    return {
+        "target_tss": round(float(target), 1),
+        "delta": delta,
+        "on_target": on_target,
+        "bar_pct": bar_pct,
     }
 
 
@@ -204,7 +229,12 @@ def training_month(
                 }
             )
         rollup = weekly_rollup(uid, week_start, session=session, today=today)
-        weeks.append({"week_start": week_start.isoformat(), "days": week_days, "rollup": rollup})
+        weeks.append({
+            "week_start": week_start.isoformat(),
+            "days": week_days,
+            "rollup": rollup,
+            "target_meta": _week_target_meta(rollup),
+        })
         cursor = week_start + timedelta(days=7)
 
     plan_kept = plan_kept_ratio(matched_count, missed_count)
