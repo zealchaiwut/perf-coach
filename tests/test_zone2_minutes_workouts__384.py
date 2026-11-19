@@ -76,6 +76,9 @@ def _make_workout_obj(zone2_minutes=None, wid=None):
     # (#1606).
     w.run_subtype = None
     w.tss_method = None
+    w.tss_method_override = None
+    w.tss_power = None
+    w.tss_stryd = None
     w.avg_power = None
     w.max_power = None
     w.np = None

@@ -47,7 +47,19 @@ from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import compute_strength_tss as _compute_strength_tss
 from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
-from backend.services.session_tss import session_tss as _session_tss
+from backend.services.session_tss import (
+    session_tss as _session_tss,
+    tss_dual_values_differ_notice as _tss_dual_values_differ_notice,
+)
+from backend.services.plan_match_payload import (
+    is_missed_planned as _is_missed_planned,
+    plan_match_map as _plan_match_map,
+    planned_item_status as _planned_item_status,
+    planned_source as _planned_source,
+    planned_tss_estimate as _planned_tss_estimate,
+)
+from backend.services.sync_provider_status import build_providers as _sync_build_providers
+from backend.services.training_month import training_month as _training_month
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
     current_load,
@@ -6490,7 +6502,7 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "tss_method": _tss.get("method") or w.tss_method,
         "tss_power": int(_tss["tss_power"]) if _tss.get("tss_power") is not None else None,
         "tss_stryd": int(_tss["tss_stryd"]) if _tss.get("tss_stryd") is not None else None,
-        "tss_method_override": w.tss_method_override,
+        "tss_method_override": getattr(w, "tss_method_override", None),
         "source": w.source,
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
@@ -7225,11 +7237,9 @@ def get_workout_full(
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
         _counted_tss = _session_tss(workout, prefs=prefs)
-        from backend.services.session_tss import tss_dual_values_differ_notice
-
         response_body["tss_block"] = {
             **_counted_tss,
-            "tss_dual_notice": tss_dual_values_differ_notice(
+            "tss_dual_notice": _tss_dual_values_differ_notice(
                 _counted_tss.get("tss_power"), _counted_tss.get("tss_stryd")
             ),
         }
@@ -10348,16 +10358,12 @@ def get_training_log(
         exercise_counts: dict = {}
         wids = [w.id for w in workouts]
         if wids:
-            from sqlalchemy import func as _func
-
             for row in (
-                session.query(WorkoutExercise.workout_id, _func.count(WorkoutExercise.id))
+                session.query(WorkoutExercise.workout_id, func.count(WorkoutExercise.id))
                 .filter(WorkoutExercise.workout_id.in_(wids))
                 .group_by(WorkoutExercise.workout_id)
             ):
                 exercise_counts[row[0]] = int(row[1])
-
-        from backend.services.plan_match_payload import plan_match_map as _plan_match_map
 
         plan_matches = _plan_match_map(session, wids) if wids else {}
 
@@ -10401,13 +10407,6 @@ def get_training_log(
         ]
 
         if include_plan:
-            from backend.services.plan_match_payload import (
-                is_missed_planned,
-                planned_source,
-                planned_tss_estimate,
-            )
-            from backend.services.plan_match_payload import planned_item_status
-
             missed_rows = (
                 session.query(PlannedSession)
                 .filter(
@@ -10419,7 +10418,7 @@ def get_training_log(
                 .all()
             )
             for p in missed_rows:
-                if not is_missed_planned(p, today):
+                if not _is_missed_planned(p, today):
                     continue
                 workout_entries.append(
                     {
@@ -10434,8 +10433,8 @@ def get_training_log(
                         "avg_hr": None,
                         "elevation_m": None,
                         "average_pace_seconds_per_km": None,
-                        "tss": planned_tss_estimate(session, p),
-                        "source": planned_source(p.session_type),
+                        "tss": _planned_tss_estimate(session, p),
+                        "source": _planned_source(p.session_type),
                         "strava_activity_url": None,
                         "is_stryd_synced": False,
                         "has_strava": False,
@@ -10446,8 +10445,8 @@ def get_training_log(
                         "plan_match": {
                             "planned_id": str(p.id),
                             "planned_name": p.name,
-                            "planned_tss": planned_tss_estimate(session, p),
-                            "source": planned_source(p.session_type),
+                            "planned_tss": _planned_tss_estimate(session, p),
+                            "source": _planned_source(p.session_type),
                         },
                         "speed_signal": None,
                         "speed_signal_basis": None,
@@ -10455,7 +10454,7 @@ def get_training_log(
                         "start_time": None,
                         "avg_power": None,
                         "row_kind": "missed_plan",
-                        "planned_status": planned_item_status(p, today),
+                        "planned_status": _planned_item_status(p, today),
                     }
                 )
 
@@ -13235,8 +13234,6 @@ def get_training_month(
     user: User = Depends(resolve_user),
 ):
     """Month board grid (revamp P1-3): full Mon–Sun weeks overlapping the month."""
-    from backend.services.training_month import training_month
-
     try:
         parts = month.strip().split("-")
         if len(parts) != 2:
@@ -13246,7 +13243,7 @@ def get_training_month(
     except (ValueError, TypeError):
         raise HTTPException(status_code=422, detail="month must be YYYY-MM")
     with Session(engine) as session:
-        payload = training_month(session, user.id, anchor, today=_today_bkk())
+        payload = _training_month(session, user.id, anchor, today=_today_bkk())
     return JSONResponse(payload)
 
 
@@ -13884,9 +13881,7 @@ def _sync_status_with_providers(user: User, payload: dict) -> dict:
     out = dict(payload)
     try:
         with Session(engine) as session:
-            from backend.services.sync_provider_status import build_providers
-
-            out["providers"] = build_providers(session, user.id, job_snapshot=out)
+            out["providers"] = _sync_build_providers(session, user.id, job_snapshot=out)
     except Exception as exc:
         _logging.getLogger(__name__).warning("sync_status providers failed: %s", exc)
     return out
