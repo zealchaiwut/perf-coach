@@ -248,8 +248,21 @@ def reconcile_user(session: _Session, user_id) -> dict:
                 new_status, new_match = "done_auto", w.id
             else:
                 new_status, new_match = "needs_review", None
+        elif len(same_day) >= 2 and not off_day:
+            # Same-day ties → nearest planned duration wins (revamp P1-6).
+            best = min(
+                same_day,
+                key=lambda pair: pair[1] if pair[1] is not None else DURATION_REVIEW + 1,
+            )
+            w, ratio = best
+            if ratio is None or ratio <= DURATION_AUTO:
+                new_status, new_match = "done_auto", w.id
+            elif ratio <= DURATION_REVIEW:
+                new_status, new_match = "needs_review", None
+            else:
+                new_status, new_match = None, None
         elif same_day or off_day:
-            # 2+ candidates or mixed same/off → athlete reviews
+            # Mixed same/off or ambiguous off-day ties → athlete reviews
             new_status, new_match = "needs_review", None
         else:
             # No candidate at all. Missed only after planned_date + 1 day passed

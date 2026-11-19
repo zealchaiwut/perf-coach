@@ -13,6 +13,7 @@
     listTo: null,
     openWeeks: {},
     runIds: [],
+    showAllWeeks: false,
   };
 
   function readQuery() {
@@ -51,9 +52,20 @@
 
   function sessionCardClass(kind, status) {
     if (status === 'missed') return 'rv-session--missed';
+    if (status === 'planned') return 'rv-session--run rv-month-card--planned';
     if (kind === 'rest') return 'rv-session--rest';
-    if (kind === 'run' || kind === 'quality_run' || kind === 'race') return 'rv-session--run';
+    if (kind === 'race') return 'rv-session--race';
+    if (kind === 'quality_run') return 'rv-session--quality';
+    if (kind === 'run') return 'rv-session--run';
     return 'rv-session--support';
+  }
+
+  function whoColor(who) {
+    var w = (who || '').toUpperCase();
+    if (w.indexOf('MISSED') >= 0 || w.indexOf('CHECKPOINT') >= 0) return '#7a3a10';
+    if (w.indexOf('SUPPORT') >= 0 || w.indexOf('STRENGTH') >= 0) return '#4c1d95';
+    if (w.indexOf('RACE') >= 0) return '#6b4408';
+    return '#1e3fb0';
   }
 
   function renderMonth(data) {
@@ -98,22 +110,49 @@
           if (item.tss != null) meta.push(Math.round(item.tss) + ' TSS');
           if (item.distance_km != null) meta.push(item.distance_km + ' km');
           if (item.duration_min != null) meta.push(item.duration_min + ' min');
+          var who = item.who || String(item.kind || '').replace('_', ' ').toUpperCase();
+          var tag = item.status === 'done' ? 'Done' : (item.status === 'planned' ? '' : item.status);
           html.push(
             '<h3 class="' + cardCls + '" tabindex="' + (clickable ? '0' : '-1') + '" data-workout-id="' + esc(item.workout_id || '') + '">' +
-            '<span style="font-weight:700;text-transform:uppercase;font-size:10px;color:var(--rv-primary)">' + esc(item.kind) + '</span> ' +
-            esc(item.name) +
+            '<span class="rv-month-who" style="color:' + esc(whoColor(who)) + '">' + esc(who) + '</span>' +
+            '<span class="rv-month-card-title">' + esc(item.name) + '</span>' +
             (meta.length ? '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono);font-size:10px">' + esc(meta.join(' · ')) + '</div>' : '') +
-            (item.status === 'done' ? '<span class="rv-chip" style="min-height:auto;padding:0 6px;font-size:10px;background:var(--rv-good-bg);color:var(--rv-good-ink)">Done</span>' : '') +
+            (tag ? '<span class="rv-chip rv-chip--done">' + esc(tag) + '</span>' : '') +
             '</h3>'
           );
         });
         html.push('</div>');
       });
       var r = week.rollup || {};
-      html.push('<div class="rv-month-week" role="gridcell"><strong style="font-family:var(--rv-mono);font-size:1.1rem">' + Math.round(r.tss_total || 0) + '</strong>' +
-        '<span class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' + (r.distance_km || 0) + ' km</span></div>');
+      var tm = week.target_meta || {};
+      var bar = '';
+      var cap = '';
+      if (tm.bar_pct != null && tm.target_tss != null) {
+        var barColor = tm.on_target ? '#6d93e8' : '#b45309';
+        bar = '<div class="rv-month-target-bar"><span style="width:' + tm.bar_pct + '%;background:' + barColor + '"></span></div>';
+        if (tm.on_target) cap = 'on target · ' + Math.round(tm.target_tss);
+        else if (tm.delta > 0) cap = '+' + tm.delta + ' over ' + Math.round(tm.target_tss);
+        else cap = tm.delta + ' under ' + Math.round(tm.target_tss);
+      } else if (tm.target_tss != null) {
+        cap = 'target ' + Math.round(tm.target_tss);
+      }
+      html.push(
+        '<div class="rv-month-week" role="gridcell">' +
+        '<strong class="rv-mono" style="font-size:1.1rem">' + Math.round(r.tss_total || 0) + '</strong>' +
+        '<span class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' + (r.distance_km || 0) + ' km</span>' +
+        bar +
+        (cap ? '<span class="rv-month-target-cap">' + esc(cap) + '</span>' : '') +
+        '</div>'
+      );
     });
-    html.push('</div>');
+    html.push(
+      '</div><div class="rv-month-legend">' +
+      '<span class="rv-key"><i class="rv-swatch rv-swatch--run"></i>Run</span>' +
+      '<span class="rv-key"><i class="rv-swatch rv-swatch--quality"></i>Quality run</span>' +
+      '<span class="rv-key"><i class="rv-swatch rv-swatch--support"></i>Strength / mobility</span>' +
+      '<span class="rv-key"><i class="rv-swatch rv-swatch--race"></i>Race</span>' +
+      '<span class="rv-key"><i class="rv-swatch rv-swatch--missed"></i>Missed</span></div>'
+    );
     body.innerHTML = html.join('');
     body.querySelectorAll('[data-workout-id]').forEach(function (el) {
       var id = el.getAttribute('data-workout-id');
@@ -154,6 +193,7 @@
       var run = wk.tss_run || 0;
       var lift = (wk.tss_strength || 0) + (wk.tss_support_other || 0);
       var total = run + lift;
+      var planned = wk.planned_tss || 0;
       var x = pad + i * slot + slot * 0.15;
       var bw = slot * 0.7;
       var runH = total ? (run / maxTss) * (h - pad * 2) : 0;
@@ -161,13 +201,23 @@
       var yBase = h - pad;
       var isCur = wk.partial;
       var fill = isCur ? '#3b6fe0' : '#bfd3f8';
-      if (total <= 0) {
+      if (total <= 0 && planned > 0) {
+        var ph = (planned / maxTss) * (h - pad * 2);
+        parts.push('<rect x="' + x + '" y="' + (yBase - ph) + '" width="' + bw + '" height="' + ph + '" rx="4" fill="#ffffff" stroke="#6d93e8" stroke-width="2" stroke-dasharray="5 4"/>');
+      } else if (total <= 0) {
         parts.push('<rect x="' + x + '" y="' + (yBase - 4) + '" width="' + bw + '" height="4" rx="2" fill="#eef1f7"/>');
       } else {
         parts.push('<rect x="' + x + '" y="' + (yBase - runH - liftH) + '" width="' + bw + '" height="' + runH + '" rx="3" fill="' + fill + '"/>');
         if (liftH > 0) parts.push('<rect x="' + x + '" y="' + (yBase - runH - liftH) + '" width="' + bw + '" height="' + liftH + '" fill="#c9b6f2"/>');
+        if (isCur && planned > total) {
+          var rem = ((planned - total) / maxTss) * (h - pad * 2);
+          parts.push('<rect x="' + x + '" y="' + (yBase - runH - liftH - rem) + '" width="' + bw + '" height="' + rem + '" rx="3" fill="none" stroke="#6d93e8" stroke-width="2" stroke-dasharray="4 3"/>');
+        }
       }
       var kmY = pad + (1 - (wk.distance_km || 0) / maxKm) * (h - pad * 2);
+      if (isCur) {
+        parts.push('<circle cx="' + (x + bw / 2) + '" cy="' + kmY + '" r="5" fill="#d97706"/>');
+      }
       linePts.push((x + bw / 2) + ',' + kmY);
       parts.push('<text x="' + (x + bw / 2) + '" y="' + (h - 8) + '" font-size="11" text-anchor="middle" fill="#56627f">' +
         esc(wk.week_start.slice(5)) + '</text>');
@@ -255,7 +305,7 @@
         return true;
       });
       if (!entries.length) return;
-      var open = state.openWeeks[wk.week_start] || idx < 2;
+      var open = state.openWeeks[wk.week_start] || state.showAllWeeks || idx < 2;
       var sum = wk.summary || {};
       html.push('<section class="rv-week-block" id="week-' + esc(wk.week_start) + '" tabindex="-1">');
       html.push('<button type="button" class="rv-week-head" data-week-toggle="' + esc(wk.week_start) + '">' +
@@ -276,11 +326,24 @@
           if (entry.avg_hr) meta.push(entry.avg_hr + ' bpm');
           html.push('<div class="' + rowCls + '"' + (run ? ' data-run-id="' + esc(entry.id) + '" tabindex="0" role="button"' : '') + '>');
           html.push('<span class="rv-subtitle" style="margin:0">' + esc(entry.date.slice(-2)) + '</span>');
-          html.push('<span aria-hidden="true" style="width:10px;height:10px;border-radius:50%;background:#16a34a"></span>');
+          html.push('<span class="rv-sync-dot rv-sync-dot--green" aria-hidden="true"></span>');
           html.push('<div><strong>' + esc(entry.title || 'Session') + '</strong>' +
             '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' + esc(meta.join(' · ')) + '</div>' +
             '<p style="margin:4px 0 0;font-size:12px">' + esc(badges(entry).join(' · ')) + '</p></div>');
-          html.push('<div class="rv-row" style="justify-content:flex-end"><span class="rv-mono">' + (entry.tss != null ? Math.round(entry.tss) : '—') + '</span></div>');
+          html.push(
+            '<div class="rv-session-side">' +
+            '<span class="rv-mono">' + (entry.tss != null ? Math.round(entry.tss) : '—') + ' TSS</span>' +
+            (run ? '<div class="rv-list-feel" data-feel-host="' + esc(entry.id) + '" data-feel-val="' + esc(entry.feeling || '') + '"></div>' : '') +
+            (missed
+              ? '<div class="rv-missed-actions">' +
+                '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-plan-open="' + esc((entry.plan_match && entry.plan_match.planned_id) || String(entry.id).replace('plan:', '')) + '">Review in Plan</button>' +
+                ((entry.type || '').toLowerCase() === 'mobility'
+                  ? '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-plan-skip="' + esc((entry.plan_match && entry.plan_match.planned_id) || String(entry.id).replace('plan:', '')) + '">Skip</button>'
+                  : '') +
+                '</div>'
+              : '') +
+            '</div>'
+          );
           html.push('</div>');
         });
       }
@@ -293,7 +356,38 @@
       if (clr) clr.onclick = function () { state.filter = 'all'; state.search = ''; writeQuery(); renderFilters(); loadList(); };
       return;
     }
+    if (!state.showAllWeeks && shown > 2) {
+      html.push('<p style="text-align:center;margin:12px 0"><button type="button" class="rv-btn rv-btn--secondary" id="v2-show-older-weeks">Show older weeks</button></p>');
+    }
     el.innerHTML = html.join('');
+    el.querySelectorAll('[data-feel-host]').forEach(function (host) {
+      if (window.V2FeelButtons) {
+        var val = host.getAttribute('data-feel-val') || null;
+        window.V2FeelButtons.mount(host, host.getAttribute('data-feel-host'), val === '' ? null : val);
+      }
+    });
+    el.querySelectorAll('[data-plan-skip]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var pid = btn.getAttribute('data-plan-skip');
+        fetch('/api/planned-sessions/' + encodeURIComponent(pid) + '/skip', { method: 'POST', credentials: 'same-origin' })
+          .then(function (r) { if (!r.ok) throw new Error(); loadList(); loadMonth(); toast('Skipped planned session'); })
+          .catch(function () { toast('Could not skip session'); });
+      });
+    });
+    el.querySelectorAll('[data-plan-open]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        window.location.href = '/v2/training/plan';
+      });
+    });
+    var older = document.getElementById('v2-show-older-weeks');
+    if (older) {
+      older.addEventListener('click', function () {
+        state.showAllWeeks = true;
+        loadList();
+      });
+    }
     el.querySelectorAll('[data-week-toggle]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var key = btn.getAttribute('data-week-toggle');
@@ -349,6 +443,14 @@
       .then(function (r) { if (!r.ok) throw new Error('list'); return r.json(); })
       .then(renderList)
       .catch(function () { sectionError(el, 'Could not load session list.'); });
+  }
+
+  function toast(msg) {
+    var t = document.getElementById('v2-toast');
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add('is-visible');
+    setTimeout(function () { t.classList.remove('is-visible'); }, 2800);
   }
 
   function refreshAll() {
