@@ -19316,6 +19316,27 @@ def get_athlete_monthly_summary(
     return JSONResponse(_mpayload)
 
 
+# ── Session exercise JSON (revamp P2-1) ───────────────────────────────────────
+
+
+class ValidateExercisesBody(BaseModel):
+    text: Optional[str] = None
+    exercises: Optional[list] = None
+
+
+@app.post("/api/sessions/validate-exercises")
+def post_validate_exercises(body: ValidateExercisesBody, user: User = Depends(resolve_user)):
+    from backend.services.session_exercises import validate_session_exercises
+
+    with Session(engine) as session:
+        payload = validate_session_exercises(
+            session,
+            text=body.text,
+            exercises=body.exercises,
+        )
+    return JSONResponse(payload)
+
+
 # ── Session consult prompt (race debrief clipboard) ───────────────────────────
 
 
