@@ -365,6 +365,8 @@ class Workout(Base):
     # One shared column tagged from either the Plan tab (matched workout) or the
     # Log tab. Does not affect scores.
     feeling = Column(String(10), nullable=True)
+    exercises_json = Column(JSONB, nullable=True)
+    recompute_pending = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     # Column already exists in the DB; map it so edits can stamp it and the
     # summary/performance cache signature can include MAX(updated_at).
@@ -445,6 +447,44 @@ class WorkoutExercise(Base):
     )
 
     workout = relationship("Workout", back_populates="exercises")
+
+
+class SessionVersion(Base):
+    """Snapshot of canonical strength session JSON at each save (revamp P2-4)."""
+
+    __tablename__ = "session_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False)
+    saved_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    exercises_json = Column(JSONB, nullable=False)
+    duration_seconds = Column(Integer, nullable=True)
+    session_effort = Column(Integer, nullable=True)
+    tss = Column(Float, nullable=True)
+    summary_line = Column(Text, nullable=True)
+
+    workout = relationship("Workout", backref="session_versions")
+
+    __table_args__ = (
+        Index("ix_session_versions_workout_saved", "workout_id", saved_at.desc()),
+    )
+
+
+class PendingExercise(Base):
+    """Custom exercise names awaiting admin remap (revamp P2-5)."""
+
+    __tablename__ = "pending_exercises"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    normalized_name = Column(String(200), nullable=False, unique=True)
+    display_name = Column(String(200), nullable=False)
+    first_seen_workout_id = Column(
+        UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True
+    )
+    occurrence_count = Column(Integer, nullable=False, server_default=text("1"))
+    closest_match = Column(String(200), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class WorkoutSplit(Base):

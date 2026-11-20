@@ -592,7 +592,8 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
 
     "/api/intensity-distribution/rolling": "No frontend caller. Formerly explained as 'trends.js calls the real one instead' but both trends.js and that sibling (/api/workouts/intensity-distribution) were deleted with the Trends page (feature/remove-trends-tab) — this route was always the unused one of the two.",
     "/api/sessions/{session_id}/intensity-distribution": "No frontend caller (see cluster note above) — same history as /api/intensity-distribution/rolling.",
-    "/api/sessions/validate-exercises": "Revamp P2-1 (#1827): JSON validator for the session editor; no frontend caller until SessionEditor lands.",
+    "/api/admin/pending-exercises": "P2-5 admin queue API; UI arrives in P5-7 — service tested, list route is admin-only.",
+    "/api/admin/pending-exercises/{pending_id}/remap": "P2-5 remap hook; admin UI in P5-7.",
 
     "/api/performance/backfill": "No frontend caller; training-performance.js reads /api/athletes/{id}/performance instead.",
     "/api/performance/score-breakdown": "No frontend caller (see cluster note above).",

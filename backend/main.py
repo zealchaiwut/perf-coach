@@ -39,6 +39,7 @@ from backend.models import (
     TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry,
     WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
     WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
+    PlanExercise, PendingExercise,
 )
 from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
@@ -5920,6 +5921,9 @@ class WorkoutIn(BaseModel):
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
+    exercises_json: Optional[list] = None
+    session_effort: Optional[int] = None
+    strength_tss_method: Optional[str] = None
     # Stryd workout-level aggregates (Run Builder SYNC fields)
     avg_power: Optional[int] = None
     max_power: Optional[int] = None
@@ -5974,6 +5978,9 @@ class WorkoutPatch(BaseModel):
     # dropped it, so per-exercise edits (e.g. RPE) never saved. None = leave
     # exercises untouched.
     exercises: Optional[list[ExerciseIn]] = None
+    exercises_json: Optional[list] = None
+    session_effort: Optional[int] = None
+    strength_tss_method: Optional[str] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -6539,6 +6546,8 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
+        "exercises_json": getattr(w, "exercises_json", None),
+        "recompute_pending": w.recompute_pending.isoformat() if getattr(w, "recompute_pending", None) else None,
         **_best_values_dict(w),
         **_compute_session_signals(w),
     }
@@ -7399,10 +7408,28 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             )
             session.add(e)
             exercises.append(e)
+        if body.exercises_json is not None:
+            from backend.services.session_strength_save import validate_and_apply_json
+
+            result, errors = validate_and_apply_json(
+                session,
+                workout,
+                exercises=body.exercises_json,
+                duration_seconds=body.duration_seconds,
+                session_effort=body.session_effort,
+                strength_tss_method=body.strength_tss_method,
+            )
+            if errors:
+                session.rollback()
+                raise HTTPException(status_code=422, detail={"errors": errors})
         session.commit()
         session.refresh(workout)
-        for e in exercises:
-            session.refresh(e)
+        exercises = (
+            session.query(WorkoutExercise)
+            .filter(WorkoutExercise.workout_id == workout.id)
+            .order_by(WorkoutExercise.display_order)
+            .all()
+        )
         try:
             _persist_running_tss(workout.id, session)
             session.commit()
@@ -7601,6 +7628,36 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                     avg_hr=ex.avg_hr,
                     sets_json=ex.sets_json,
                 ))
+        if body.exercises_json is not None:
+            from backend.services.session_strength_save import validate_and_apply_json
+
+            if "session_effort" in body.model_fields_set and body.session_effort is not None:
+                if not (1 <= body.session_effort <= 10):
+                    raise HTTPException(status_code=422, detail="session_effort must be 1–10")
+            if "strength_tss_method" in body.model_fields_set and body.strength_tss_method:
+                sm = body.strength_tss_method.strip().lower()
+                if sm not in ("exercises", "effort_time"):
+                    raise HTTPException(status_code=422, detail="strength_tss_method must be exercises or effort_time")
+            result, errors = validate_and_apply_json(
+                session,
+                workout,
+                exercises=body.exercises_json,
+                duration_seconds=body.duration_seconds if "duration_seconds" in body.model_fields_set else workout.duration_seconds,
+                session_effort=body.session_effort if "session_effort" in body.model_fields_set else workout.session_effort,
+                strength_tss_method=body.strength_tss_method if "strength_tss_method" in body.model_fields_set else workout.strength_tss_method,
+            )
+            if errors:
+                raise HTTPException(status_code=422, detail={"errors": errors})
+        elif "session_effort" in body.model_fields_set or "strength_tss_method" in body.model_fields_set:
+            if "session_effort" in body.model_fields_set:
+                if body.session_effort is not None and not (1 <= body.session_effort <= 10):
+                    raise HTTPException(status_code=422, detail="session_effort must be 1–10")
+                workout.session_effort = body.session_effort
+            if "strength_tss_method" in body.model_fields_set:
+                sm = (body.strength_tss_method or "").strip().lower() or None
+                if sm and sm not in ("exercises", "effort_time"):
+                    raise HTTPException(status_code=422, detail="strength_tss_method must be exercises or effort_time")
+                workout.strength_tss_method = sm
         # Stamp updated_at so edits (e.g. marking a run as an interval) change the
         # workout-set fingerprint — the summary/performance cache signature
         # includes MAX(updated_at), so a type edit busts the cache and the
@@ -19365,6 +19422,128 @@ def post_validate_exercises(body: ValidateExercisesBody, user: User = Depends(re
             exercises=body.exercises,
         )
     return JSONResponse(payload)
+
+
+class SessionDryRunBody(BaseModel):
+    workout_id: Optional[str] = None
+    workout_date: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    session_effort: Optional[int] = None
+    strength_tss_method: Optional[str] = None
+    text: Optional[str] = None
+    exercises: Optional[list] = None
+
+
+@app.post("/api/sessions/dry-run")
+def post_session_dry_run(body: SessionDryRunBody, user: User = Depends(resolve_user)):
+    from backend.services.session_strength_save import dry_run_strength_session
+    from datetime import date as _date
+
+    wid = None
+    if body.workout_id:
+        try:
+            wid = _uuid.UUID(body.workout_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid workout_id")
+    wdate = _today_bangkok()
+    if body.workout_date:
+        try:
+            wdate = _date.fromisoformat(body.workout_date)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="workout_date must be YYYY-MM-DD")
+    with Session(engine) as session:
+        if wid:
+            w = session.get(Workout, wid)
+            if w is None or w.user_id != user.id:
+                raise HTTPException(status_code=404, detail="Workout not found")
+            wdate = w.workout_date
+        payload = dry_run_strength_session(
+            session,
+            user.id,
+            workout_id=wid,
+            workout_date=wdate,
+            duration_seconds=body.duration_seconds,
+            session_effort=body.session_effort,
+            strength_tss_method=body.strength_tss_method,
+            exercises=body.exercises or [],
+            source_text=body.text,
+        )
+    if not payload.get("valid"):
+        raise HTTPException(status_code=422, detail=payload)
+    return JSONResponse(payload)
+
+
+@app.get("/api/exercises/library-search")
+def get_exercises_library_search(q: str = "", user: User = Depends(resolve_user)):
+    _ = user
+    term = (q or "").strip().lower()
+    with Session(engine) as session:
+        qry = session.query(PlanExercise).filter(PlanExercise.active.is_(True))
+        if term:
+            qry = qry.filter(PlanExercise.name.ilike(f"%{term}%"))
+        rows = qry.order_by(PlanExercise.name).limit(25).all()
+    return JSONResponse(
+        [
+            {
+                "id": str(r.id),
+                "name": r.name,
+                "tss_weight": float(r.tss_weight),
+                "default_block": r.default_block,
+            }
+            for r in rows
+        ]
+    )
+
+
+@app.get("/api/workouts/{workout_id}/session-versions")
+def get_workout_session_versions(workout_id: str, user: User = Depends(resolve_user)):
+    try:
+        wid = _uuid.UUID(workout_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid workout_id")
+    from backend.services.session_versions import list_versions
+
+    with Session(engine) as session:
+        w = session.get(Workout, wid)
+        if w is None or w.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Workout not found")
+        versions = list_versions(session, wid)
+    return JSONResponse({"versions": versions})
+
+
+@app.get("/api/admin/pending-exercises")
+def get_admin_pending_exercises(user: User = Depends(require_admin)):
+    from backend.services.pending_exercises import list_pending
+
+    with Session(engine) as session:
+        rows = list_pending(session)
+    return JSONResponse({"pending": rows})
+
+
+class PendingRemapBody(BaseModel):
+    library_id: str
+
+
+@app.post("/api/admin/pending-exercises/{pending_id}/remap")
+def post_pending_remap(pending_id: str, body: PendingRemapBody, user: User = Depends(require_admin)):
+    _ = user
+    from backend.services.pending_exercises import remap_custom
+
+    try:
+        pid = _uuid.UUID(pending_id)
+        lib_id = _uuid.UUID(body.library_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid id")
+    with Session(engine) as session:
+        row = session.get(PendingExercise, pid)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Pending exercise not found")
+        try:
+            touched = remap_custom(session, name=row.display_name, library_id=lib_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        session.commit()
+    return JSONResponse({"sessions_updated": touched})
 
 
 # ── Session consult prompt (race debrief clipboard) ───────────────────────────

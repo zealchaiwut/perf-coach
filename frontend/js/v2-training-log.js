@@ -104,7 +104,9 @@
         html.push('<div class="rv-month-daynum">' + esc(day.date.slice(-2)) + (day.is_today ? ' <span class="rv-chip" style="min-height:auto;padding:0 6px;font-size:10px">Today</span>' : '') + '</div>');
         (day.items || []).forEach(function (item) {
           var cardCls = 'rv-month-card ' + sessionCardClass(item.kind, item.status);
-          var clickable = item.status === 'done' && item.workout_id && (item.kind === 'run' || item.kind === 'quality_run');
+          var isRun = item.kind === 'run' || item.kind === 'quality_run';
+          var isStr = item.kind === 'strength' || item.kind === 'support';
+          var clickable = item.status === 'done' && item.workout_id && (isRun || isStr);
           if (clickable) cardCls += ' rv-month-card--clickable';
           var meta = [];
           if (item.tss != null) meta.push(Math.round(item.tss) + ' TSS');
@@ -113,7 +115,7 @@
           var who = item.who || String(item.kind || '').replace('_', ' ').toUpperCase();
           var tag = item.status === 'done' ? 'Done' : (item.status === 'planned' ? '' : item.status);
           html.push(
-            '<h3 class="' + cardCls + '" tabindex="' + (clickable ? '0' : '-1') + '" data-workout-id="' + esc(item.workout_id || '') + '">' +
+            '<h3 class="' + cardCls + '" tabindex="' + (clickable ? '0' : '-1') + '" data-workout-id="' + esc(item.workout_id || '') + '" data-session-kind="' + esc(item.kind || '') + '">' +
             '<span class="rv-month-who" style="color:' + esc(whoColor(who)) + '">' + esc(who) + '</span>' +
             '<span class="rv-month-card-title">' + esc(item.name) + '</span>' +
             (meta.length ? '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono);font-size:10px">' + esc(meta.join(' · ')) + '</div>' : '') +
@@ -157,7 +159,14 @@
     body.querySelectorAll('[data-workout-id]').forEach(function (el) {
       var id = el.getAttribute('data-workout-id');
       if (!id) return;
-      function open() { if (window.V2RunDrawer) window.V2RunDrawer.open(id, state.runIds); }
+      function open() {
+        var kind = el.getAttribute('data-session-kind') || '';
+        if (window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(kind) && window.V2StrengthDrawer.openView) {
+          window.V2StrengthDrawer.openView(id);
+        } else if (window.V2RunDrawer) {
+          window.V2RunDrawer.open(id, state.runIds);
+        }
+      }
       el.addEventListener('click', open);
       el.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } });
     });
@@ -316,15 +325,17 @@
         entries.forEach(function (entry) {
           var missed = entry.row_kind === 'missed_plan';
           var rowCls = 'rv-session-row' + (missed ? ' rv-session-row--missed' : '');
-          var run = (entry.type || '').toLowerCase().indexOf('run') >= 0 && !missed;
-          if (run) rowCls += ' rv-session-row--clickable';
+          var tpe = (entry.type || '').toLowerCase();
+          var run = tpe.indexOf('run') >= 0 && !missed;
+          var str = !missed && window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(tpe);
+          if (run || str) rowCls += ' rv-session-row--clickable';
           var meta = [];
           if (entry.duration_minutes != null) meta.push(entry.duration_minutes + ' min');
           if (entry.distance_km != null) meta.push(entry.distance_km + ' km');
           if (entry.average_pace_seconds_per_km) meta.push(Math.round(entry.average_pace_seconds_per_km / 60) + ' min/km');
           if (entry.avg_power) meta.push(entry.avg_power + ' W');
           if (entry.avg_hr) meta.push(entry.avg_hr + ' bpm');
-          html.push('<div class="' + rowCls + '"' + (run ? ' data-run-id="' + esc(entry.id) + '" tabindex="0" role="button"' : '') + '>');
+          html.push('<div class="' + rowCls + '"' + ((run || str) ? ' data-run-id="' + esc(entry.id) + '" data-workout-type="' + esc(entry.type || '') + '" tabindex="0" role="button"' : '') + '>');
           html.push('<span class="rv-subtitle" style="margin:0">' + esc(entry.date.slice(-2)) + '</span>');
           html.push('<span class="rv-sync-dot rv-sync-dot--green" aria-hidden="true"></span>');
           html.push('<div><strong>' + esc(entry.title || 'Session') + '</strong>' +
@@ -396,7 +407,15 @@
       });
     });
     el.querySelectorAll('[data-run-id]').forEach(function (row) {
-      function open() { window.V2RunDrawer.open(row.getAttribute('data-run-id'), state.runIds); }
+      function open() {
+        var id = row.getAttribute('data-run-id');
+        var wt = row.getAttribute('data-workout-type') || '';
+        if (window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(wt)) {
+          window.V2StrengthDrawer.openView(id);
+        } else if (window.V2RunDrawer) {
+          window.V2RunDrawer.open(id, state.runIds);
+        }
+      }
       row.addEventListener('click', open);
       row.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } });
     });
@@ -468,6 +487,7 @@
     }
     refreshAll();
     window.addEventListener('v2:log-refresh', refreshAll);
+    window.V2TrainingLogReload = refreshAll;
   }
 
   document.addEventListener('DOMContentLoaded', init);

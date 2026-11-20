@@ -552,6 +552,29 @@ def _h_plan_draft(p: dict) -> None:
     run_plan_draft_job(p)
 
 
+def _h_training_load_replay(p: dict) -> None:
+    """Replay CTL/ATL/TSB after strength session edits."""
+    from backend.models import Workout
+    from backend.services.training_load import recompute_user_snapshots
+
+    uid = p.get("user_id")
+    if not uid:
+        return
+    recompute_user_snapshots(str(uid))
+    wids = p.get("workout_ids") or []
+    if not wids:
+        return
+    with Session(engine) as session:
+        for wid in wids:
+            try:
+                row = session.get(Workout, uuid.UUID(str(wid)))
+            except ValueError:
+                continue
+            if row is not None:
+                row.recompute_pending = None
+        session.commit()
+
+
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
@@ -564,6 +587,7 @@ _DISPATCH = {
     "garmin_sync": _h_garmin_sync,
     "coach_export": _h_coach_export,
     "plan_draft": _h_plan_draft,
+    "training_load_replay": _h_training_load_replay,
 }
 
 

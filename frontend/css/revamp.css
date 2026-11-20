@@ -771,3 +771,44 @@ body.rv-page .rv-rep-head {
   font-weight: 700;
   color: #56627f;
 }
+
+body.rv-page .rv-strength-tss-panel {
+  background: #121826;
+  color: #f2f4fb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  font-family: var(--rv-mono);
+  font-size: 13px;
+}
+
+body.rv-page .rv-json-editor {
+  width: 100%;
+  font-family: var(--rv-mono);
+  font-size: 12px;
+  min-height: 220px;
+  border: 1px solid #dbe1ee;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+body.rv-page .rv-badge--custom {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+body.rv-page .rv-effort-btn.is-active {
+  background: #1e3fb0;
+  color: #fff;
+}
+
+body.rv-page .rv-hint--amber {
+  color: #b45309;
+}
+
+body.rv-page .rv-hint--pending {
+  color: #56627f;
+  font-style: italic;
+}

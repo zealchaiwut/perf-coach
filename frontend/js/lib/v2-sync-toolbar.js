@@ -89,12 +89,18 @@
         (running ? 'disabled aria-busy="true"' : '') + '>' + btnLabel + '</button>'
       );
       lines.push(
-        '<button type="button" class="rv-btn rv-btn--primary" disabled title="Coming in Phase 2">Log strength session</button>'
+        '<button type="button" class="rv-btn rv-btn--primary" id="v2-log-strength">Log strength session</button>'
       );
       container.innerHTML = lines.join('');
       var btn = document.getElementById('v2-sync-now');
       if (btn) {
         btn.addEventListener('click', startSync);
+      }
+      var logStr = document.getElementById('v2-log-strength');
+      if (logStr) {
+        logStr.addEventListener('click', function () {
+          if (global.V2StrengthDrawer) global.V2StrengthDrawer.openEdit(null);
+        });
       }
     }
 
