@@ -1277,6 +1277,8 @@ class Race(Base):
     """Classification of the effort — one of RACE_TYPE_VALUES ('race', 'checkpoint')."""
     actual_time_seconds = Column(Integer, nullable=True)
     """Recorded finish time in seconds after the race is completed; NULL for future races."""
+    tss_if_override = Column(Numeric(4, 3), nullable=True)
+    """Optional intensity factor override for race-day TSS (revamp P3-2)."""
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     """Timestamp when this record was first created."""
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))

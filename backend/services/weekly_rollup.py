@@ -168,7 +168,12 @@ def weekly_rollup(
             elif st in _DONE_PLANNED:
                 pass  # fulfillment reflected in workout count
 
-        planned_tss = _estimate_planned_tss_remaining(session, uid, ws, we, today)
+        planned_tss_training = _estimate_planned_tss_remaining(session, uid, ws, we, today)
+        from backend.services.race_day_tss import race_week_payload
+
+        race_items = race_week_payload(session, uid, ws, we)
+        race_planned_tss = sum(int(r["tss"] or 0) for r in race_items if r.get("tss") is not None)
+        planned_tss = round(planned_tss_training + race_planned_tss, 2)
         runs = sum(1 for w in in_week if _tss_bucket(w.workout_type, distance_km=w.distance_km) == "run")
         strength = sum(
             1 for w in in_week if _tss_bucket(w.workout_type, distance_km=w.distance_km) == "strength"
@@ -177,9 +182,12 @@ def weekly_rollup(
         phase_label = None
         target_tss_val = None
         try:
-            from backend.services.revamp_load_plan import week_target_and_phase
+            from backend.services.revamp_load_plan import chronic_weekly_tss, week_target_and_phase
 
-            meta = week_target_and_phase(uid, ws, session=session, today=today)
+            chronic = chronic_weekly_tss(session, uid, today)
+            meta = week_target_and_phase(
+                uid, ws, session=session, chronic_baseline=chronic, today=today
+            )
             if meta:
                 target_tss_val = meta.get("target_tss")
                 phase_label = meta.get("phase")
@@ -200,6 +208,9 @@ def weekly_rollup(
             "strength": strength,
             "counts": counts,
             "planned_tss": planned_tss,
+            "planned_tss_training": planned_tss_training,
+            "race_planned_tss": race_planned_tss,
+            "race_items": race_items,
             "target_tss": round(float(target_tss_val), 1) if target_tss_val is not None else None,
             "phase": phase_label,
             "partial": partial,

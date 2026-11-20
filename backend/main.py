@@ -18529,6 +18529,41 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
         })
 
 
+@app.get("/api/plan/revamp-road-chart")
+def get_plan_revamp_road_chart(user: User = Depends(resolve_user)):
+    """Revamp Road-to chart: weekly target vs actual through the A race (P3-3)."""
+    from backend.services.revamp_load_plan import road_to_chart
+
+    with Session(engine) as db:
+        payload = road_to_chart(user.id, session=db)
+    if payload is None:
+        return Response(status_code=204)
+    return JSONResponse(payload)
+
+
+@app.get("/api/plan/revamp-week-load")
+def get_plan_revamp_week_load(
+    week_start: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Revamp this-week load card (P3-4)."""
+    from backend.services.revamp_load_plan import revamp_week_load
+
+    today = _today_bkk()
+    ws = today - _timedelta(days=today.weekday())
+    if week_start:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        ws = ws - _timedelta(days=ws.weekday())
+    with Session(engine) as db:
+        payload = revamp_week_load(user.id, ws, session=db, today=today)
+    if payload is None:
+        return Response(status_code=204)
+    return JSONResponse(payload)
+
+
 # ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
 # See docs/calculations/load-plan.md. target_tss is read from the SAME
 # compute_load_plan series get_plan_load_plan builds — never recomputed here.

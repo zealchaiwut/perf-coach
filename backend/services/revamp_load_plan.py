@@ -302,3 +302,164 @@ def week_target_and_phase(
     finally:
         if own:
             session.close()
+
+
+def chronic_weekly_tss(session: Session, user_id: uuid.UUID, today: date) -> float:
+    from datetime import timedelta
+
+    from backend.services.training_load import daily_tss_series
+
+    start_28 = today - timedelta(days=27)
+    series = daily_tss_series(str(user_id), start_28, today)
+    total = float(sum(v for _, v in series))
+    return round(total / 4.0, 1) if total > 0 else 300.0
+
+
+def phase_overrun_summary(columns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mean percent over target for peak_hold and taper phases (P3-3)."""
+    from collections import defaultdict
+
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for col in columns:
+        if col.get("state") != "done":
+            continue
+        target = col.get("target_tss")
+        actual = col.get("actual_tss")
+        phase = col.get("phase")
+        if not target or actual is None or not phase:
+            continue
+        if actual > target * 1.05:
+            buckets[phase].append((actual - target) / target * 100.0)
+    out = []
+    for phase, vals in buckets.items():
+        if phase in ("peak_hold", "taper") and vals:
+            out.append({"phase": phase, "mean_over_pct": round(sum(vals) / len(vals), 1)})
+    return out
+
+
+def road_to_chart(
+    user_id: uuid.UUID,
+    *,
+    session: Optional[Session] = None,
+    today: Optional[date] = None,
+) -> Optional[dict[str, Any]]:
+    """Block weeks with target/actual/planned/race stacks for the revamp chart."""
+    from backend.services.weekly_rollup import weekly_rollup
+
+    uid = uuid.UUID(str(user_id))
+    today = today or today_bangkok()
+    current_ws = normalize_week_start(today)
+    own = session is None
+    if own:
+        session = Session(engine)
+    try:
+        race = _resolve_a_race(session, uid, today)
+        if race is None:
+            return None
+        block_start = block_start_for_race(race.race_date)
+        chronic = chronic_weekly_tss(session, uid, today)
+        weeks = week_starts_in_block(block_start, race.race_date)
+        columns: list[dict[str, Any]] = []
+        for ws in weeks:
+            rollup = weekly_rollup(uid, ws, session=session, today=today)
+            meta = week_target_and_phase(uid, ws, session=session, chronic_baseline=chronic, today=today) or {}
+            target = meta.get("target_tss")
+            actual = rollup.get("tss_total")
+            if ws < current_ws:
+                state = "done"
+            elif ws == current_ws:
+                state = "current"
+            else:
+                state = "future"
+            over = False
+            if state == "done" and target and actual is not None and actual > target * 1.05:
+                over = True
+            columns.append(
+                {
+                    "week_start": ws.isoformat(),
+                    "phase": meta.get("phase") or rollup.get("phase"),
+                    "target_tss": target,
+                    "actual_tss": actual if state == "done" else None,
+                    "planned_tss": rollup.get("planned_tss_training") if state != "done" else None,
+                    "race_tss": rollup.get("race_planned_tss"),
+                    "race_items": rollup.get("race_items") or [],
+                    "state": state,
+                    "over_target": over,
+                    "on_target": bool(target and actual is not None and actual <= target * 1.05),
+                }
+            )
+        return {
+            "race_name": race.name,
+            "race_date": str(race.race_date),
+            "block_start": block_start.isoformat(),
+            "defaults": REVAMP_PLAN_DEFAULTS,
+            "columns": columns,
+            "phase_overruns": phase_overrun_summary(columns),
+        }
+    finally:
+        if own:
+            session.close()
+
+
+def revamp_week_load(
+    user_id: uuid.UUID,
+    week_start: date,
+    *,
+    session: Optional[Session] = None,
+    today: Optional[date] = None,
+) -> Optional[dict[str, Any]]:
+    """This-week load card payload (P3-4)."""
+    from backend.services.load_plan import ACWR_CEILING_MULT
+    from backend.services.weekly_rollup import weekly_rollup
+
+    uid = uuid.UUID(str(user_id))
+    today = today or today_bangkok()
+    ws = normalize_week_start(week_start)
+    own = session is None
+    if own:
+        session = Session(engine)
+    try:
+        race = _resolve_a_race(session, uid, today)
+        if race is None:
+            return None
+        chronic = chronic_weekly_tss(session, uid, today)
+        meta = week_target_and_phase(uid, ws, session=session, chronic_baseline=chronic, today=today)
+        if not meta:
+            return None
+        rollup = weekly_rollup(uid, ws, session=session, today=today)
+        target = meta["target_tss"]
+        peak = meta.get("peak_tss") or target
+        phase = meta.get("phase") or "build"
+        baseline = peak if phase in ("peak_hold", "taper", "race_week", "recover") else target
+        factor = round((target / baseline) * 100, 1) if baseline else 100.0
+        ceiling = round(ACWR_CEILING_MULT * chronic, 1)
+        logged = rollup.get("tss_total") or 0
+        planned = rollup.get("planned_tss_training") or 0
+        race_note = None
+        if rollup.get("race_items"):
+            rt = rollup.get("race_planned_tss") or 0
+            race_note = f"plus the race, about {int(rt)} TSS"
+        headroom = target - (logged + planned)
+        if logged + planned > ceiling:
+            headroom_state = "over_ceiling"
+        elif logged + planned > target:
+            headroom_state = "over_target"
+        else:
+            headroom_state = "under_target"
+        return {
+            "week_start": ws.isoformat(),
+            "baseline_tss": round(baseline, 1),
+            "phase": phase,
+            "phase_factor_pct": factor,
+            "target_tss": target,
+            "acwr_ceiling": ceiling,
+            "trailing_28d_avg": chronic,
+            "logged_tss": round(logged, 1),
+            "planned_tss": round(planned, 1),
+            "race_note": race_note,
+            "headroom_tss": round(headroom, 1),
+            "headroom_state": headroom_state,
+        }
+    finally:
+        if own:
+            session.close()

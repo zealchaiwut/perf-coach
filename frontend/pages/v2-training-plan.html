@@ -12,7 +12,7 @@
     <header class="rv-shell-head">
       <div>
         <h1 class="rv-title">Training</h1>
-        <p class="rv-subtitle">Plan week — empty shell for Phase 0.</p>
+        <p class="rv-subtitle">Plan week</p>
       </div>
       <nav aria-label="Primary">
         <ul class="rv-tabnav">
@@ -22,15 +22,24 @@
         </ul>
       </nav>
     </header>
-    <nav aria-label="Training views">
-      <ul class="rv-subnav">
-        <li style="flex:1"><a class="rv-seg" href="/v2/training/plan" aria-current="page">Plan</a></li>
-        <li style="flex:1"><a class="rv-seg" href="/v2/training/log">Log</a></li>
-        <li style="flex:1"><a class="rv-seg" href="/v2/training/trends">Trends</a></li>
-      </ul>
-    </nav>
-    <p><a class="rv-btn rv-btn--secondary" href="/home">Back to classic app</a></p>
-    <section class="rv-card"><p>Week planner and load card will mount here.</p></section>
+
+    <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
+      <nav class="rv-segnav" aria-label="Training views">
+        <a href="/v2/training/plan" aria-current="page">Plan</a>
+        <a href="/v2/training/log">Log</a>
+        <a href="/v2/training/trends">Trends</a>
+      </nav>
+      <div class="rv-row" id="v2-sync-toolbar"></div>
+    </section>
+
+    <div id="v2-plan-shell" class="rv-stack">
+      <section class="rv-card rv-stack" id="v2-plan-road" aria-label="Road to race chart"></section>
+      <section class="rv-card rv-stack" id="v2-plan-week-load" aria-label="This week load"></section>
+    </div>
   </div>
+
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/lib/v2-sync-toolbar.js"></script>
+  <script src="/js/v2-training-plan.js"></script>
 </body>
 </html>
