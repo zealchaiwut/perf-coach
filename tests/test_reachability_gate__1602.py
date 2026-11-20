@@ -486,6 +486,10 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "composed in-process by get_plan_week_bundle. Direct FE callers "
         "removed on purpose — endpoint kept as the week-load SoT handler."
     ),
+    "/api/plan/rule-evaluate": (
+        "Revamp week board + planned editor (P3-5/P3-8) call this on drop/save; "
+        "v2 plan shell not wired yet — SIT via pytest, FE in #1839."
+    ),
     "/api/projection": (
         "FE unused; still called in-process by _compute_plan_bundle "
         "(plan/computed SoT). Gate does not see main.py callers — permanent "

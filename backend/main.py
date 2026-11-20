@@ -7794,6 +7794,16 @@ class PlannedSessionPatch(BaseModel):
     notes: Optional[str] = None
 
 
+class PlanRuleEvaluateIn(BaseModel):
+    action: str = "move"
+    session_id: Optional[str] = None
+    planned_date: str
+    session_type: Optional[str] = None
+    structure: Optional[dict] = None
+    source: Optional[str] = None
+    estimated_tss: Optional[float] = None
+
+
 class PlannedSessionMatchIn(BaseModel):
     workout_id: str
 
@@ -18562,6 +18572,24 @@ def get_plan_revamp_week_load(
     if payload is None:
         return Response(status_code=204)
     return JSONResponse(payload)
+
+
+@app.post("/api/plan/rule-evaluate")
+def post_plan_rule_evaluate(body: PlanRuleEvaluateIn, user: User = Depends(resolve_user)):
+    """Evaluate planning rule hits for a pending move or edit (P3-9)."""
+    from backend.services.plan_rules_engine import evaluate, summarize
+
+    try:
+        planned = _validate_planned_date(body.planned_date)
+    except HTTPException:
+        raise
+    change = body.model_dump()
+    change["planned_date"] = planned.isoformat()
+    if body.session_type:
+        change["session_type"] = _validate_planned_type(body.session_type)
+    with Session(engine) as db:
+        results = evaluate(user.id, change, db)
+    return JSONResponse({"level": summarize(results), "results": results})
 
 
 # ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
