@@ -314,6 +314,8 @@ class Workout(Base):
     tss_method_override = Column(String(20), nullable=True)
     tss_source = Column(String(20), nullable=True)
     tss_method = Column(String(20), nullable=True)
+    strength_tss_method = Column(String(20), nullable=True)
+    session_effort = Column(Integer, nullable=True)
     source = Column(String(20), nullable=True)
     strava_activity_url = Column(Text, nullable=True)
     distance_km = Column(Numeric(8, 3), nullable=True)

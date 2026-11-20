@@ -6487,8 +6487,11 @@ def _compute_session_signals(w: Workout) -> dict:
 
 
 def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = None) -> dict:
+    from backend.services.strength_tss import canonical_from_workout_exercises
+
     strava_act = getattr(w, "strava_activity", None)
-    _tss = _session_tss(w, prefs=prefs)
+    _canon = canonical_from_workout_exercises(exercises) if exercises else None
+    _tss = _session_tss(w, prefs=prefs, exercises=_canon)
     return {
         "id": str(w.id),
         "user_id": str(w.user_id),
@@ -6503,6 +6506,11 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "tss_power": int(_tss["tss_power"]) if _tss.get("tss_power") is not None else None,
         "tss_stryd": int(_tss["tss_stryd"]) if _tss.get("tss_stryd") is not None else None,
         "tss_method_override": getattr(w, "tss_method_override", None),
+        "strength_tss_method": getattr(w, "strength_tss_method", None) or _tss.get("strength_tss_method"),
+        "session_effort": getattr(w, "session_effort", None),
+        "strength_tss_exercises": _tss.get("tss_exercises"),
+        "strength_tss_effort_time": _tss.get("tss_effort_time"),
+        "strength_tss_per_exercise": _tss.get("per_exercise") or [],
         "source": w.source,
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
@@ -8526,19 +8534,41 @@ def compute_workout_tss(workout_id: str, body: ComputeTSSIn, user: User = Depend
             def __getitem__(self, k):
                 return getattr(self, k)
 
-        proxy = _WorkoutProxy(workout, body.session_rpe)
-        prefs_proxy = _PrefsProxy(prefs)
-        result = _compute_strength_tss(proxy, exercises, prefs_proxy)
+        from backend.services.strength_tss import (
+            canonical_from_workout_exercises,
+            is_strength_workout,
+            strength_tss_block,
+        )
 
-        if result["tss"] is None:
-            raise HTTPException(
-                status_code=422,
-                detail="Cannot compute TSS: " + result.get("debug", {}).get("reason", "missing inputs")
-            )
+        if body.session_rpe is not None:
+            workout.session_effort = body.session_rpe
 
-        workout.tss = result["tss"]
-        workout.tss_source = "calculated"
-        workout.tss_method = result["method"]
+        if is_strength_workout(workout):
+            canon = canonical_from_workout_exercises(exercises)
+            result = strength_tss_block(workout, session=session, exercises=canon)
+            if result.get("tss") is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Cannot compute strength TSS: missing exercises or effort/duration",
+                )
+            workout.tss = float(result["tss"])
+            workout.tss_source = "calculated"
+            workout.tss_method = result["method"]
+            workout.strength_tss_method = result.get("strength_tss_method") or result["method"]
+        else:
+            proxy = _WorkoutProxy(workout, body.session_rpe)
+            prefs_proxy = _PrefsProxy(prefs)
+            result = _compute_strength_tss(proxy, exercises, prefs_proxy)
+
+            if result["tss"] is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Cannot compute TSS: " + result.get("debug", {}).get("reason", "missing inputs")
+                )
+
+            workout.tss = result["tss"]
+            workout.tss_source = "calculated"
+            workout.tss_method = result["method"]
         session.commit()
         session.refresh(workout)
         return JSONResponse({

@@ -30,12 +30,22 @@ def session_tss(
     *,
     prefs: Optional[UserPreferences] = None,
     stryd_tss: Optional[int] = None,
+    session=None,
+    exercises: Optional[list] = None,
 ) -> dict[str, Any]:
     """Return counted TSS and method for a session.
 
     Order: session override → user default → whichever value exists → null.
     Manual athlete TSS always wins and is returned as method ``manual``.
     """
+    from backend.services.strength_tss import is_strength_workout, strength_tss_block
+
+    if is_strength_workout(workout):
+        block = strength_tss_block(workout, session=session, exercises=exercises)
+        if workout.tss_source == "manual" and workout.tss is not None:
+            block = {**block, "tss": float(workout.tss), "method": "manual"}
+        return block
+
     if workout.tss_source == "manual" and workout.tss is not None:
         return {
             "tss": float(workout.tss),

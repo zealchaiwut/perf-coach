@@ -50,11 +50,12 @@ def _planned_kind(session_type: str) -> str:
 
 
 def _workout_item(
+    session: Session,
     w: Workout,
     prefs: Optional[UserPreferences],
     match: Optional[dict],
 ) -> dict[str, Any]:
-    tss = session_tss(w, prefs=prefs).get("tss")
+    tss = session_tss(w, prefs=prefs, session=session).get("tss")
     kind = session_kind_for_workout(w)
     if match:
         source = match.get("source") or "coach"
@@ -187,10 +188,10 @@ def training_month(
             key = d.isoformat()
             items: list[dict[str, Any]] = []
             for w in by_date.get(key, []):
-                items.append(_workout_item(w, prefs, match_map.get(str(w.id))))
+                items.append(_workout_item(session, w, prefs, match_map.get(str(w.id))))
                 if match_map.get(str(w.id)):
                     matched_count += 1
-                tss = session_tss(w, prefs=prefs).get("tss")
+                tss = session_tss(w, prefs=prefs, session=session).get("tss")
                 if tss:
                     month_tss += float(tss)
                 if w.distance_km:

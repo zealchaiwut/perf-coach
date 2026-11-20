@@ -131,7 +131,7 @@ def weekly_rollup(
         duration_seconds = 0.0
 
         for w in in_week:
-            counted = session_tss(w, prefs=prefs).get("tss")
+            counted = session_tss(w, prefs=prefs, session=session).get("tss")
             if counted is not None:
                 val = float(counted)
                 tss_total += val
