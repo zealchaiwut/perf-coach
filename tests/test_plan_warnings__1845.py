@@ -60,7 +60,15 @@ def test_settings_save_blocked_when_layout_invalid(monkeypatch):
         raise pw.LoadPlanLayoutError("fixture")
 
     monkeypatch.setattr(pw, "validate_block_layout", boom)
-    monkeypatch.setattr(pw, "block_start_for_race", lambda *a, **k: date(2026, 6, 1))
+
+    _ctx = {
+        "race": SimpleNamespace(race_date=date(2026, 12, 1)),
+        "block_start": date(2026, 6, 1),
+        "settings": pw.REVAMP_PLAN_DEFAULTS,
+        "chronic_baseline": 200.0,
+    }
+
+    monkeypatch.setattr(pw._rps, "plan_context", lambda *a, **k: _ctx)
     monkeypatch.setattr(pw, "chronic_weekly_tss", lambda *a, **k: 200.0)
     monkeypatch.setattr(pw, "weeks_from_block_start_to_race", lambda *a, **k: 10)
     monkeypatch.setattr(pw, "_series_week_count", lambda *a, **k: 20)

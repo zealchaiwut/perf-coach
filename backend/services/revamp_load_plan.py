@@ -59,8 +59,15 @@ def compute_revamp_block_series(
     recover_w = int(s["recover_weeks"])
     rebuild_w = int(s["rebuild_weeks"])
 
-    baseline = max(0.0, float(chronic_baseline))
-    peak_tss = baseline * ((1.0 + ramp) ** build_w) if build_w > 0 else baseline
+    peak_override = s.get("peak_tss")
+    if peak_override is not None and str(peak_override).strip() != "":
+        peak_tss = max(0.0, float(peak_override))
+        baseline = (
+            peak_tss / ((1.0 + ramp) ** build_w) if build_w > 0 else peak_tss
+        )
+    else:
+        baseline = max(0.0, float(chronic_baseline))
+        peak_tss = baseline * ((1.0 + ramp) ** build_w) if build_w > 0 else baseline
 
     weeks: list[dict[str, Any]] = []
     for w in range(1, build_w + 1):
@@ -243,16 +250,23 @@ def week_target_and_phase(
     if own:
         session = Session(engine)
     try:
-        race = _resolve_a_race(session, uid, today)
-        if race is None:
+        from backend.services import revamp_plan_settings as _rps
+
+        ctx = _rps.plan_context(session, uid, today=today)
+        if ctx is None:
             return None
-        block_start = block_start_for_race(race.race_date, settings)
+        race = ctx["race"]
+        block_start = ctx["block_start"]
+        if settings is None:
+            settings = ctx["settings"]
+        if chronic_baseline is None:
+            chronic_baseline = ctx["chronic_baseline"]
         if ws < normalize_week_start(block_start) or ws > normalize_week_start(race.race_date):
             return None
 
         current_ws = normalize_week_start(today)
         if chronic_baseline is None:
-            chronic_baseline = 300.0  # caller should pass CTL-derived chronic; tests patch this
+            chronic_baseline = 300.0  # fallback for tests without DB context
 
         if ws <= current_ws:
             row = (
@@ -353,16 +367,25 @@ def road_to_chart(
     if own:
         session = Session(engine)
     try:
-        race = _resolve_a_race(session, uid, today)
-        if race is None:
+        from backend.services import revamp_plan_settings as _rps
+
+        ctx = _rps.plan_context(session, uid, today=today)
+        if ctx is None:
             return None
-        block_start = block_start_for_race(race.race_date)
-        chronic = chronic_weekly_tss(session, uid, today)
+        race = ctx["race"]
+        block_start = ctx["block_start"]
+        chronic = ctx["chronic_baseline"]
+        settings = ctx["settings"]
         weeks = week_starts_in_block(block_start, race.race_date)
         columns: list[dict[str, Any]] = []
         for ws in weeks:
             rollup = weekly_rollup(uid, ws, session=session, today=today)
-            meta = week_target_and_phase(uid, ws, session=session, chronic_baseline=chronic, today=today) or {}
+            meta = (
+                week_target_and_phase(
+                    uid, ws, session=session, chronic_baseline=chronic, settings=settings, today=today
+                )
+                or {}
+            )
             target = meta.get("target_tss")
             actual = rollup.get("tss_total")
             if ws < current_ws:
@@ -393,6 +416,7 @@ def road_to_chart(
             "race_date": str(race.race_date),
             "block_start": block_start.isoformat(),
             "defaults": REVAMP_PLAN_DEFAULTS,
+            "settings": settings,
             "columns": columns,
             "phase_overruns": phase_overrun_summary(columns),
         }
@@ -419,11 +443,15 @@ def revamp_week_load(
     if own:
         session = Session(engine)
     try:
-        race = _resolve_a_race(session, uid, today)
-        if race is None:
+        from backend.services import revamp_plan_settings as _rps
+
+        ctx = _rps.plan_context(session, uid, today=today)
+        if ctx is None:
             return None
-        chronic = chronic_weekly_tss(session, uid, today)
-        meta = week_target_and_phase(uid, ws, session=session, chronic_baseline=chronic, today=today)
+        chronic = ctx["chronic_baseline"]
+        meta = week_target_and_phase(
+            uid, ws, session=session, chronic_baseline=chronic, settings=ctx["settings"], today=today
+        )
         if not meta:
             return None
         rollup = weekly_rollup(uid, ws, session=session, today=today)

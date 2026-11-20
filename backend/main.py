@@ -5822,6 +5822,7 @@ _V2_ROUTE_FILES = {
     "/v2/training/trends": "v2-training-trends.html",
     "/v2/performance": "v2-performance.html",
     "/v2/components": "v2-components.html",
+    "/v2/settings/plan": "v2-settings-plan.html",
 }
 
 
@@ -18594,6 +18595,66 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
                 .all()
             ],
         })
+
+
+class RevampPlanSettingsIn(BaseModel):
+    a_race_id: Optional[str] = None
+    block_start: Optional[str] = None
+    ramp_pct: Optional[float] = None
+    build_weeks: Optional[int] = None
+    peak_hold_weeks: Optional[int] = None
+    peak_tss: Optional[float] = None
+    taper_factors: Optional[list[float]] = None
+    race_week_factor: Optional[float] = None
+    recover_weeks: Optional[int] = None
+    rebuild_weeks: Optional[int] = None
+    rest_days: Optional[list[int]] = None
+    max_consecutive_days: Optional[int] = None
+
+
+def _revamp_settings_body_dict(body: RevampPlanSettingsIn) -> dict:
+    raw = body.model_dump(exclude_unset=True)
+    return {k: v for k, v in raw.items() if v is not None or k in ("peak_tss", "block_start", "a_race_id", "max_consecutive_days")}
+
+
+@app.get("/api/plan/revamp-settings")
+def get_plan_revamp_settings(user: User = Depends(resolve_user)):
+    """Current revamp load settings + A-race picks (P3-12)."""
+    from backend.services.revamp_plan_settings import settings_payload
+
+    with Session(engine) as db:
+        return JSONResponse(settings_payload(db, user.id))
+
+
+@app.post("/api/plan/revamp-settings/preview")
+def post_plan_revamp_settings_preview(body: RevampPlanSettingsIn, user: User = Depends(resolve_user)):
+    from backend.services.revamp_plan_settings import preview_settings_change
+
+    draft = _revamp_settings_body_dict(body)
+    with Session(engine) as db:
+        try:
+            return JSONResponse(preview_settings_change(db, user.id, draft))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.put("/api/plan/revamp-settings")
+def put_plan_revamp_settings(body: RevampPlanSettingsIn, user: User = Depends(resolve_user)):
+    from backend.services.revamp_load_plan import LoadPlanLayoutError
+    from backend.services.revamp_plan_settings import apply_settings
+
+    draft = _revamp_settings_body_dict(body)
+    with Session(engine) as db:
+        try:
+            out = apply_settings(db, user.id, draft)
+            db.commit()
+            return JSONResponse(out)
+        except LoadPlanLayoutError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail={"code": "layout_mismatch", "message": str(exc)})
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc))
 
 
 @app.get("/api/plan/revamp-road-chart")

@@ -46,8 +46,11 @@
         parts.push('<p class="rv-subtitle">Phase ' + esc(p.phase) + ' ran ~' + esc(String(p.mean_over_pct)) + '% over target on average.</p>');
       });
     }
-    host.innerHTML = '<h2 class="rv-label">Road to ' + esc(data.race_name) + '</h2>' +
-      '<p class="rv-subtitle">' + esc(data.block_start) + ' → ' + esc(data.race_date) + '</p>' + parts.join('');
+    host.innerHTML = '<div class="rv-row" style="flex-wrap:wrap;align-items:center;gap:12px">' +
+      '<div><h2 class="rv-label">Road to ' + esc(data.race_name) + '</h2>' +
+      '<p class="rv-subtitle">' + esc(data.block_start) + ' → ' + esc(data.race_date) + '</p></div>' +
+      '<a href="/v2/settings/plan" style="font-size:13px;font-weight:600">Change plan settings</a></div>' +
+      parts.join('');
   }
 
   function renderWeekLoad(card, wl) {

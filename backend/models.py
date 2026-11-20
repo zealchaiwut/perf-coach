@@ -470,6 +470,20 @@ class SessionVersion(Base):
     )
 
 
+class RevampLoadSettings(Base):
+    """Per-user revamp block load settings (P3-12)."""
+
+    __tablename__ = "revamp_load_settings"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    a_race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="SET NULL"), nullable=True)
+    block_start = Column(Date, nullable=True)
+    phase = Column(JSONB, nullable=True)
+    peak_tss = Column(Float, nullable=True)
+    max_consecutive_days = Column(Integer, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+
 class LoadPlanWeekSnapshot(Base):
     """Frozen weekly load target + phase once a block week has started (P3-1)."""
 

@@ -11,13 +11,12 @@ from backend.models import Race, RaceCheckpoint
 from backend.services.revamp_load_plan import (
     REVAMP_PLAN_DEFAULTS,
     LoadPlanLayoutError,
-    _resolve_a_race,
-    block_start_for_race,
     chronic_weekly_tss,
     compute_revamp_block_series,
     validate_block_layout,
     weeks_from_block_start_to_race,
 )
+from backend.services import revamp_plan_settings as _rps
 from backend.utils.time import today_bangkok
 
 MARATHON_DISTANCE_KM = 41.0
@@ -61,12 +60,16 @@ def layout_error(
     today: Optional[date] = None,
 ) -> Optional[dict[str, Any]]:
     today = today or today_bangkok()
-    race = _resolve_a_race(session, user_id, today)
-    if race is None:
+    if settings is not None:
+        ctx = _rps.plan_context(session, user_id, today=today, draft=settings)
+    else:
+        ctx = _rps.plan_context(session, user_id, today=today)
+    if ctx is None:
         return None
-    s = {**REVAMP_PLAN_DEFAULTS, **(settings or {})}
-    block_start = block_start_for_race(race.race_date, s)
-    chronic = chronic_weekly_tss(session, user_id, today)
+    race = ctx["race"]
+    s = ctx["settings"]
+    block_start = ctx["block_start"]
+    chronic = ctx["chronic_baseline"]
     need = weeks_from_block_start_to_race(block_start, race.race_date)
     have = _series_week_count(s)
     try:
