@@ -174,6 +174,18 @@ def weekly_rollup(
             1 for w in in_week if _tss_bucket(w.workout_type, distance_km=w.distance_km) == "strength"
         )
 
+        phase_label = None
+        target_tss_val = None
+        try:
+            from backend.services.revamp_load_plan import week_target_and_phase
+
+            meta = week_target_and_phase(uid, ws, session=session, today=today)
+            if meta:
+                target_tss_val = meta.get("target_tss")
+                phase_label = meta.get("phase")
+        except Exception:
+            pass
+
         return {
             "week_start": ws.isoformat(),
             "week_end": we.isoformat(),
@@ -188,7 +200,8 @@ def weekly_rollup(
             "strength": strength,
             "counts": counts,
             "planned_tss": planned_tss,
-            "target_tss": None,
+            "target_tss": round(float(target_tss_val), 1) if target_tss_val is not None else None,
+            "phase": phase_label,
             "partial": partial,
         }
     finally:

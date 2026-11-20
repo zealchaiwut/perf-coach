@@ -470,6 +470,25 @@ class SessionVersion(Base):
     )
 
 
+class LoadPlanWeekSnapshot(Base):
+    """Frozen weekly load target + phase once a block week has started (P3-1)."""
+
+    __tablename__ = "load_plan_week_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    week_start = Column(Date, nullable=False)
+    target_tss = Column(Float, nullable=False)
+    phase = Column(String(20), nullable=False)
+    peak_tss = Column(Float, nullable=True)
+    settings_fingerprint = Column(String(16), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", name="uq_load_plan_week_snapshots_user_week"),
+    )
+
+
 class PendingExercise(Base):
     """Custom exercise names awaiting admin remap (revamp P2-5)."""
 
