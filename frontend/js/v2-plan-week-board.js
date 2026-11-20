@@ -60,13 +60,15 @@
 
     function render(data) {
       var head =
-        '<div class="rv-row" style="justify-content:space-between;align-items:center;margin-bottom:12px">' +
+        '<div class="rv-row" style="justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
         '<h2 class="rv-label">Week plan</h2>' +
         '<div class="rv-row">' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-prev" aria-label="Previous week">‹</button>' +
         '<span class="rv-subtitle" style="min-width:90px;text-align:center">' + esc(data.week_start) + '</span>' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-next" aria-label="Next week">›</button>' +
-        '</div></div>';
+        '</div>' +
+        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-open">Import coach week</button>' +
+        '</div>';
       var cols = data.days.map(function (day) {
         var colCls = 'rv-week-col' + (day.rest_placeholder ? ' rv-week-col--rest' : '');
         var body = day.items.map(sessionCard).join('');
@@ -101,6 +103,98 @@
       bindDnD(host, data);
       bindCoachPopover(host);
       bindKeyboardMove(host);
+      bindCoachImport(host, data);
+    }
+
+    function bindCoachImport(host, data) {
+      var openBtn = host.querySelector('#v2-coach-import-open');
+      var panel = document.getElementById('v2-coach-import');
+      var backdrop = document.getElementById('v2-coach-import-backdrop');
+      var text = document.getElementById('v2-coach-import-text');
+      var preview = document.getElementById('v2-coach-import-preview');
+      var parseBtn = document.getElementById('v2-coach-import-parse');
+      var commitBtn = document.getElementById('v2-coach-import-commit');
+      var cancelBtn = document.getElementById('v2-coach-import-cancel');
+      var parsedRows = [];
+
+      function close() {
+        if (panel) panel.hidden = true;
+        if (backdrop) backdrop.hidden = true;
+      }
+      function show() {
+        if (panel) panel.hidden = false;
+        if (backdrop) backdrop.hidden = false;
+        parsedRows = [];
+        if (commitBtn) commitBtn.disabled = true;
+        if (preview) preview.innerHTML = '';
+      }
+      if (openBtn) openBtn.onclick = show;
+      if (cancelBtn) cancelBtn.onclick = close;
+      if (backdrop) backdrop.onclick = close;
+
+      function renderPreview(payload) {
+        parsedRows = payload.rows || [];
+        if (!preview) return;
+        if (!payload.commit_allowed) {
+          preview.innerHTML = '<p class="rv-subtitle" style="color:#b91c1c">Fix unparsed lines before import.</p>';
+          if (commitBtn) commitBtn.disabled = true;
+        } else if (commitBtn) {
+          commitBtn.disabled = false;
+        }
+        var html = ['<table class="rv-subtitle" style="width:100%"><thead><tr><th>Day</th><th>Name</th><th>TSS</th><th></th></tr></thead><tbody>'];
+        parsedRows.forEach(function (row, idx) {
+          if (row.parse_status !== 'ok') {
+            html.push('<tr><td colspan="4" style="color:#b91c1c">Unparsed: ' + esc(row.raw) + '</td></tr>');
+            return;
+          }
+          var flag = row.inferred ? ' <span style="color:#b45309">inferred</span>' : '';
+          html.push(
+            '<tr data-idx="' + idx + '"><td>' + esc(row.planned_date) + '</td>' +
+            '<td><input class="rv-input" data-field="name" value="' + esc(row.name) + '"></td>' +
+            '<td><input class="rv-input" data-field="target_tss" style="width:72px" value="' + esc(String(row.target_tss)) + '"></td>' +
+            '<td>' + flag + '</td></tr>'
+          );
+        });
+        html.push('</tbody></table>');
+        preview.innerHTML = html.join('');
+        preview.querySelectorAll('tr[data-idx]').forEach(function (tr) {
+          var i = parseInt(tr.getAttribute('data-idx'), 10);
+          tr.querySelectorAll('input').forEach(function (inp) {
+            inp.addEventListener('change', function () {
+              var field = inp.getAttribute('data-field');
+              if (field === 'target_tss') parsedRows[i].target_tss = parseFloat(inp.value, 10);
+              else parsedRows[i][field] = inp.value;
+            });
+          });
+        });
+      }
+
+      if (parseBtn) {
+        parseBtn.onclick = function () {
+          fetch('/api/plan/coach-week-import/parse', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ week_start: data.week_start, text: text ? text.value : '' }),
+          }).then(function (r) { return r.json(); }).then(renderPreview);
+        };
+      }
+      if (commitBtn) {
+        commitBtn.onclick = function () {
+          fetch('/api/plan/coach-week-import/commit', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ week_start: data.week_start, rows: parsedRows }),
+          }).then(function (r) {
+            if (!r.ok) return r.json().then(function (d) { throw d; });
+            return r.json();
+          }).then(function () {
+            close();
+            refresh();
+          }).catch(function () { toast('Import blocked — fix unparsed rows.'); });
+        };
+      }
     }
 
     function shiftWeek(days) {

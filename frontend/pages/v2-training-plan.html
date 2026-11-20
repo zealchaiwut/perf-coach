@@ -40,6 +40,19 @@
   </div>
 
   <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <div class="rv-popover-backdrop" id="v2-coach-import-backdrop" hidden></div>
+  <div class="rv-card rv-stack" id="v2-coach-import" role="dialog" aria-labelledby="v2-coach-import-title" hidden
+    style="position:fixed;left:50%;top:12%;transform:translateX(-50%);z-index:50;max-width:640px;width:calc(100% - 32px);max-height:75vh;overflow:auto">
+    <h2 class="rv-label" id="v2-coach-import-title">Import coach week</h2>
+    <textarea id="v2-coach-import-text" class="rv-input" rows="5" style="width:100%"
+      placeholder="Tue easy 60min&#10;Thu tempo 2km x 7&#10;Sat long 18km"></textarea>
+    <div id="v2-coach-import-preview"></div>
+    <div class="rv-row">
+      <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-cancel">Cancel</button>
+      <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-parse">Preview</button>
+      <button type="button" class="rv-btn" id="v2-coach-import-commit" disabled>Import</button>
+    </div>
+  </div>
   <div class="rv-popover-backdrop" id="v2-coach-popover-backdrop" hidden></div>
   <div class="rv-popover" id="v2-coach-popover" role="dialog" aria-labelledby="v2-coach-popover-title" hidden>
     <h2 class="rv-label" id="v2-coach-popover-title">Coach session</h2>

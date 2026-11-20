@@ -18698,6 +18698,53 @@ def post_plan_revamp_warning_apply(body: PlanWarningApplyIn, user: User = Depend
         return JSONResponse(payload)
 
 
+class CoachWeekImportParseIn(BaseModel):
+    week_start: str
+    text: str
+
+
+class CoachWeekImportCommitIn(BaseModel):
+    week_start: str
+    rows: list[dict]
+
+
+@app.post("/api/plan/coach-week-import/parse")
+def post_plan_coach_week_import_parse(body: CoachWeekImportParseIn, user: User = Depends(resolve_user)):
+    from backend.services.coach_week_import import parse_coach_week_text
+
+    today = _today_bkk()
+    try:
+        ws = _date.fromisoformat(body.week_start.strip())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    ws = ws - _timedelta(days=ws.weekday())
+    with Session(engine) as db:
+        return JSONResponse(
+            parse_coach_week_text(db, user.id, week_start=ws, text=body.text, today=today)
+        )
+
+
+@app.post("/api/plan/coach-week-import/commit")
+def post_plan_coach_week_import_commit(body: CoachWeekImportCommitIn, user: User = Depends(resolve_user)):
+    from backend.services.coach_week_import import apply_coach_week_import, row_from_commit_payload
+
+    today = _today_bkk()
+    try:
+        ws = _date.fromisoformat(body.week_start.strip())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    ws = ws - _timedelta(days=ws.weekday())
+    rows = [row_from_commit_payload(r) for r in (body.rows or [])]
+    with Session(engine) as db:
+        try:
+            out = apply_coach_week_import(db, user.id, week_start=ws, rows=rows, today=today)
+            db.commit()
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc))
+    return JSONResponse(out)
+
+
 @app.get("/api/plan/revamp-week-board")
 def get_plan_revamp_week_board(
     week_start: Optional[str] = Query(default=None),
