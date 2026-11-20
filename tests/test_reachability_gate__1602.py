@@ -487,8 +487,7 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "removed on purpose — endpoint kept as the week-load SoT handler."
     ),
     "/api/plan/rule-evaluate": (
-        "Revamp week board + planned editor (P3-5/P3-8) call this on drop/save; "
-        "v2 plan shell not wired yet — SIT via pytest, FE in #1839."
+        "Called from v2-plan-week-board.js on drag/drop and keyboard move."
     ),
     "/api/projection": (
         "FE unused; still called in-process by _compute_plan_bundle "

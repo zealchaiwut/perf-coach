@@ -812,3 +812,82 @@ body.rv-page .rv-hint--pending {
   color: #56627f;
   font-style: italic;
 }
+
+body.rv-page .rv-week-board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  body.rv-page .rv-week-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+body.rv-page .rv-week-col {
+  min-height: 120px;
+  border: 1px solid var(--rv-border);
+  border-radius: 12px;
+  padding: 8px;
+  background: #fafbfe;
+}
+
+body.rv-page .rv-week-col--rest {
+  border-style: dashed;
+  background: #f4f6fb;
+}
+
+body.rv-page .rv-week-col-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+body.rv-page .rv-session--locked {
+  opacity: 0.95;
+  cursor: default;
+}
+
+body.rv-page .rv-session[draggable="true"] {
+  cursor: grab;
+}
+
+body.rv-page .rv-coach-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #1e3fb0;
+  text-transform: uppercase;
+}
+
+body.rv-page .rv-popover-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 40;
+}
+
+body.rv-page .rv-popover {
+  position: fixed;
+  left: 50%;
+  top: 20%;
+  transform: translateX(-50%);
+  z-index: 41;
+  background: var(--rv-card);
+  border: 1px solid var(--rv-border);
+  border-radius: 14px;
+  padding: 16px;
+  max-width: 360px;
+  width: calc(100% - 32px);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
+}
+
+body.rv-page .rv-week-card-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}

@@ -35,11 +35,22 @@
     <div id="v2-plan-shell" class="rv-stack">
       <section class="rv-card rv-stack" id="v2-plan-road" aria-label="Road to race chart"></section>
       <section class="rv-card rv-stack" id="v2-plan-week-load" aria-label="This week load"></section>
+      <section class="rv-card rv-stack" id="v2-plan-week-board" aria-label="Week plan board"></section>
     </div>
+  </div>
+
+  <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <div class="rv-popover-backdrop" id="v2-coach-popover-backdrop" hidden></div>
+  <div class="rv-popover" id="v2-coach-popover" role="dialog" aria-labelledby="v2-coach-popover-title" hidden>
+    <h2 class="rv-label" id="v2-coach-popover-title">Coach session</h2>
+    <p id="v2-coach-popover-body"></p>
+    <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-popover-close">Close</button>
   </div>
 
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/lib/v2-sync-toolbar.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-plan-week-board.js"></script>
   <script src="/js/v2-training-plan.js"></script>
 </body>
 </html>

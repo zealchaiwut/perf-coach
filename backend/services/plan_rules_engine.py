@@ -63,6 +63,12 @@ class PlanSessionView:
         return (self.source or "").lower() == "coach"
 
 
+def effective_plan_source_attr(row) -> str:
+    from backend.services.plan_match_payload import effective_plan_source_for_row
+
+    return effective_plan_source_for_row(row)
+
+
 def _session_source(structure: Optional[dict], explicit: Optional[str]) -> Optional[str]:
     if explicit:
         return explicit
@@ -406,7 +412,7 @@ def evaluate(user_id: uuid.UUID, change: dict[str, Any], session: Session) -> li
                 planned_date=p.planned_date,
                 session_type=p.session_type,
                 structure=p.structure if isinstance(p.structure, dict) else None,
-                source=_session_source(p.structure if isinstance(p.structure, dict) else None, None),
+                source=effective_plan_source_attr(p),
                 estimated_tss=float(est.get("estimated_tss") or 0),
             )
         )

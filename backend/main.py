@@ -7784,6 +7784,7 @@ class PlannedSessionIn(BaseModel):
     name: Optional[str] = None
     structure: Optional[dict] = None
     notes: Optional[str] = None
+    plan_source: Optional[str] = None
 
 
 class PlannedSessionPatch(BaseModel):
@@ -7792,6 +7793,7 @@ class PlannedSessionPatch(BaseModel):
     name: Optional[str] = None
     structure: Optional[dict] = None
     notes: Optional[str] = None
+    confirm_warnings: Optional[bool] = False
 
 
 class PlanRuleEvaluateIn(BaseModel):
@@ -7816,6 +7818,21 @@ def _validate_planned_type(t: str) -> str:
             detail={"field": "session_type", "error": "must be one of: " + ", ".join(sorted(_PLANNED_SESSION_TYPES))},
         )
     return t
+
+
+_PLAN_SOURCE_VALUES = frozenset({"coach", "support", "user"})
+
+
+def _validate_plan_source(s: Optional[str], *, default: str = "support") -> str:
+    if s is None or not str(s).strip():
+        return default
+    val = str(s).strip().lower()
+    if val not in _PLAN_SOURCE_VALUES:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "plan_source", "error": "must be one of: coach, support, user"},
+        )
+    return val
 
 
 def _validate_planned_date(s: str) -> _date:
@@ -7886,6 +7903,8 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         "name": p.name,
         "structure": p.structure,
         "notes": p.notes,
+        "plan_source": (p.plan_source or "user"),
+        "locked": (p.plan_source or "user").lower() == "coach",
         "status": p.status,
         "matched_workout_id": str(p.matched_workout_id) if p.matched_workout_id else None,
         "actual": _workout_actual_summary(matched) if matched is not None else None,
@@ -8087,6 +8106,9 @@ def create_planned_session(body: PlannedSessionIn, user: User = Depends(resolve_
     ptype = _validate_planned_type(body.session_type)
     pdate = _validate_planned_date(body.planned_date)
     with Session(engine) as session:
+        psrc = _validate_plan_source(body.plan_source)
+        if psrc == "coach":
+            raise HTTPException(status_code=403, detail="Coach source is set by import only.")
         row = PlannedSession(
             user_id=user.id,
             planned_date=pdate,
@@ -8094,6 +8116,7 @@ def create_planned_session(body: PlannedSessionIn, user: User = Depends(resolve_
             name=(body.name or None),
             structure=body.structure,
             notes=(body.notes.strip() if body.notes else None),
+            plan_source=psrc,
             status="planned",
         )
         session.add(row)
@@ -8111,6 +8134,7 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
         for item in body:
             ptype = _validate_planned_type(item.session_type)
             pdate = _validate_planned_date(item.planned_date)
+            psrc = _validate_plan_source(item.plan_source, default="support")
             row = PlannedSession(
                 user_id=user.id,
                 planned_date=pdate,
@@ -8118,6 +8142,7 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
                 name=(item.name or None),
                 structure=item.structure,
                 notes=(item.notes.strip() if item.notes else None),
+                plan_source=psrc,
                 status="planned",
             )
             session.add(row)
@@ -8130,11 +8155,41 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
 
 @app.patch("/api/planned-sessions/{ps_id}")
 def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = Depends(resolve_user)):
+    from backend.services.plan_rules_engine import evaluate, summarize
+
     with Session(engine) as session:
         row = _get_planned_session_or_404(session, ps_id, user)
+        if (row.plan_source or "user").lower() == "coach":
+            fields = body.model_fields_set - {"confirm_warnings"}
+            if fields:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Coach-planned sessions are read-only on the board.",
+                )
+        moving = False
+        new_date = None
         if body.planned_date is not None:
             new_date = _validate_planned_date(body.planned_date)
-            # Rescheduling a missed session resets it to planned (mock behavior).
+            moving = new_date != row.planned_date
+        if moving and new_date is not None:
+            change = {
+                "action": "move",
+                "session_id": str(row.id),
+                "planned_date": new_date.isoformat(),
+                "session_type": row.session_type,
+                "structure": row.structure,
+                "source": row.plan_source or "support",
+            }
+            results = evaluate(user.id, change, session)
+            level = summarize(results)
+            if level == "block":
+                raise HTTPException(status_code=422, detail={"plan_rules": results, "level": level})
+            if level == "warn" and not body.confirm_warnings:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"plan_rules": results, "level": level, "needs_confirm": True},
+                )
+        if body.planned_date is not None and new_date is not None:
             if row.status == "missed" and new_date != row.planned_date:
                 row.status = "planned"
             row.planned_date = new_date
@@ -8157,6 +8212,8 @@ def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = De
 def delete_planned_session(ps_id: str, user: User = Depends(resolve_user)):
     with Session(engine) as session:
         row = _get_planned_session_or_404(session, ps_id, user)
+        if (row.plan_source or "user").lower() == "coach":
+            raise HTTPException(status_code=409, detail="Coach-planned sessions cannot be deleted.")
         session.delete(row)
         session.commit()
     return Response(status_code=204)
@@ -18549,6 +18606,26 @@ def get_plan_revamp_road_chart(user: User = Depends(resolve_user)):
     if payload is None:
         return Response(status_code=204)
     return JSONResponse(payload)
+
+
+@app.get("/api/plan/revamp-week-board")
+def get_plan_revamp_week_board(
+    week_start: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    """Seven-day plan board for v2 Training plan (P3-5)."""
+    from backend.services.revamp_week_board import week_board
+
+    today = _today_bkk()
+    ws = today - _timedelta(days=today.weekday())
+    if week_start:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        ws = ws - _timedelta(days=ws.weekday())
+    with Session(engine) as db:
+        return JSONResponse(week_board(user.id, ws, session=db, today=today))
 
 
 @app.get("/api/plan/revamp-week-load")

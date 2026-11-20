@@ -75,13 +75,19 @@
   function init() {
     var road = document.getElementById('v2-plan-road');
     var week = document.getElementById('v2-plan-week-load');
+    var board = document.getElementById('v2-plan-week-board');
     var shell = document.getElementById('v2-plan-shell');
+    var ac = window.AppCommon || {};
+    var anchor = ac.nowBangkok ? ac.nowBangkok() : new Date();
+    var dow = anchor.getDay();
+    var monOffset = dow === 0 ? -6 : 1 - dow;
+    var ws = ac.addDaysISO ? ac.addDaysISO(ac.todayISO(), monOffset) : ac.todayISO();
     if (window.V2SyncToolbar) {
       window.V2SyncToolbar.mount(document.getElementById('v2-sync-toolbar'), {});
     }
     Promise.all([
       fetch('/api/plan/revamp-road-chart', { credentials: 'include' }),
-      fetch('/api/plan/revamp-week-load', { credentials: 'include' }),
+      fetch('/api/plan/revamp-week-load?week_start=' + encodeURIComponent(ws), { credentials: 'include' }),
     ]).then(function (res) {
       return Promise.all([
         res[0].status === 204 ? null : res[0].json(),
@@ -94,6 +100,14 @@
       }
       if (pair[0]) renderRoadChart(pair[0], road);
       if (pair[1]) renderWeekLoad(week, pair[1]);
+      if (board && window.V2PlanWeekBoard) {
+        window.V2PlanWeekBoard.mount(board, {
+          weekStart: ws,
+          weekLoadEl: week,
+          renderWeekLoad: renderWeekLoad,
+          onWeekChanged: function (w) { ws = w; },
+        });
+      }
     }).catch(function () {
       section(shell, '<p class="rv-section-state" role="alert">Could not load plan.</p>');
     });

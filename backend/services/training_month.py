@@ -80,7 +80,9 @@ def _workout_item(
 def _planned_item(session: Session, row: PlannedSession, today: date) -> dict[str, Any]:
     st = planned_item_status(row, today)
     kind = _planned_kind(row.session_type)
-    src = planned_source(row.session_type)
+    from backend.services.plan_match_payload import effective_plan_source_for_row
+
+    src = effective_plan_source_for_row(row)
     return {
         "id": f"plan:{row.id}",
         "kind": kind,

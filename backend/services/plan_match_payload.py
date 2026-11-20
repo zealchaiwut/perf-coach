@@ -20,6 +20,14 @@ def planned_source(session_type: str) -> str:
     return "coach" if st == "run" else "support"
 
 
+def effective_plan_source_for_row(row) -> str:
+    """Prefer persisted plan_source; fall back to type heuristic until backfill."""
+    ps = getattr(row, "plan_source", None)
+    if ps and str(ps).strip().lower() in ("coach", "support", "user"):
+        return str(ps).strip().lower()
+    return planned_source(getattr(row, "session_type", ""))
+
+
 def plan_match_for_workout(session: Session, workout_id: uuid.UUID) -> Optional[dict[str, Any]]:
     row = (
         session.query(PlannedSession)

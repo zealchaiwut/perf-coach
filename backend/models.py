@@ -1748,6 +1748,8 @@ class PlannedSession(Base):
     # blocks[] for runs / exercises[] for strength·plyo; null for rest
     structure = Column(JSONB, nullable=True)
     notes = Column(Text, nullable=True)
+    # coach | support | user — who owns edits (revamp P3-5)
+    plan_source = Column(String(20), nullable=False, server_default=text("'user'"))
     # planned | missed | missed_auto | missed_manual | needs_review | done_auto | done_manual | skipped
     status = Column(String(20), nullable=False, server_default=text("'planned'"))
     matched_workout_id = Column(
