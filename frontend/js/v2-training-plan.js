@@ -85,19 +85,63 @@
     if (window.V2SyncToolbar) {
       window.V2SyncToolbar.mount(document.getElementById('v2-sync-toolbar'), {});
     }
+    var warnHost = document.createElement('section');
+    warnHost.className = 'rv-card rv-stack';
+    warnHost.id = 'v2-plan-warnings';
+    warnHost.setAttribute('aria-label', 'Plan warnings');
+    if (shell && shell.firstChild) shell.insertBefore(warnHost, shell.firstChild);
+
+    function renderWarnings(w) {
+      if (!warnHost || !w) return;
+      var parts = [];
+      if (w.layout_error) {
+        parts.push(
+          '<p class="rv-hint--amber" role="alert"><strong>Plan layout</strong> — ' +
+          esc(w.layout_error.message) + ' ' + esc(w.layout_error.hint_setting || '') + '</p>'
+        );
+      }
+      (w.clashes || []).forEach(function (c) {
+        parts.push(
+          '<p class="rv-hint--amber">' + esc(c.message) +
+          ' <button type="button" class="rv-btn rv-btn--secondary" data-apply-warning="' + esc(c.id) + '">Move +1 week</button></p>'
+        );
+      });
+      warnHost.innerHTML = parts.length ? parts.join('') : '';
+      warnHost.querySelectorAll('[data-apply-warning]').forEach(function (btn) {
+        btn.onclick = function () {
+          fetch('/api/plan/revamp-warnings/apply', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ warning_id: btn.getAttribute('data-apply-warning') }),
+          }).then(function (r) { return r.json(); }).then(function (json) {
+            renderWarnings(json);
+            toast('Rescheduled');
+          });
+        };
+      });
+    }
+
+    function toast(msg) {
+      if (window.RevampUI && window.RevampUI.showToast) window.RevampUI.showToast(msg);
+    }
+
     Promise.all([
       fetch('/api/plan/revamp-road-chart', { credentials: 'include' }),
       fetch('/api/plan/revamp-week-load?week_start=' + encodeURIComponent(ws), { credentials: 'include' }),
+      fetch('/api/plan/revamp-warnings', { credentials: 'include' }),
     ]).then(function (res) {
       return Promise.all([
         res[0].status === 204 ? null : res[0].json(),
         res[1].status === 204 ? null : res[1].json(),
+        res[2].json(),
       ]);
     }).then(function (pair) {
       if (!pair[0] && !pair[1]) {
         section(shell, '<p class="rv-section-state">Add a planned A race to see the load plan.</p>');
         return;
       }
+      if (pair[2]) renderWarnings(pair[2]);
       if (pair[0]) renderRoadChart(pair[0], road);
       if (pair[1]) renderWeekLoad(week, pair[1]);
       if (board && window.V2PlanWeekBoard) {

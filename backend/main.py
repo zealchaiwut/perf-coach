@@ -18608,6 +18608,35 @@ def get_plan_revamp_road_chart(user: User = Depends(resolve_user)):
     return JSONResponse(payload)
 
 
+class PlanWarningApplyIn(BaseModel):
+    warning_id: str
+
+
+@app.get("/api/plan/revamp-warnings")
+def get_plan_revamp_warnings(user: User = Depends(resolve_user)):
+    """Layout errors, post-race clashes, and race-week copy (P3-11)."""
+    from backend.services.plan_warnings import revamp_warnings_payload
+
+    with Session(engine) as db:
+        return JSONResponse(revamp_warnings_payload(db, user.id))
+
+
+@app.post("/api/plan/revamp-warnings/apply")
+def post_plan_revamp_warning_apply(body: PlanWarningApplyIn, user: User = Depends(resolve_user)):
+    """One-click reschedule for a post-race clash warning."""
+    from backend.services.plan_warnings import apply_clash_suggestion, revamp_warnings_payload
+
+    with Session(engine) as db:
+        try:
+            applied = apply_clash_suggestion(db, user.id, body.warning_id.strip())
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        db.commit()
+        payload = revamp_warnings_payload(db, user.id)
+        payload["applied"] = applied
+        return JSONResponse(payload)
+
+
 @app.get("/api/plan/revamp-week-board")
 def get_plan_revamp_week_board(
     week_start: Optional[str] = Query(default=None),

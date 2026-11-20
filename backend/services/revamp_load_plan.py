@@ -438,7 +438,9 @@ def revamp_week_load(
         race_note = None
         if rollup.get("race_items"):
             rt = rollup.get("race_planned_tss") or 0
-            race_note = f"plus the race, about {int(rt)} TSS"
+            race_note = (
+                f"Training target excludes race-day load; race adds about {int(rt)} TSS."
+            )
         headroom = target - (logged + planned)
         if logged + planned > ceiling:
             headroom_state = "over_ceiling"
