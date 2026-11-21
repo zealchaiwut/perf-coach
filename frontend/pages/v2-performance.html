@@ -10,7 +10,7 @@
 <body class="rv-page">
   <div class="rv-shell">
     <header class="rv-shell-head">
-      <div><h1 class="rv-title">Performance</h1><p class="rv-subtitle">Scores shell.</p></div>
+      <div><h1 class="rv-title">Performance</h1><p class="rv-subtitle">Where you stand, and what work moves it.</p></div>
       <nav aria-label="Primary">
         <ul class="rv-tabnav">
           <li><a class="rv-tab" href="/v2/home">Home</a></li>
@@ -19,7 +19,15 @@
         </ul>
       </nav>
     </header>
-    <section class="rv-card"><p>Overall and race-specific scores via <code>score_reader</code>.</p></section>
+
+    <div id="v2-perf-shell" class="rv-stack">
+      <section class="rv-card rv-stack" id="v2-perf-strength-anchors" aria-label="Strength anchor lifts"></section>
+    </div>
   </div>
+
+  <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-performance.js"></script>
 </body>
 </html>
