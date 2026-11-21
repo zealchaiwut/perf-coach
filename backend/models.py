@@ -2348,6 +2348,23 @@ class PlanExercise(Base):
     )
 
 
+class CoachWeekImportPhoto(Base):
+    """Audit store for coach-week photo imports (one row per user + week)."""
+
+    __tablename__ = "coach_week_import_photos"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    week_start = Column(Date, nullable=False)
+    mime = Column(String(80), nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", name="uq_coach_week_import_photos_user_week"),
+    )
+
+
 class PreferenceImportAudit(Base):
     """Raw JSON audit for preference imports."""
 

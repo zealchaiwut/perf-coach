@@ -44,6 +44,11 @@
   <div class="rv-card rv-stack" id="v2-coach-import" role="dialog" aria-labelledby="v2-coach-import-title" hidden
     style="position:fixed;left:50%;top:12%;transform:translateX(-50%);z-index:50;max-width:640px;width:calc(100% - 32px);max-height:75vh;overflow:auto">
     <h2 class="rv-label" id="v2-coach-import-title">Import coach week</h2>
+    <p class="rv-subtitle" id="v2-coach-import-photo-hint"></p>
+    <label class="rv-subtitle" id="v2-coach-import-photo-wrap" hidden>
+      Photo (jpg, png, heic, max 10 MB)
+      <input type="file" id="v2-coach-import-photo" accept="image/jpeg,image/png,image/heic,image/heif" disabled>
+    </label>
     <textarea id="v2-coach-import-text" class="rv-input" rows="5" style="width:100%"
       placeholder="Tue easy 60min&#10;Thu tempo 2km x 7&#10;Sat long 18km"></textarea>
     <div id="v2-coach-import-preview"></div>

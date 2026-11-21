@@ -18708,6 +18708,44 @@ class CoachWeekImportCommitIn(BaseModel):
     rows: list[dict]
 
 
+@app.get("/api/plan/coach-week-import/photo-capabilities")
+def get_plan_coach_week_import_photo_capabilities(user: User = Depends(resolve_user)):
+    from backend.services.coach_week_photo import photo_import_capabilities
+
+    return JSONResponse(photo_import_capabilities())
+
+
+@app.post("/api/plan/coach-week-import/parse-photo")
+async def post_plan_coach_week_import_parse_photo(
+    week_start: str = Query(...),
+    file: UploadFile = File(...),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.coach_week_photo import parse_coach_week_photo
+
+    today = _today_bkk()
+    try:
+        ws = _date.fromisoformat(week_start.strip())
+    except ValueError:
+        raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    ws = ws - _timedelta(days=ws.weekday())
+    mime = (file.content_type or "").lower()
+    data = await file.read()
+    with Session(engine) as db:
+        try:
+            out = parse_coach_week_photo(
+                db, user.id, week_start=ws, image_bytes=data, mime=mime, today=today
+            )
+            if not out.get("vision_enabled"):
+                db.rollback()
+                return JSONResponse(status_code=503, content=out)
+            db.commit()
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=422, detail=str(exc))
+    return JSONResponse(out)
+
+
 @app.post("/api/plan/coach-week-import/parse")
 def post_plan_coach_week_import_parse(body: CoachWeekImportParseIn, user: User = Depends(resolve_user)):
     from backend.services.coach_week_import import parse_coach_week_text

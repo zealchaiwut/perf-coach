@@ -157,6 +157,10 @@
       var parseBtn = document.getElementById('v2-coach-import-parse');
       var commitBtn = document.getElementById('v2-coach-import-commit');
       var cancelBtn = document.getElementById('v2-coach-import-cancel');
+      var photoInput = document.getElementById('v2-coach-import-photo');
+      var photoHint = document.getElementById('v2-coach-import-photo-hint');
+      var photoWrap = document.getElementById('v2-coach-import-photo-wrap');
+      var photoCaps = null;
       var parsedRows = [];
 
       function close() {
@@ -169,6 +173,19 @@
         parsedRows = [];
         if (commitBtn) commitBtn.disabled = true;
         if (preview) preview.innerHTML = '';
+        fetch('/api/plan/coach-week-import/photo-capabilities', { credentials: 'include' })
+          .then(function (r) { return r.json(); })
+          .then(function (caps) {
+            photoCaps = caps;
+            if (photoHint) photoHint.textContent = caps.message || '';
+            if (photoWrap) photoWrap.hidden = false;
+            if (photoInput) {
+              photoInput.disabled = !caps.vision_enabled;
+            }
+          })
+          .catch(function () {
+            if (photoHint) photoHint.textContent = '';
+          });
       }
       if (openBtn) openBtn.onclick = show;
       if (cancelBtn) cancelBtn.onclick = close;
@@ -211,6 +228,27 @@
         });
       }
 
+      if (photoInput) {
+        photoInput.onchange = function () {
+          var file = photoInput.files && photoInput.files[0];
+          if (!file || !photoCaps || !photoCaps.vision_enabled) return;
+          var fd = new FormData();
+          fd.append('file', file);
+          fetch('/api/plan/coach-week-import/parse-photo?week_start=' + encodeURIComponent(data.week_start), {
+            method: 'POST',
+            credentials: 'include',
+            body: fd,
+          })
+            .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+            .then(function (res) {
+              if (!res.ok && !res.body.rows) {
+                if (photoHint) photoHint.textContent = res.body.message || 'Photo import unavailable.';
+                return;
+              }
+              renderPreview(res.body);
+            });
+        };
+      }
       if (parseBtn) {
         parseBtn.onclick = function () {
           fetch('/api/plan/coach-week-import/parse', {
