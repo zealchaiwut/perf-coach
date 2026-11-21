@@ -1008,6 +1008,26 @@ Index: `ix_mobility_tests_user_date` on `(user_id, test_date)`. Migration: `25e2
 
 ---
 
+## performance_queue_items _(added Phase 4 / #1854)_
+
+Focus-work suggestion records queued from the Performance page, consumed by the P3-10 suggest-sessions preview (`backend/services/focus_ranking.py`). Only queueable axes (economy, durability, strength, mobility) create rows; coach-owned axes never do.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| axis | varchar(30) | NOT NULL |
+| template_tags | jsonb | NOT NULL, default `[]` |
+| tss_estimate | float | nullable |
+| earliest_week | date | NOT NULL — Monday of the next build/rebuild week |
+| status | varchar(20) | `queued` \| `applied` \| `cancelled` |
+| notes | text | nullable |
+| created_at | timestamptz | server default now() |
+
+Index: `ix_performance_queue_items_user_status` on `(user_id, status, earliest_week)`. Migration: `8d8cd37743d3_create_performance_queue_items`.
+
+---
+
 ## run_form_metrics _(added Sprint 106 / #1368)_
 
 Per-run Stryd running-dynamics extracted from `stryd_activities.form_metrics` JSONB into a queryable, one-row-per-activity table. Upserted incrementally on every Stryd sync (`backend/services/sync_runner.py`) and via full historical backfill on the compute worker (`POST /internal/form-metrics/backfill`, job type `form_metrics_backfill`). Read via `GET /api/training/form-metrics?from=&to=` (per-run series + 28-calendar-day trailing rolling means, inclusive `[date − 27d, date]` window; Sprint 126 / #1443). Model: `RunFormMetrics` in `backend/models.py`. Key mapping: `form_metrics["ground_contact_time_ms"]→gct_ms`, `["leg_spring_stiffness"]→lss_kn_m` (kN/m native), `["vertical_oscillation_cm"]→vertical_oscillation_cm`, `["cadence_spm"]→cadence_spm`, `stryd_activities.avg_power_w→power_w`.

@@ -1965,6 +1965,30 @@ class MobilityTest(Base):
     )
 
 
+class PerformanceQueueItem(Base):
+    """Focus-work suggestion record queued from Performance (revamp P4-7), consumed by P3-10."""
+
+    __tablename__ = "performance_queue_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    axis = Column(String(30), nullable=False)
+    template_tags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    tss_estimate = Column(Float, nullable=True)
+    earliest_week = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'queued'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'applied', 'cancelled')",
+            name="ck_performance_queue_items_status",
+        ),
+        Index("ix_performance_queue_items_user_status", "user_id", "status", "earliest_week"),
+    )
+
+
 class RunFormMetrics(Base):
     """Per-run Stryd running-dynamics extracted from stryd_activities.form_metrics (issue #1368).
 

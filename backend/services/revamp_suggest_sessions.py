@@ -100,9 +100,21 @@ def _week_planned_tss(views: list[PlanSessionView], ws: date) -> float:
     return sum(s.estimated_tss for s in views if ws <= s.planned_date <= we)
 
 
-def _load_candidates(session: Session, user_id: uuid.UUID, *, race_week: bool) -> list[dict[str, Any]]:
+def _load_candidates(
+    session: Session,
+    user_id: uuid.UUID,
+    *,
+    race_week: bool,
+    week_start: Optional[date] = None,
+    phase: Optional[str] = None,
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    # P4-7 performance queue — not wired yet.
+    # P4-7 performance queue: queued focus work for this week comes first (build/rebuild only).
+    if week_start is not None:
+        from backend.services.focus_ranking import candidates_for_week
+
+        queued, _notes = candidates_for_week(session, user_id, week_start, phase)
+        out.extend(queued)
     templates = (
         session.query(WorkoutTemplate)
         .filter(WorkoutTemplate.user_id == user_id)
@@ -246,11 +258,14 @@ def suggest_week_fill(
             "week_start": normalize_week_start(week_start).isoformat(),
             "gap_tss": round(gap, 1),
             "proposed": [],
+            "queued_notes": [],
             "message": "Week is on target or within 5 TSS — nothing to suggest.",
         }
 
     race_week = (ctx.phase or "") == "race_week"
-    candidates = _load_candidates(session, user_id, race_week=race_week)
+    candidates = _load_candidates(
+        session, user_id, race_week=race_week, week_start=ctx.week_start, phase=ctx.phase
+    )
     views = list(ctx.sessions)
     proposed: list[dict[str, Any]] = []
     remaining_gap = ctx.week_gap
@@ -272,6 +287,9 @@ def suggest_week_fill(
             "candidate_id": cand["candidate_id"],
             "label": "suggested",
         }
+        if cand.get("queue_item_id"):
+            item["label"] = "queued from Performance"
+            item["queue_item_id"] = cand["queue_item_id"]
         proposed.append(item)
         views.append(
             PlanSessionView(
@@ -289,11 +307,15 @@ def suggest_week_fill(
     if not proposed and ctx.week_gap > GAP_MIN_SUGGEST_TSS:
         message = "No session fits the remaining gap under day cap and planning rules this week."
 
+    from backend.services.focus_ranking import candidates_for_week
+
+    _, queued_notes = candidates_for_week(session, user_id, ctx.week_start, ctx.phase)
     return {
         "week_start": ctx.week_start.isoformat(),
         "target_tss": round(ctx.target_tss, 1),
         "gap_tss": round(ctx.week_gap, 1),
         "proposed": proposed,
+        "queued_notes": queued_notes,
         "message": message,
     }
 
@@ -317,4 +339,14 @@ def apply_week_suggestions(
         )
         session.add(row)
         created += 1
+        qid = item.get("queue_item_id")
+        if qid:
+            from backend.models import PerformanceQueueItem
+
+            try:
+                q = session.get(PerformanceQueueItem, uuid.UUID(str(qid)))
+            except ValueError:
+                q = None
+            if q is not None and q.user_id == user_id and q.status == "queued":
+                q.status = "applied"
     return {"created": created}

@@ -336,19 +336,9 @@ def fetch_lift_rows(session, user_id: uuid.UUID, as_of: date, anchors: list[dict
 
 def profile_target_w_per_kg(session, user_id: uuid.UUID, as_of: date) -> float:
     """Power-to-weight target from the next A-race goal (P4-1), else the 3:30 row."""
-    from backend.models import Race
+    from backend.services.perf_a_race import next_a_race
 
-    race = (
-        session.query(Race)
-        .filter(
-            Race.user_id == user_id,
-            Race.priority == "A",
-            Race.status != "done",
-            Race.race_date >= as_of,
-        )
-        .order_by(Race.race_date.asc())
-        .first()
-    )
+    race = next_a_race(session, user_id, as_of)
     prof = None
     if race is not None and race.goal_time_seconds and race.distance_km:
         prof = profile_for_race_goal(int(race.goal_time_seconds), float(race.distance_km))

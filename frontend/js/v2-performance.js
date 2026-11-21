@@ -168,7 +168,59 @@
       .catch(function () { host.innerHTML = '<span class="rv-label">Mobility</span><p>Not available.</p>'; });
   }
 
+  // ── Focus card, why-not card and the queue into Plan (P4-7) ───────────────
+
+  function renderFocus(host, data) {
+    var focus = data.focus;
+    if (!focus) {
+      host.innerHTML = '<div class="rv-card rv-stack"><span class="rv-label">Most room to grow</span>' +
+        '<p class="rv-subtitle">Nothing to rank yet: it needs a fresh, measured axis.</p></div>';
+      return;
+    }
+    var work = focus.work || {};
+    var queuedItem = (data.queue || {})[focus.axis];
+    var action;
+    if (!work.queueable) {
+      action = '<p class="rv-subtitle" style="color:#d5def3">' + esc(work.advice) + ' (advice only, not queued)</p>';
+    } else if (queuedItem) {
+      action = '<span class="rv-chip" data-testid="focus-queued">Queued for week of ' + esc(queuedItem.earliest_week) + '</span>';
+    } else {
+      action = '<button type="button" class="rv-btn rv-btn--primary" id="v2-focus-queue">Queue this work</button>';
+    }
+    var whyNot = (data.why_not || []).map(function (w) {
+      return '<li><strong>' + esc(w.label) + '</strong> ' + esc(w.score) + ': ' + esc(w.reason) + '</li>';
+    }).join("");
+    host.innerHTML =
+      '<div class="rv-card rv-stack" style="background:#0b1530;color:#fff">' +
+      '<span class="rv-label" style="color:#e4ff52">Most room to grow</span>' +
+      '<h2 style="margin:0">' + esc(focus.label) + ' <span style="font-family:var(--rv-mono)">' + esc(Math.round(focus.score)) + '</span></h2>' +
+      '<p style="margin:0">' + esc(work.advice) + '</p>' + action + '</div>' +
+      '<div class="rv-card rv-card--soft rv-stack"><span class="rv-label">Why not these</span>' +
+      (whyNot ? '<ul>' + whyNot + '</ul>' : '<p class="rv-subtitle">No other measured axes.</p>') + '</div>';
+    var btn = host.querySelector("#v2-focus-queue");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        sendJSON("POST", "/api/performance/focus/queue", { axis: focus.axis })
+          .then(function (res) {
+            toast("Queued for the week of " + res.item.earliest_week);
+            loadFocus();
+          })
+          .catch(function (e) { btn.disabled = false; toast("Could not queue: " + e.message); });
+      });
+    }
+  }
+
+  function loadFocus() {
+    var host = document.getElementById("v2-perf-focus");
+    if (!host) return;
+    getJSON("/api/performance/focus")
+      .then(function (data) { renderFocus(host, data); })
+      .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Focus</span><p>Not available.</p></div>'; });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    loadFocus();
     loadMobility();
     loadAnchors();
   });
