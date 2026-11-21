@@ -314,6 +314,21 @@ def _run_banister_refit_batch() -> None:
         logger.error("job finish: banister_refit status=error: %s", exc, exc_info=True)
 
 
+def _run_axis_snapshot_batch() -> None:
+    """Daily Phase 4 axis snapshot for all active users (radar history, P4-2)."""
+    from backend.services.axis_snapshot import run_daily_snapshot
+
+    recorder = DbRecorder(job_type="axis_snapshot", user_id=None, triggered_by="schedule")
+    try:
+        results = run_daily_snapshot()
+        ok_count = sum(1 for v in results.values() if v == "ok")
+        recorder.mark_success(None, stats={"ok": ok_count, "total": len(results)})
+        logger.info("job finish: axis_snapshot status=success ok=%d/%d", ok_count, len(results))
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: axis_snapshot status=error: %s", exc, exc_info=True)
+
+
 def _daily_coach_message_exists(db, user_id, today) -> bool:
     """Return True if a WeeklyCoachMessage row already exists for (user_id, today).
 
@@ -466,6 +481,10 @@ def _h_banister_refit(p: dict) -> None:
     _run_banister_refit_batch()
 
 
+def _h_axis_snapshot(p: dict) -> None:
+    _run_axis_snapshot_batch()
+
+
 def _h_daily_coach(p: dict) -> None:
     today = None
     raw = p.get("today") or p.get("as_of")
@@ -581,6 +600,7 @@ _DISPATCH = {
     "backfill": _h_backfill,
     "form_metrics_backfill": _h_form_metrics_backfill,
     "banister_refit": _h_banister_refit,
+    "axis_snapshot": _h_axis_snapshot,
     "daily_coach": _h_daily_coach,
     "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
@@ -1560,6 +1580,18 @@ def _scheduler_loop() -> None:
                 job_queue.enqueue("banister_refit", {}, enqueued_by="schedule", dedupe_key="banister_refit")
             except Exception as exc:
                 logger.error("scheduled banister refit failed to enqueue: %s", exc, exc_info=True)
+
+        # Daily Phase 4 axis snapshot (radar history). Dedupe key is the Bangkok date so
+        # multiple wake times enqueue it once; the upsert is idempotent anyway.
+        try:
+            job_queue.enqueue(
+                "axis_snapshot",
+                {},
+                enqueued_by="schedule",
+                dedupe_key=f"axis_snapshot:{datetime.now(BANGKOK_TZ).date().isoformat()}",
+            )
+        except Exception as exc:
+            logger.error("scheduled axis_snapshot failed to enqueue: %s", exc, exc_info=True)
 
         # Daily Home Coach — once per calendar day (Asia/Bangkok), enqueued at
         # the same wake times as the sync sweep. Dedupe key is the date so

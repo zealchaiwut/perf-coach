@@ -1916,6 +1916,13 @@ class PerformanceScoreHistory(Base):
     score_date = Column(Date, nullable=False)
     endurance = Column(Float, nullable=True)
     speed = Column(Float, nullable=True)
+    # Phase 4 axes (revamp P4-2..P4-5): one shared snapshot row per day for all
+    # seven radar axes. NULL = never-measured on that day.
+    durability = Column(Float, nullable=True)
+    economy = Column(Float, nullable=True)
+    strength = Column(Float, nullable=True)
+    mobility = Column(Float, nullable=True)
+    power_to_weight = Column(Float, nullable=True)
     formula_version = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
