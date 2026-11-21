@@ -1,3 +1,7 @@
+[hidden] {
+  display: none !important;
+}
+
 /* Revamp design tokens — only apply under body.rv-page (old pages untouched). */
 body.rv-page {
   --rv-ink: #0b1530;

@@ -141,12 +141,13 @@
       ]);
     }).then(function (pair) {
       if (!pair[0] && !pair[1]) {
-        section(shell, '<p class="rv-section-state">Add a planned A race to see the load plan.</p>');
-        return;
+        section(road, '<p class="rv-section-state">Add a planned A race to see the load plan.</p>');
+        section(week, '<p class="rv-subtitle">Configure plan settings after you add an A race.</p>');
+      } else {
+        if (pair[0]) renderRoadChart(pair[0], road);
+        if (pair[1]) renderWeekLoad(week, pair[1]);
       }
       if (pair[2]) renderWarnings(pair[2]);
-      if (pair[0]) renderRoadChart(pair[0], road);
-      if (pair[1]) renderWeekLoad(week, pair[1]);
       if (board && window.V2PlanWeekBoard) {
         window.V2PlanWeekBoard.mount(board, {
           weekStart: ws,

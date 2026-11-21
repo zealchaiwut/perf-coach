@@ -84,7 +84,7 @@ def week_board(
             }
         )
 
-    estimate_baseline = estimate_historical_pace_and_tss(session, user_id)
+    estimate_baseline = estimate_historical_pace_and_tss(user_id, session)
     return {
         "week_start": ws.isoformat(),
         "week_end": we.isoformat(),

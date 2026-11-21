@@ -402,7 +402,7 @@ def evaluate(user_id: uuid.UUID, change: dict[str, Any], session: Session) -> li
         estimate_planned_session_metrics,
     )
 
-    baseline = estimate_historical_pace_and_tss(session, user_id)
+    baseline = estimate_historical_pace_and_tss(user_id, session)
     views: list[PlanSessionView] = []
     for p in rows:
         est = estimate_planned_session_metrics(baseline, p.session_type, p.structure)

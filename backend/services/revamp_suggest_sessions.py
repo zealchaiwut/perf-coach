@@ -64,7 +64,7 @@ class _Ctx:
 
 
 def _session_views(session: Session, user_id: uuid.UUID, ws: date, we: date) -> list[PlanSessionView]:
-    baseline = estimate_historical_pace_and_tss(session, user_id)
+    baseline = estimate_historical_pace_and_tss(user_id, session)
     rows = (
         session.query(PlannedSession)
         .filter(
@@ -109,7 +109,7 @@ def _load_candidates(session: Session, user_id: uuid.UUID, *, race_week: bool) -
         .order_by(WorkoutTemplate.name)
         .all()
     )
-    baseline = estimate_historical_pace_and_tss(session, user_id)
+    baseline = estimate_historical_pace_and_tss(user_id, session)
     for t in templates:
         st = "strength"
         ex = t.exercises if isinstance(t.exercises, list) else []

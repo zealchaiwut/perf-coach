@@ -42,7 +42,7 @@ def _session_tss_estimate(session_type: str, structure: Optional[dict]) -> float
 def _day_planned_tss(session: Session, user_id: uuid.UUID, planned_date: date, *, exclude_id: Optional[uuid.UUID] = None) -> float:
     from backend.services.training_load import estimate_historical_pace_and_tss, estimate_planned_session_metrics
 
-    baseline = estimate_historical_pace_and_tss(session, user_id)
+    baseline = estimate_historical_pace_and_tss(user_id, session)
     rows = (
         session.query(PlannedSession)
         .filter(
