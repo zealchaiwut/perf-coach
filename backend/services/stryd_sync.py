@@ -202,6 +202,9 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "vertical_ratio": _first(raw, "average_vertical_ratio"),
         "stride_length_m": _first(raw, "average_stride_length"),
         "cadence_spm": _first(raw, "average_cadence"),
+        # Form power (W) — the share of power spent on oscillation; used to derive
+        # form_power_ratio = form_power_w / average power (P4-3 economy axis).
+        "form_power_w": _first(raw, "average_form_power", "form_power"),
     }
     form = {k: v for k, v in form.items() if v is not None}
     # Power zones: definition (zones[]) + time-in-zone (seconds_in_zones) + CP (ftp).
