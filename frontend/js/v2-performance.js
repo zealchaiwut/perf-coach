@@ -557,6 +557,13 @@
     return '<span class="rv-chip">' + label + " " + esc(Math.round(c.score)) + esc(d) + '</span>';
   }
 
+  function debriefChip(r) {
+    var d = r.debrief;
+    if (!d) return "";
+    return ' <a class="rv-chip" data-debrief-chip href="' + esc(d.link) + '">Debrief' +
+      (d.lessons_count ? " \u00b7 " + esc(d.lessons_count) + " lesson" + (d.lessons_count === 1 ? "" : "s") : "") + '</a>';
+  }
+
   function renderNeedsResult(r) {
     var sug = r.suggested_actual;
     var actual = sug
@@ -564,7 +571,7 @@
         esc(sug.date) + ' \u00b7 ' + esc(sug.distance_km) + ' km</span>'
       : '<span class="rv-subtitle" data-no-match>' + esc(r.suggestion_reason || "No synced run matched") + '</span>';
     return '<div class="rv-row rv-card--soft" data-needs-result="' + esc(r.id) + '" style="flex-wrap:wrap;padding:10px">' +
-      raceHead(r) + goalCell(r) +
+      raceHead(r, debriefChip(r)) + goalCell(r) +
       '<div><span class="rv-label">Actual</span><br>' + actual + '</div>' +
       '<div class="rv-row"><label class="rv-label">Time <input type="text" inputmode="numeric" placeholder="h:mm:ss" size="8" data-actual-input value="' +
       esc(sug ? fmtHMS(sug.moving_seconds) : "") + '"></label>' +
@@ -590,7 +597,7 @@
   function renderCompleted(r) {
     var g = r.goal_minus_actual_sec;
     var vs = g == null ? "" : g >= 0 ? "beat goal by " + fmtHMS(g) : "missed goal by " + fmtHMS(g);
-    return '<div class="rv-metric" data-completed="' + esc(r.id) + '">' + roleChips(r) + ' <strong>' + esc(r.name) + '</strong><br>' +
+    return '<div class="rv-metric" data-completed="' + esc(r.id) + '">' + roleChips(r) + ' <strong>' + esc(r.name) + '</strong>' + debriefChip(r) + '<br>' +
       '<span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " \u00b7 " + esc(r.distance_km) + " km" : "") + '</span><br>' +
       '<span class="rv-label">Chip</span> <strong data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + '</strong>' +
       (r.moving_time_sec != null ? ' <span class="rv-subtitle" data-moving-time>moving ' + esc(fmtHMS(r.moving_time_sec)) + '</span>' : "") +

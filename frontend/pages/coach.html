@@ -160,6 +160,8 @@
       background: color-mix(in srgb, var(--text) 8%, transparent);
       color: var(--text-sub);
     }
+    .dc-entry.is-target { outline: 2px solid #1f3b8a; }
+    .dc-lessons { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
     .dc-chip.due { background: #fff3bf; color: #8a6100; }
     .dc-chip.notapplied { background: #ffe3e3; color: #c92a2a; }
     .dc-raw {
@@ -236,6 +238,10 @@
         <label class="dc-field">
           <span class="dc-hint">Tags, comma separated</span>
           <input type="text" id="dc-tags" class="dc-input" placeholder="fuel, training">
+        </label>
+        <label class="dc-field">
+          <span class="dc-hint">Race (optional)</span>
+          <select id="dc-race" class="dc-input"><option value="">None</option></select>
         </label>
       </div>
       <button type="button" class="dc-btn" id="dc-save">Save decision</button>
