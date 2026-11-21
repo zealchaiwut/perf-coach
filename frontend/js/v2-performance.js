@@ -20,18 +20,47 @@
     });
   }
 
+  // Revamp pages do not load nav.js (which patches fetch with the CSRF header),
+  // so mutating calls attach the double-submit token themselves.
+  function csrfToken() {
+    var m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
+    if (m) return Promise.resolve(decodeURIComponent(m[1]));
+    return fetch("/api/csrf-token", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (b) {
+        if (b && b.csrf_token) {
+          document.cookie = "csrf-token=" + encodeURIComponent(b.csrf_token) + "; Path=/; SameSite=Lax" +
+            (window.location.protocol === "https:" ? "; Secure" : "");
+        }
+        var again = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
+        return again ? decodeURIComponent(again[1]) : (b && b.csrf_token) || "";
+      })
+      .catch(function () { return ""; });
+  }
+
   function sendJSON(method, url, body) {
-    return fetch(url, {
-      method: method,
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+    return csrfToken().then(function (token) {
+      var headers = { "Content-Type": "application/json" };
+      if (token) headers["X-CSRF-Token"] = token;
+      return fetch(url, {
+        method: method,
+        credentials: "same-origin",
+        headers: headers,
+        body: JSON.stringify(body),
+      });
     }).then(function (r) {
       return r.json().then(function (data) {
-        if (!r.ok) throw new Error((data && data.detail) || "HTTP " + r.status);
+        if (!r.ok) throw new Error(errText(data, r.status));
         return data;
       });
     });
+  }
+
+  function errText(data, status) {
+    var d = data && data.detail;
+    if (Array.isArray(d) && d.length) return d[0].msg || ("HTTP " + status);
+    if (d && typeof d === "object") return d.error || ("HTTP " + status);
+    return d || ("HTTP " + status);
   }
 
   // ── Strength anchors (P4-4) ───────────────────────────────────────────────
@@ -502,6 +531,7 @@
     loadHero();
     loadProjection();
     loadRaces();
+    loadCoach();
     loadRaces();
   }
 
@@ -685,6 +715,98 @@
     var r = ev.detail && raceIndex[ev.detail.raceId];
     if (r) openRaceDrawer(r);
   });
+
+  // ── Coach block: check-in, review due, history (P4-12) ────────────────────
+  // Everything comes from /api/performance/coach-block; outcomes save through
+  // the existing PATCH /api/decisions/{id}. No model call.
+
+  function copyCheckin(btn) {
+    // Preferred path: the shared nav.js helper when it is on the page.
+    if (window.NavCopy && typeof window.NavCopy.copyForClaude === "function") {
+      window.NavCopy.copyForClaude(btn, window.NavCopy.CONSULT_ENDPOINT, "consult copied");
+      return;
+    }
+    // Revamp pages do not load nav.js (it would inject the legacy top nav), so use
+    // the same endpoint and the page's own toast.
+    btn.disabled = true;
+    toast("Building check-in\u2026");
+    fetch("/api/coach/consult", { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("export failed (" + r.status + ")");
+        return r.text();
+      })
+      .then(function (text) { return navigator.clipboard.writeText(text); })
+      .then(function () { toast("Check-in copied \u2014 paste it into Claude"); })
+      .catch(function (e) { toast("Could not copy check-in: " + e.message); })
+      .then(function () { btn.disabled = false; });
+  }
+
+  function chipHtml(c) {
+    return '<span class="rv-chip" data-evidence="' + esc(c.key) + '">' + esc(c.label) + ': <strong>' + esc(c.value) + '</strong>' +
+      (c.unit ? " " + esc(c.unit) : "") + '</span>';
+  }
+
+  function renderReviewDue(r) {
+    if (!r) return "";
+    var lines = (r.review_lines || []).length
+      ? '<ul>' + r.review_lines.map(function (l) { return '<li data-review-line>' + esc(l) + '</li>'; }).join("") + '</ul>'
+      : '<p class="rv-subtitle">This change list did not name what to check. Note how it went.</p>';
+    return '<div class="rv-card rv-card--soft rv-stack" data-review-due="' + esc(r.id) + '">' +
+      '<div class="rv-row"><span class="rv-label">Review due</span><span class="rv-subtitle">decided ' + esc(r.decided_on) + ' \u00b7 review on ' + esc(r.review_on) + '</span></div>' +
+      lines +
+      ((r.chips || []).length ? '<div class="rv-row" style="justify-content:flex-start;flex-wrap:wrap">' + r.chips.map(chipHtml).join("") + '</div>' : "") +
+      '<label class="rv-label">Outcome <textarea data-outcome-text rows="3" maxlength="1000" style="width:100%" placeholder="What happened?"></textarea></label>' +
+      '<div class="rv-row"><button type="button" class="rv-btn rv-btn--secondary" data-not-applied>Did not apply</button>' +
+      '<button type="button" class="rv-btn rv-btn--primary" data-save-outcome>Save outcome</button></div></div>';
+  }
+
+  function renderHistory(rows, pasteLink) {
+    var list = (rows || []).length
+      ? rows.map(function (h) {
+          return '<div class="rv-row" data-history="' + esc(h.id) + '" style="padding:6px 0">' +
+            '<span class="rv-subtitle">' + esc(h.decided_on) + '</span>' +
+            '<span style="flex:1;margin:0 10px">' + esc(h.summary || "\u2014") + '</span>' +
+            '<span class="rv-chip" data-status="' + esc(h.status) + '">' + esc(h.status_label) + '</span></div>';
+        }).join("")
+      : '<p class="rv-subtitle">No decisions yet. After a check-in, paste the change list.</p>';
+    return '<div class="rv-stack"><div class="rv-row"><span class="rv-label">Decision history</span>' +
+      '<a href="' + esc(pasteLink || "/coach#paste") + '" data-paste-link>Paste a change list</a></div>' + list + '</div>';
+  }
+
+  function renderCoach(host, data) {
+    var ck = data.checkin || {};
+    var state = ck.state === "done" ? "Check-in done this week" : "Check-in due this week";
+    host.innerHTML =
+      '<div class="rv-row"><div><span class="rv-label">Coach</span> ' +
+      '<span class="rv-chip" data-checkin-state="' + esc(ck.state || "due") + '">' + esc(state) + '</span> ' +
+      '<a href="' + esc(ck.link || "/coach") + '" data-checkin-link>Open check-in</a></div>' +
+      '<button type="button" class="rv-btn rv-btn--primary" id="v2-copy-checkin">Copy check-in</button></div>' +
+      renderReviewDue(data.review_due) + renderHistory(data.history, data.paste_link);
+    host.querySelector("#v2-copy-checkin").addEventListener("click", function (ev) { copyCheckin(ev.currentTarget); });
+    var due = data.review_due;
+    if (!due) return;
+    var card = host.querySelector("[data-review-due]");
+    card.querySelector("[data-save-outcome]").addEventListener("click", function () {
+      var note = card.querySelector("[data-outcome-text]").value.trim();
+      if (!note) { toast("Write what happened first"); return; }
+      sendJSON("PATCH", "/api/decisions/" + encodeURIComponent(due.id), { outcome_note: note })
+        .then(function () { toast("Outcome saved"); loadCoach(); })
+        .catch(function (e) { toast("Could not save: " + e.message); });
+    });
+    card.querySelector("[data-not-applied]").addEventListener("click", function () {
+      sendJSON("PATCH", "/api/decisions/" + encodeURIComponent(due.id), { applied: false })
+        .then(function () { toast("Marked as not applied"); loadCoach(); })
+        .catch(function (e) { toast("Could not update: " + e.message); });
+    });
+  }
+
+  function loadCoach() {
+    var host = document.getElementById("v2-perf-coach");
+    if (!host) return;
+    getJSON("/api/performance/coach-block")
+      .then(function (data) { renderCoach(host, data); })
+      .catch(function () { host.innerHTML = '<span class="rv-label">Coach</span><p>Not available.</p>'; });
+  }
 
   document.addEventListener("DOMContentLoaded", function () {
     loadScoreCards();
