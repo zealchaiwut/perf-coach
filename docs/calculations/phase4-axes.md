@@ -56,3 +56,14 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
 - Weigh-in older than 14 days -> **stale** (score kept, never wrong); no weigh-in
   at all -> never-measured. This basis intentionally differs from
   `power_to_weight.compute_power_to_weight_series` (FTP / EWMA weight).
+
+## Mobility (P4-5) — `backend/services/axis_mobility.py`
+
+- Table `mobility_tests` (migration `25e2032a3208`): `test_date`, knee-to-wall
+  left/right (0–30 cm), sit-and-reach (−20 to 40 cm). `GET/POST
+  /api/performance/mobility-tests`, `DELETE .../{id}`; 422 with a field-specific
+  detail on bad input or a future date.
+- Sub-scores (clamped 0..100): knee-to-wall = `min(left, right) / 12 x 100`
+  (the weaker side counts), sit-and-reach = `(value + 10) / 30 x 100`. Score =
+  rounded mean. Latest test wins.
+- Stale after 45 days (the 46th day shows the test-due chip); the score is kept.

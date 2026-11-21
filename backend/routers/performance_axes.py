@@ -66,3 +66,90 @@ def put_anchor_lifts(body: _AnchorLiftsBody, user: User = Depends(resolve_user))
         prefs.anchor_lifts = cleaned
         db.commit()
     return JSONResponse({"anchors": cleaned})
+
+
+# ── Mobility self-test (P4-5) ────────────────────────────────────────────────
+
+class _MobilityTestBody(BaseModel):
+    test_date: str | None = None
+    knee_to_wall_left_cm: float | None = None
+    knee_to_wall_right_cm: float | None = None
+    sit_and_reach_cm: float | None = None
+
+
+def _parse_iso_date(value: str | None, field: str):
+    from datetime import date as _date
+
+    if value is None:
+        return None
+    try:
+        return _date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=f"{field} must be ISO format YYYY-MM-DD")
+
+
+@router.get("/api/performance/mobility-tests")
+def list_mobility_tests(user: User = Depends(resolve_user)):
+    from backend.models import MobilityTest
+    from backend.services import axis_mobility as _mob
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        rows = (
+            db.query(MobilityTest)
+            .filter(MobilityTest.user_id == user.id)
+            .order_by(MobilityTest.test_date.desc(), MobilityTest.created_at.desc())
+            .limit(12)
+            .all()
+        )
+        axis = _mob.get_mobility(db, user.id, today)
+        return JSONResponse({"axis": axis, "tests": [_mob.mobility_test_dict(r) for r in rows]})
+
+
+@router.post("/api/performance/mobility-tests", status_code=201)
+def create_mobility_test(body: _MobilityTestBody, user: User = Depends(resolve_user)):
+    from backend.models import MobilityTest
+    from backend.services import axis_mobility as _mob
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    test_date = _parse_iso_date(body.test_date, "test_date") if body.test_date else today
+    try:
+        _mob.validate_test_input(
+            body.knee_to_wall_left_cm, body.knee_to_wall_right_cm, body.sit_and_reach_cm, test_date, today
+        )
+    except _mob.MobilityValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    with Session(engine) as db:
+        row = MobilityTest(
+            user_id=user.id,
+            test_date=test_date,
+            knee_to_wall_left_cm=body.knee_to_wall_left_cm,
+            knee_to_wall_right_cm=body.knee_to_wall_right_cm,
+            sit_and_reach_cm=body.sit_and_reach_cm,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        axis = _mob.get_mobility(db, user.id, today)
+        return JSONResponse({"test": _mob.mobility_test_dict(row), "axis": axis}, status_code=201)
+
+
+@router.delete("/api/performance/mobility-tests/{test_id}", status_code=204)
+def delete_mobility_test(test_id: str, user: User = Depends(resolve_user)):
+    import uuid as _uuid
+    from fastapi import Response
+    from backend.models import MobilityTest
+
+    try:
+        tid = _uuid.UUID(test_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid test id")
+    with Session(engine) as db:
+        row = db.get(MobilityTest, tid)
+        if row is None or row.user_id != user.id:
+            raise HTTPException(status_code=404, detail="mobility test not found")
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)

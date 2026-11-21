@@ -69,7 +69,107 @@
       .catch(function () { host.innerHTML = '<span class="rv-label">Strength anchors</span><p>Not available.</p>'; });
   }
 
+  // ── Drawer (P0-6 pattern: backdrop + aside, Escape closes, focus returns) ──
+
+  var drawerFocus = null;
+
+  function closeDrawer() {
+    var d = document.getElementById("v2-perf-drawer");
+    var b = document.getElementById("v2-perf-drawer-backdrop");
+    if (d) { d.classList.remove("is-open"); d.hidden = true; }
+    if (b) { b.classList.remove("is-open"); b.hidden = true; }
+    document.removeEventListener("keydown", onDrawerKey);
+    if (drawerFocus && drawerFocus.focus) drawerFocus.focus();
+  }
+
+  function onDrawerKey(ev) { if (ev.key === "Escape") closeDrawer(); }
+
+  function openDrawer(html) {
+    var d = document.getElementById("v2-perf-drawer");
+    var b = document.getElementById("v2-perf-drawer-backdrop");
+    var body = document.getElementById("v2-perf-drawer-body");
+    if (!d || !body) return null;
+    drawerFocus = document.activeElement;
+    body.innerHTML = html;
+    d.hidden = false; d.classList.add("is-open");
+    if (b) { b.hidden = false; b.classList.add("is-open"); b.onclick = closeDrawer; }
+    document.addEventListener("keydown", onDrawerKey);
+    var first = body.querySelector("input,button");
+    if (first) first.focus();
+    return body;
+  }
+
+  // ── Mobility self-test (P4-5) ─────────────────────────────────────────────
+
+  function todayISO() {
+    return window.AppCommon && window.AppCommon.todayISO ? window.AppCommon.todayISO() : "";
+  }
+
+  function renderMobility(host, data) {
+    var axis = data.axis || {};
+    var chip = "";
+    if (axis.never_measured) {
+      chip = '<span class="rv-chip">Not yet measured</span>';
+    } else if (axis.test_due) {
+      chip = '<span class="rv-chip" data-testid="mobility-test-due" style="background:#fff1dc">Test due · ' +
+        esc(axis.days_since_test) + ' days ago</span>';
+    }
+    var scoreLine = axis.score == null ? "—" : esc(axis.score);
+    var raw = axis.raw || {};
+    var detail = axis.never_measured ? "Log a test to wake this axis up." :
+      "Knee-to-wall " + esc(raw.knee_to_wall_left_cm) + " / " + esc(raw.knee_to_wall_right_cm) +
+      " cm (weaker side counts) · sit-and-reach " + esc(raw.sit_and_reach_cm) + " cm";
+    host.innerHTML =
+      '<div class="rv-row"><span class="rv-label">Mobility</span>' + chip + '</div>' +
+      '<div class="rv-row"><strong style="font-size:1.6rem">' + scoreLine + '</strong>' +
+      '<button type="button" class="rv-btn rv-btn--primary" id="v2-mobility-log">Log a test</button></div>' +
+      '<p class="rv-subtitle">' + detail + '</p>';
+    host.querySelector("#v2-mobility-log").addEventListener("click", openMobilityDrawer);
+  }
+
+  function openMobilityDrawer() {
+    var body = openDrawer(
+      '<h2 class="rv-label" id="v2-perf-drawer-title">Log a mobility test</h2>' +
+      '<form id="v2-mobility-form" class="rv-stack" novalidate>' +
+      '<label class="rv-label">Date <input type="date" name="test_date" value="' + esc(todayISO()) + '" max="' + esc(todayISO()) + '" required></label>' +
+      '<label class="rv-label">Knee-to-wall, left (cm, 0–30) <input type="number" name="knee_to_wall_left_cm" min="0" max="30" step="0.5" required></label>' +
+      '<label class="rv-label">Knee-to-wall, right (cm, 0–30) <input type="number" name="knee_to_wall_right_cm" min="0" max="30" step="0.5" required></label>' +
+      '<label class="rv-label">Sit-and-reach (cm, −20 to 40) <input type="number" name="sit_and_reach_cm" min="-20" max="40" step="0.5" required></label>' +
+      '<p class="rv-warn-inline" id="v2-mobility-error" role="alert" hidden></p>' +
+      '<div class="rv-row"><button type="button" class="rv-btn rv-btn--secondary" data-close>Cancel</button>' +
+      '<button type="submit" class="rv-btn rv-btn--primary">Save test</button></div></form>'
+    );
+    if (!body) return;
+    body.querySelector("[data-close]").addEventListener("click", closeDrawer);
+    body.querySelector("#v2-mobility-form").addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var f = ev.target;
+      var err = body.querySelector("#v2-mobility-error");
+      function val(n) { var v = f.elements[n].value; return v === "" ? null : parseFloat(v); }
+      var payload = {
+        test_date: f.elements.test_date.value || null,
+        knee_to_wall_left_cm: val("knee_to_wall_left_cm"),
+        knee_to_wall_right_cm: val("knee_to_wall_right_cm"),
+        sit_and_reach_cm: val("sit_and_reach_cm"),
+      };
+      sendJSON("POST", "/api/performance/mobility-tests", payload).then(function () {
+        closeDrawer();
+        toast("Mobility test saved");
+        loadMobility();
+      }).catch(function (e) { err.textContent = e.message; err.hidden = false; });
+    });
+  }
+
+  function loadMobility() {
+    var host = document.getElementById("v2-perf-mobility");
+    if (!host) return;
+    getJSON("/api/performance/mobility-tests")
+      .then(function (data) { renderMobility(host, data); })
+      .catch(function () { host.innerHTML = '<span class="rv-label">Mobility</span><p>Not available.</p>'; });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    loadMobility();
     loadAnchors();
   });
 })();
