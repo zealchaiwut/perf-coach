@@ -116,3 +116,16 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
   multiply/divide/modulo/power operators.
 - An unavailable estimate degrades the estimate/range tiles to "not available"
   without hiding the hero.
+
+## Endurance and Speed cards (P4-9) — `backend/services/score_cards.py`
+
+- `GET /api/performance/score-cards`: score, 28-day delta and stale from
+  `score_reader.get_scores`; sparkline from the daily snapshot series
+  (`history_trend`); decomposition (score_then, decay, efforts, consistency,
+  score_now), anchors list and the summation invariant from
+  `performance_scores.get_performance_payload`.
+- Reason sentence (decomposition only): decay outweighs efforts -> "Down from
+  decay, not from slower running: the <anchor> from <date> has aged <n> weeks.";
+  efforts outweigh decay -> "Lifted by the effort on <date>."; otherwise none.
+- No to-reach line: `threshold_suggestions.suggest_thresholds` suggests pace/HR/
+  power thresholds, not a score to reach, so `to_reach` is always null.
