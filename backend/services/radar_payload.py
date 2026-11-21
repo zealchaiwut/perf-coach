@@ -103,7 +103,14 @@ def build_axes(
     return axes
 
 
-def build_radar(session, user_id: uuid.UUID, as_of: date, focus_axis: Optional[str] = None) -> dict[str, Any]:
+def build_radar(
+    session,
+    user_id: uuid.UUID,
+    as_of: date,
+    focus_axis: Optional[str] = None,
+    focus_ranker=None,
+) -> dict[str, Any]:
+    """``focus_ranker(axes) -> Optional[str]`` picks the focus axis from the unflagged axes."""
     from backend.services import axis_snapshot, score_reader
 
     overall = score_reader.get_scores(user_id, as_of=as_of)["overall"]
@@ -111,6 +118,10 @@ def build_radar(session, user_id: uuid.UUID, as_of: date, focus_axis: Optional[s
     row = axis_snapshot.snapshot_row_on_or_before(session, user_id, as_of - timedelta(days=28))
     past = {name: (getattr(row, name, None) if row is not None else None) for name in PERFORMANCE_AXES}
     axes = build_axes(overall, axis_blocks, past, focus_axis)
+    if focus_axis is None and focus_ranker is not None:
+        picked = focus_ranker(axes)
+        if picked:
+            axes = build_axes(overall, axis_blocks, past, picked)
     return {
         "as_of": as_of.isoformat(),
         "axis_order": list(PERFORMANCE_AXES),

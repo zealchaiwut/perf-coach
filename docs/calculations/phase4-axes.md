@@ -80,3 +80,25 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
   listed under the chart. Stale axes: hollow dashed point. Focus axis: amber point
   and label. Dashed outline = 28 days ago. Rings at 25 / 50 / 75.
 - Status label precedence: focus, stale (test due for mobility), signed 28-day delta.
+
+## Focus ranking and the queue (P4-7) — `backend/services/focus_ranking.py`
+
+- Weights (sum to 1, asserted at import). Marathon (A race >= 30 km): durability
+  0.25, economy 0.20, endurance 0.20, power_to_weight 0.15, strength 0.10, speed
+  0.05, mobility 0.05. Half / shorter: speed 0.15 and durability 0.15, the others
+  unchanged (the 0.30 held by speed + durability is the same in both tables).
+- Eligible axes: measured and not stale. Focus = highest `(100 - score) x weight`.
+  Why-not card: the next three measured axes (eligible first, then stale), each
+  with a reason (lower weighted gap / matters less for this distance / stale).
+- Work map: economy -> plyo, heavy calf raise, drills; durability -> long-run
+  length and fuel-practice notes (note-only, no session); strength -> anchor-lift
+  block; mobility -> stretch block. endurance, speed, power_to_weight are
+  coach-owned: advice only, `POST /api/performance/focus/queue` returns 422.
+- Queue: `performance_queue_items` (migration `8d8cd37743d3`): axis, template
+  tags, TSS estimate, earliest week, status. Dated to the next build or rebuild
+  week (P3-1 phases; never taper/race week; 409 if none). Idempotent per axis.
+  `revamp_suggest_sessions._load_candidates` puts queued work first for build/
+  rebuild weeks on or after its earliest week; note-only items come back as
+  `queued_notes`. Applying a proposal marks the item `applied`.
+- API: `GET /api/performance/focus`, `POST /api/performance/focus/queue`,
+  `DELETE /api/performance/focus/queue/{id}`. The radar focus point uses the same ranking.
