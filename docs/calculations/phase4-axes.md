@@ -102,3 +102,17 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
   `queued_notes`. Applying a proposal marks the item `applied`.
 - API: `GET /api/performance/focus`, `POST /api/performance/focus/queue`,
   `DELETE /api/performance/focus/queue/{id}`. The radar focus point uses the same ranking.
+
+## A-race hero and after-the-race card (P4-8) — `backend/services/race_hero.py`
+
+- `GET /api/performance/hero`: race badge/name/date/distance/countdown, goal (time
+  and pace from the race fields), estimate (`race_finish_estimate.estimate_race_finish`:
+  `est_sec`, `band_sec`, `uncertainty_min`; pace via `compute_goal_pace`), range
+  (`estimate - band` and `estimate + band`, both printed), race-specific End/Spd chips
+  (`score_reader.get_race_scores`) with the one-line meaning, and the after-the-race
+  card (static copy + the next checkpoint with its projection estimate).
+- Gap to goal = goal minus the slow end and goal minus the estimate (subtraction
+  only) with a one-line reading. A test asserts the module contains no
+  multiply/divide/modulo/power operators.
+- An unavailable estimate degrades the estimate/range tiles to "not available"
+  without hiding the hero.

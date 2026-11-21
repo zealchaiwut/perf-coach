@@ -249,3 +249,14 @@ def cancel_performance_queue_item(item_id: str, user: User = Depends(resolve_use
         if not fr.cancel_item(db, user.id, iid):
             raise HTTPException(status_code=404, detail="queue item not found")
     return Response(status_code=204)
+
+
+# ── A-race hero + after-the-race card (P4-8) ─────────────────────────────────
+
+@router.get("/api/performance/hero")
+def get_performance_hero(user: User = Depends(resolve_user)):
+    from backend.services.race_hero import build_hero
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(build_hero(db, user.id, today_bangkok()))
