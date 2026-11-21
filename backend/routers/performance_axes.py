@@ -270,3 +270,14 @@ def get_performance_score_cards(user: User = Depends(resolve_user)):
     from backend.utils.time import today_bangkok
 
     return JSONResponse(build_cards(user.id, as_of=today_bangkok()))
+
+
+# ── Races and projections (P4-10) ────────────────────────────────────────────
+
+@router.get("/api/performance/projection")
+def get_performance_projection(user: User = Depends(resolve_user)):
+    from backend.services.projection_view import build_projection
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(build_projection(db, user.id, today_bangkok()))

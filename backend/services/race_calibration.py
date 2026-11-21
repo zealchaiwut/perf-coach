@@ -299,11 +299,18 @@ def ensure_calibrations(user_id: str, db) -> int:
 
 
 def load_calibrations(user_id: str, db) -> list[dict]:
-    """All stored calibrations for a user, shaped for combined_correction."""
-    from backend.models import RaceCalibration
+    """Stored calibrations for a user, shaped for combined_correction.
+
+    Only races whose role recalibrates the projection (``pb`` / ``a_race`` —
+    see ``race_roles``) are returned; ``long_run`` and ``fun`` races never
+    move the model correction.
+    """
+    from backend.models import Race, RaceCalibration
+    from backend.services.race_roles import recalibrates
 
     rows = (
-        db.query(RaceCalibration)
+        db.query(RaceCalibration, Race)
+        .join(Race, Race.id == RaceCalibration.race_id)
         .filter(RaceCalibration.user_id == user_id)
         .order_by(RaceCalibration.race_date.desc())
         .all()
@@ -318,7 +325,8 @@ def load_calibrations(user_id: str, db) -> list[dict]:
             "actual_seconds": r.actual_seconds,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
-        for r in rows
+        for r, race in rows
+        if recalibrates(race)
     ]
 
 
