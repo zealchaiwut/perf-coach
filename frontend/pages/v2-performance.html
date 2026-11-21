@@ -21,11 +21,16 @@
     </header>
 
     <div id="v2-perf-shell" class="rv-stack">
+      <section class="rv-card rv-stack" id="v2-perf-mobility" aria-label="Mobility self-test"></section>
       <section class="rv-card rv-stack" id="v2-perf-strength-anchors" aria-label="Strength anchor lifts"></section>
     </div>
   </div>
 
   <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <div id="v2-perf-drawer-backdrop" class="rv-drawer-backdrop" hidden></div>
+  <aside id="v2-perf-drawer" class="rv-drawer" role="dialog" aria-modal="true" aria-labelledby="v2-perf-drawer-title" hidden>
+    <div class="rv-drawer-scroll" id="v2-perf-drawer-body"></div>
+  </aside>
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/revamp-ui.js"></script>
   <script src="/js/v2-performance.js"></script>

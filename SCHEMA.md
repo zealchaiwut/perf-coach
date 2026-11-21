@@ -990,6 +990,24 @@ Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_
 
 ---
 
+## mobility_tests _(added Phase 4 / #1852)_
+
+Monthly mobility self-test for the Performance mobility axis. Written by `POST /api/performance/mobility-tests`; the latest test (by `test_date`) wins in `backend/services/axis_mobility.py`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | `gen_random_uuid()` |
+| user_id | UUID FK→users | CASCADE |
+| test_date | date | NOT NULL |
+| knee_to_wall_left_cm | numeric(4,1) | NOT NULL, 0–30 |
+| knee_to_wall_right_cm | numeric(4,1) | NOT NULL, 0–30 |
+| sit_and_reach_cm | numeric(4,1) | NOT NULL, −20 to 40 |
+| created_at | timestamptz | server default now() |
+
+Index: `ix_mobility_tests_user_date` on `(user_id, test_date)`. Migration: `25e2032a3208_create_mobility_tests`.
+
+---
+
 ## run_form_metrics _(added Sprint 106 / #1368)_
 
 Per-run Stryd running-dynamics extracted from `stryd_activities.form_metrics` JSONB into a queryable, one-row-per-activity table. Upserted incrementally on every Stryd sync (`backend/services/sync_runner.py`) and via full historical backfill on the compute worker (`POST /internal/form-metrics/backfill`, job type `form_metrics_backfill`). Read via `GET /api/training/form-metrics?from=&to=` (per-run series + 28-calendar-day trailing rolling means, inclusive `[date − 27d, date]` window; Sprint 126 / #1443). Model: `RunFormMetrics` in `backend/models.py`. Key mapping: `form_metrics["ground_contact_time_ms"]→gct_ms`, `["leg_spring_stiffness"]→lss_kn_m` (kN/m native), `["vertical_oscillation_cm"]→vertical_oscillation_cm`, `["cadence_spm"]→cadence_spm`, `stryd_activities.avg_power_w→power_w`.

@@ -1938,6 +1938,33 @@ class PerformanceScoreHistory(Base):
     )
 
 
+class MobilityTest(Base):
+    """Monthly mobility self-test (revamp P4-5): knee-to-wall L/R and sit-and-reach, in cm."""
+
+    __tablename__ = "mobility_tests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    test_date = Column(Date, nullable=False)
+    knee_to_wall_left_cm = Column(Numeric(4, 1), nullable=False)
+    knee_to_wall_right_cm = Column(Numeric(4, 1), nullable=False)
+    sit_and_reach_cm = Column(Numeric(4, 1), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "knee_to_wall_left_cm >= 0 AND knee_to_wall_left_cm <= 30 "
+            "AND knee_to_wall_right_cm >= 0 AND knee_to_wall_right_cm <= 30",
+            name="ck_mobility_tests_knee_to_wall_range",
+        ),
+        CheckConstraint(
+            "sit_and_reach_cm >= -20 AND sit_and_reach_cm <= 40",
+            name="ck_mobility_tests_sit_and_reach_range",
+        ),
+        Index("ix_mobility_tests_user_date", "user_id", "test_date"),
+    )
+
+
 class RunFormMetrics(Base):
     """Per-run Stryd running-dynamics extracted from stryd_activities.form_metrics (issue #1368).
 
