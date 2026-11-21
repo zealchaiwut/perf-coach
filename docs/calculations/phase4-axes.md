@@ -129,3 +129,31 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
   efforts outweigh decay -> "Lifted by the effort on <date>."; otherwise none.
 - No to-reach line: `threshold_suggestions.suggest_thresholds` suggests pace/HR/
   power thresholds, not a score to reach, so `to_reach` is always null.
+
+## Races and projections (P4-10) — `backend/services/projection_view.py`
+
+`GET /api/performance/projection` returns calibration tiles, the chain and the
+time-scaled chart from one projection call (`estimate_race_finish`, the same
+call the hero uses).
+
+- Tiles: last recalibrated (race + date), data sufficiency, band confidence
+  (`main._compute_calibration_status`), model correction % with race count
+  (`race_calibration.combined_correction`). Missing source -> `not available`.
+- Chain: endurance pace -> speed pace -> blended pace (+ speed-weight %) ->
+  model correction -> projected finish (pace, band, goal). Stage paces come from
+  `blended_scores_estimate().basis`. The final stage is the estimate itself, so
+  it already includes the taper/form factor and demonstrated-race cap.
+- Invariants (`check_invariants`, logged + returned as `invariants`, tested):
+  chain final == hero estimate; band labels == estimate -/+ band.
+- Chart: x = real dates from block start (`revamp_plan_settings`) to race day
+  (`x` is the 0..1 position); history line = `race_predictions` rows for the
+  race; dashed projection from now to the estimate; band polygon at race day;
+  recalibration markers, grey ticks and not-recorded markers from the races.
+- Roles (`race_roles.py`, amendment 2026-11-18): only `pb` / `a_race` recalibrate.
+  `load_calibrations` now excludes `long_run` / `fun` races, so the model
+  correction, tiles and estimate all agree. P6-4 owns the real role column; until
+  it exists `race.role` is used if present, else derived (checkpoint -> long_run,
+  priority A -> a_race, B -> pb, C -> fun).
+- A-race goal: `provisional` until the last pb race before the A race has a
+  result, then `locked`; always editable. With no pb race before it, it stays
+  provisional.

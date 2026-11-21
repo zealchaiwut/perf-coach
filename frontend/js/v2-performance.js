@@ -355,9 +355,136 @@
       .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Endurance and Speed</span><p>Not available.</p></div>'; });
   }
 
+  // ── Races and projections: tiles, chain, chart (P4-10) ────────────────────
+  // Every value comes from /api/performance/projection. The chart maps the
+  // server's seconds and 0..1 date positions onto the SVG; nothing is derived.
+
+  var NA = "not available";
+
+  function projTile(label, tileData, render) {
+    var body = tileData && tileData.available ? render(tileData) : '<span class="rv-subtitle">' + NA + '</span>';
+    return '<div class="rv-metric" data-tile="' + esc(label.toLowerCase().replace(/\s+/g, "-")) + '"><span class="rv-label">' +
+      esc(label) + '</span><br><strong>' + body + '</strong></div>';
+  }
+
+  function renderTiles(t) {
+    t = t || {};
+    return '<div class="rv-row" style="align-items:stretch;flex-wrap:wrap">' +
+      projTile("Last recalibrated", t.last_recalibrated, function (d) {
+        return esc(d.date) + (d.race_name ? ' · ' + esc(d.race_name) : "");
+      }) +
+      projTile("Data", t.data_sufficiency, function (d) { return '<span class="rv-chip">' + esc(d.value) + '</span>'; }) +
+      projTile("Band confidence", t.band_confidence, function (d) { return '<span class="rv-chip">' + esc(d.value) + '</span>'; }) +
+      projTile("Model correction", t.model_correction, function (d) {
+        return esc((d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "") + Math.abs(d.pct)) + '%' +
+          ' <span class="rv-subtitle">' + esc(d.reading || "") + ' \u00b7 ' + esc(d.n_races) + ' race' + (d.n_races === 1 ? "" : "s") + '</span>';
+      }) + '</div>';
+  }
+
+  function stage(label, key, inner) {
+    return '<div class="rv-metric" data-chain="' + key + '"><span class="rv-label">' + esc(label) + '</span><br>' + inner + '</div>';
+  }
+
+  function paceOrNA(st) {
+    return st && st.available ? '<strong>' + esc(fmtPace(st.pace_seconds_per_km)) + '</strong>' : '<span class="rv-subtitle">' + NA + '</span>';
+  }
+
+  function renderChain(chain) {
+    if (!chain) return "";
+    var e = chain.endurance || {}, sp = chain.speed || {}, b = chain.blended || {}, c = chain.correction || {}, f = chain.final || {};
+    var arrow = '<span class="rv-subtitle" aria-hidden="true">\u2192</span>';
+    var scoreLine = function (name, st) {
+      return '<div><span class="rv-subtitle">' + name + (st.score != null ? ' <b>' + esc(Math.round(st.score)) + '</b>' : "") + '</span><br>' + paceOrNA(st) + '</div>';
+    };
+    var corrNote = c.available
+      ? '<br><span class="rv-subtitle">' + esc((c.pct > 0 ? "+" : c.pct < 0 ? "\u2212" : "") + Math.abs(c.pct)) + '% \u00b7 ' + esc(c.n_races) + ' race' + (c.n_races === 1 ? "" : "s") + '</span>'
+      : '<br><span class="rv-subtitle">' + NA + '</span>';
+    var goal = f.goal || {};
+    var finalHtml = f.available
+      ? '<span class="rv-label">Projected finish \u00b7 ' + esc(f.race_name) + '</span><br><strong data-chain-final style="font-size:1.6em">' + esc(fmtHMS(f.est_sec)) + '</strong>' +
+        '<br><span class="rv-subtitle">pace ' + esc(fmtPace(f.pace_seconds_per_km)) + ' \u00b7 band ' +
+        (f.band_sec != null ? '\u00b1' + esc(fmtHMS(f.band_sec)) : NA) + ' \u00b7 goal ' + esc(fmtHMS(goal.time_sec)) +
+        (goal.state ? ' <span class="rv-chip" data-goal-state>' + esc(goal.state) + '</span>' : "") + '</span>'
+      : '<span class="rv-label">Projected finish</span><br><span class="rv-subtitle">' + NA + '</span>';
+    return '<div class="rv-row" data-chain-row style="flex-wrap:wrap;align-items:stretch;gap:8px">' +
+      stage("Endurance and Speed", "scores", scoreLine("Endurance", e) + scoreLine("Speed", sp)) + arrow +
+      stage("Blended" + (b.available ? " \u00b7 " + esc(b.speed_weight_pct) + "% speed" : ""), "blended", paceOrNA(b)) + arrow +
+      stage("Model correction", "correction", (c.available ? '<strong>' + esc(c.factor) + '\u00d7</strong>' : '<span class="rv-subtitle">' + NA + '</span>') + corrNote) + arrow +
+      '<div class="rv-metric" data-chain="final">' + finalHtml + '</div></div>';
+  }
+
+  function renderChart(ch) {
+    if (!ch || !ch.available) {
+      return '<p class="rv-subtitle" data-chart-na>Chart ' + NA + '.</p>';
+    }
+    var W = 1000, top = 20, bottom = 220;
+    var lo = ch.y_min_sec, hi = ch.y_max_sec, pad = Math.max(60, (hi - lo) * 0.08);
+    lo -= pad; hi += pad;
+    var X = function (f) { return Math.round(f * W * 10) / 10; };
+    var Y = function (sec) { return Math.round((top + (hi - sec) / (hi - lo) * (bottom - top)) * 10) / 10; };
+    var parts = [];
+    parts.push('<line x1="0" y1="' + bottom + '" x2="' + W + '" y2="' + bottom + '" stroke="#dfe5f1"/>');
+    if (ch.goal_sec != null) {
+      parts.push('<line data-chart="goal" x1="0" y1="' + Y(ch.goal_sec) + '" x2="' + W + '" y2="' + Y(ch.goal_sec) + '" stroke="#15803d" stroke-width="2" stroke-dasharray="7 6"/>' +
+        '<text x="6" y="' + (Y(ch.goal_sec) - 6) + '" font-size="12" font-weight="700" fill="#15803d">Goal ' + esc(ch.goal_label) + '</text>');
+    }
+    (ch.ticks || []).forEach(function (m) {
+      parts.push('<line data-chart-tick="' + esc(m.role) + '" x1="' + X(m.x) + '" y1="' + (bottom - 16) + '" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-width="2"><title>' + esc(m.name) + '</title></line>');
+    });
+    (ch.recalibrations || []).forEach(function (m) {
+      parts.push('<line data-chart-recal x1="' + X(m.x) + '" y1="20" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-dasharray="3 4"/>' +
+        '<text x="' + (X(m.x) + 6) + '" y="32" font-size="11" fill="#56627f">' + esc(m.name) + ' \u00b7 recalibrated</text>');
+    });
+    (ch.pending || []).forEach(function (m) {
+      parts.push('<line data-chart-pending x1="' + X(m.x) + '" y1="40" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#e0a56b" stroke-dasharray="3 4"/>' +
+        '<text x="' + (X(m.x) + 6) + '" y="52" font-size="11" fill="#7a3a10">' + esc(m.name) + ' \u00b7 not recorded</text>');
+    });
+    var nowX = X(ch.now_x), p = ch.projection, band = ch.band;
+    if (band) {
+      parts.push('<polygon data-chart="band" points="' + nowX + ',' + Y(p.est_sec) + ' ' + W + ',' + Y(band.high_sec) + ' ' + W + ',' + Y(band.low_sec) + '" fill="#c9d9f6"/>');
+    }
+    var pts = (ch.history || []).map(function (h) { return X(h.x) + "," + Y(h.est_sec); });
+    if (pts.length >= 2) {
+      parts.push('<polyline data-chart="history" points="' + pts.join(" ") + '" fill="none" stroke="#1f3b8a" stroke-width="3" stroke-linejoin="round"/>');
+    }
+    var fromY = (ch.history && ch.history.length) ? Y(ch.history[ch.history.length - 1].est_sec) : Y(p.est_sec);
+    parts.push('<line data-chart="projection" x1="' + nowX + '" y1="' + fromY + '" x2="' + W + '" y2="' + Y(p.est_sec) + '" stroke="#1f3b8a" stroke-width="3" stroke-dasharray="6 5"/>');
+    parts.push('<line x1="' + nowX + '" y1="10" x2="' + nowX + '" y2="' + bottom + '" stroke="#0b1530" stroke-width="1.5"/>' +
+      '<text x="' + (nowX - 6) + '" y="22" font-size="11" font-weight="700" fill="#0b1530" text-anchor="end">Now</text>');
+    var mono = ' font-size="11.5" text-anchor="end" font-family="JetBrains Mono, monospace"';
+    if (band) {
+      parts.push('<text data-band-label="high" x="' + (W - 4) + '" y="' + (Y(band.high_sec) - 4) + '" fill="#56627f"' + mono + '>' + esc(band.high_label) + '</text>');
+      parts.push('<text data-band-label="low" x="' + (W - 4) + '" y="' + (Y(band.low_sec) + 14) + '" fill="#56627f"' + mono + '>' + esc(band.low_label) + '</text>');
+    }
+    parts.push('<text data-band-label="estimate" x="' + (W - 4) + '" y="' + (Y(p.est_sec) - 4) + '" fill="#0b1530" font-weight="700"' + mono + '>' + esc(p.est_label) + '</text>');
+    parts.push('<text x="0" y="242" font-size="11.5" fill="#56627f">' + esc(ch.start) + '</text>' +
+      '<text x="' + W + '" y="242" font-size="11.5" fill="#56627f" text-anchor="end">Race ' + esc(ch.end) + '</text>');
+    var label = "Projected " + ch.race_name + " time from " + ch.start + " to race day " + ch.end + ", ending at " + p.est_label +
+      (band ? " with a band from " + band.low_label + " to " + band.high_label : "") + (ch.goal_label ? ". Goal " + ch.goal_label : "") + ".";
+    return '<svg viewBox="0 0 1000 250" style="width:100%;height:250px;display:block" role="img" aria-label="' + esc(label) + '" data-projection-chart>' + parts.join("") + '</svg>';
+  }
+
+  function renderProjection(host, data) {
+    host.innerHTML =
+      '<div><span class="rv-label">Races and projections</span>' +
+      '<p class="rv-subtitle">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p></div>' +
+      renderTiles(data.tiles) +
+      (data.chain ? renderChain(data.chain) + renderChart(data.chart) :
+        '<p class="rv-subtitle" data-chain-na>No upcoming A race, so there is no projection yet.</p>');
+  }
+
+  function loadProjection() {
+    var host = document.getElementById("v2-perf-projection");
+    if (!host) return;
+    getJSON("/api/performance/projection")
+      .then(function (data) { renderProjection(host, data); })
+      .catch(function () { host.innerHTML = '<span class="rv-label">Races and projections</span><p>Not available.</p>'; });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     loadScoreCards();
     loadHero();
+    loadProjection();
     loadFocus();
     loadMobility();
     loadAnchors();
