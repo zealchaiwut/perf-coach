@@ -48,6 +48,27 @@ def get_scores(user_id: uuid.UUID, as_of: Optional[date] = None) -> dict[str, An
     return {"state": state, "overall": overall, "generated_at": payload.get("generated_at")}
 
 
+def get_axis_scores(session: Session, user_id: uuid.UUID, as_of: Optional[date] = None) -> dict[str, Any]:
+    """Phase 4 axes (durability, economy, strength, mobility, power_to_weight).
+
+    Same block conventions as ``get_scores`` (``score``, ``delta_28d``,
+    ``anchor_date``, ``anchor_title``, ``stale``) plus ``never_measured`` and a
+    ``raw`` value. ``delta_28d`` comes from the shared daily snapshot table.
+    """
+    from backend.services import axis_snapshot
+    from backend.utils.time import today_bangkok
+
+    day = as_of or today_bangkok()
+    blocks = axis_snapshot.compute_axes(session, user_id, day)
+    for axis, block in blocks.items():
+        past = axis_snapshot.score_n_days_ago(session, user_id, day, axis)
+        score = block.get("score")
+        block["delta_28d"] = (
+            round(float(score) - float(past), 1) if score is not None and past is not None else None
+        )
+    return {"axes": blocks}
+
+
 def get_race_scores(
     session: Session,
     user_id: uuid.UUID,

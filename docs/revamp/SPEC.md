@@ -53,3 +53,35 @@ At the end of each phase:
 1. Open each relevant preview in `docs/revamp/mocks/preview/` beside the running page (flag on).
 2. Record layout, copy, or number mismatches as **follow-up GitHub issues** labelled `revamp` and the phase label (e.g. `phase-0`).
 3. For Phase 0, the checkpoint is **data agreement** first (see issue #1826); pixels second (components page vs mocks).
+
+## Appendix — Performance axes (Phase 4)
+
+Implementation source of truth: `backend/services/axis_spec.py`.
+
+### Axis order
+
+Fixed radar order (clockwise from the top): **endurance**, **speed**, **economy**, **strength**, **mobility**, **power_to_weight**, **durability**.
+
+### Target profile
+
+- A discrete table keyed by **marathon goal finish time** from **3:30** through **5:00** in **15-minute** steps.
+- Each row holds the raw target per axis (e.g. leg-spring stiffness in kN/m, power-to-weight in W/kg, durability median decoupling %, endurance/speed target scores on the universal band).
+- **Linear interpolation** between adjacent rows; values below 3:30 or above 5:00 clamp to the end rows.
+- The **active profile** comes from the athlete's **A-race** `goal_time_seconds` and distance. Marathon goals use the time directly; other distances project to marathon seconds via `riegel_project` (Riegel exponent 1.06, marathon distance 42.195 km).
+
+### Staleness
+
+| Axis | Stale when |
+|------|------------|
+| Endurance, Speed | Anchor effort older than `GRACE_WEEKS` (same rule as `running_performance` anchors / `score_reader`) |
+| Durability | Fewer than **2** qualifying long runs in the last **45** days |
+| Economy | Fewer than **5** easy runs with form data in the last **28** days |
+| Power-to-weight | Latest weigh-in older than **14** days (or missing) |
+| Strength | No anchor lift logged in the last **45** days |
+| Mobility | Last self-test older than **45** days (or missing) |
+
+### Never measured vs stale
+
+- **Never measured** — no score yet (`score` is null). Omitted from the radar polygon; listed under the chart.
+- **Stale** — has a score but fails the staleness rule above. Rendered **hollow** on the radar; **excluded from focus ranking** (P4-7).
+- Fresh measured axes participate in both radar and focus ranking.

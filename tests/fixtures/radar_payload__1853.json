@@ -1,0 +1,93 @@
+{
+ "as_of": "2026-11-20",
+ "axes": [
+  {
+   "axis": "endurance",
+   "delta_28d": 1.0,
+   "focus": false,
+   "label": "Endurance",
+   "never_measured": false,
+   "score": 41.0,
+   "score_28d_ago": 40.0,
+   "stale": true,
+   "status": "stale",
+   "test_due": false
+  },
+  {
+   "axis": "speed",
+   "delta_28d": 3.0,
+   "focus": false,
+   "label": "Speed",
+   "never_measured": false,
+   "score": 45.0,
+   "score_28d_ago": 42.0,
+   "stale": false,
+   "status": "+3",
+   "test_due": false
+  },
+  {
+   "axis": "economy",
+   "delta_28d": -6.0,
+   "focus": true,
+   "label": "Economy",
+   "never_measured": false,
+   "score": 44.0,
+   "score_28d_ago": 50.0,
+   "stale": false,
+   "status": "focus",
+   "test_due": false
+  },
+  {
+   "axis": "strength",
+   "delta_28d": 3.0,
+   "focus": false,
+   "label": "Strength",
+   "never_measured": false,
+   "score": 58.0,
+   "score_28d_ago": 55.0,
+   "stale": false,
+   "status": "+3",
+   "test_due": false
+  },
+  {
+   "axis": "mobility",
+   "delta_28d": null,
+   "focus": false,
+   "label": "Mobility",
+   "never_measured": true,
+   "score": null,
+   "score_28d_ago": null,
+   "stale": false,
+   "status": "",
+   "test_due": true
+  },
+  {
+   "axis": "power_to_weight",
+   "delta_28d": 2.0,
+   "focus": false,
+   "label": "Power/wt",
+   "never_measured": false,
+   "score": 61.0,
+   "score_28d_ago": 59.0,
+   "stale": false,
+   "status": "+2",
+   "test_due": false
+  },
+  {
+   "axis": "durability",
+   "delta_28d": 2.0,
+   "focus": false,
+   "label": "Durability",
+   "never_measured": false,
+   "score": 52.0,
+   "score_28d_ago": 50.0,
+   "stale": false,
+   "status": "+2",
+   "test_due": false
+  }
+ ],
+ "not_yet_measured": [
+  "Mobility"
+ ],
+ "summary": "Performance radar. Endurance 41 (stale), Speed 45, Economy 44 (focus), Strength 58, Power/wt 61, Durability 52. Not yet measured: Mobility. Dashed outline is four weeks ago."
+}

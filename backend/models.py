@@ -1018,6 +1018,9 @@ class UserPreferences(Base):
         nullable=False,
         unique=True,
     )
+    # Strength-axis anchor lifts (P4-4): [{key, label, target_factor, match: [...]}].
+    # NULL = DEFAULT_ANCHOR_LIFTS in backend/services/axis_strength.py.
+    anchor_lifts = Column(JSONB, nullable=True)
     ftp_w = Column(Integer, nullable=True)
     ftp_w_source = Column(String(30), nullable=True)
     ftp_w_updated_at = Column(DateTime(timezone=True), nullable=True)
@@ -1916,6 +1919,13 @@ class PerformanceScoreHistory(Base):
     score_date = Column(Date, nullable=False)
     endurance = Column(Float, nullable=True)
     speed = Column(Float, nullable=True)
+    # Phase 4 axes (revamp P4-2..P4-5): one shared snapshot row per day for all
+    # seven radar axes. NULL = never-measured on that day.
+    durability = Column(Float, nullable=True)
+    economy = Column(Float, nullable=True)
+    strength = Column(Float, nullable=True)
+    mobility = Column(Float, nullable=True)
+    power_to_weight = Column(Float, nullable=True)
     formula_version = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
 
@@ -1925,6 +1935,57 @@ class PerformanceScoreHistory(Base):
             name="uq_performance_score_history_user_date_version",
         ),
         Index("ix_performance_score_history_user_date", "user_id", "score_date"),
+    )
+
+
+class MobilityTest(Base):
+    """Monthly mobility self-test (revamp P4-5): knee-to-wall L/R and sit-and-reach, in cm."""
+
+    __tablename__ = "mobility_tests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    test_date = Column(Date, nullable=False)
+    knee_to_wall_left_cm = Column(Numeric(4, 1), nullable=False)
+    knee_to_wall_right_cm = Column(Numeric(4, 1), nullable=False)
+    sit_and_reach_cm = Column(Numeric(4, 1), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "knee_to_wall_left_cm >= 0 AND knee_to_wall_left_cm <= 30 "
+            "AND knee_to_wall_right_cm >= 0 AND knee_to_wall_right_cm <= 30",
+            name="ck_mobility_tests_knee_to_wall_range",
+        ),
+        CheckConstraint(
+            "sit_and_reach_cm >= -20 AND sit_and_reach_cm <= 40",
+            name="ck_mobility_tests_sit_and_reach_range",
+        ),
+        Index("ix_mobility_tests_user_date", "user_id", "test_date"),
+    )
+
+
+class PerformanceQueueItem(Base):
+    """Focus-work suggestion record queued from Performance (revamp P4-7), consumed by P3-10."""
+
+    __tablename__ = "performance_queue_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    axis = Column(String(30), nullable=False)
+    template_tags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    tss_estimate = Column(Float, nullable=True)
+    earliest_week = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, server_default=text("'queued'"))
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'applied', 'cancelled')",
+            name="ck_performance_queue_items_status",
+        ),
+        Index("ix_performance_queue_items_user_status", "user_id", "status", "earliest_week"),
     )
 
 
@@ -1951,6 +2012,8 @@ class RunFormMetrics(Base):
     vertical_oscillation_cm = Column(Numeric(6, 2), nullable=True)
     cadence_spm = Column(Numeric(6, 2), nullable=True)
     power_w = Column(Numeric(6, 1), nullable=True)
+    # form power / running power (dimensionless, ~0.2-0.3). Added in P4-3.
+    form_power_ratio = Column(Numeric(6, 4), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (
@@ -2111,6 +2174,11 @@ class Decision(Base):
     outcome_note = Column(Text, nullable=True)
     # When to check whether this change worked — surfaced to the next consult.
     review_on = Column(Date, nullable=True)
+    # Optional links to the race / session this decision came from (P4-13). A
+    # race-debrief paste links its race; the race row's Debrief chip and the next
+    # consult's "Previous races" lessons both read through this.
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="SET NULL"), nullable=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
 
@@ -2118,6 +2186,7 @@ class Decision(Base):
         CheckConstraint("source IN ('consult')", name="ck_decisions_source_values"),
         CheckConstraint("length(raw_text) > 0", name="ck_decisions_raw_text_non_empty"),
         Index("ix_decisions_user_decided_on", "user_id", decided_on.desc()),
+        Index("ix_decisions_race_id", "race_id"),
     )
 
 

@@ -635,7 +635,6 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     # (see the PERMANENT_EXEMPT entry note and the checkpoints cluster
     # above). No frontend reference to the flat form survives. Phase E:
     # migrate tests then delete.
-    "/api/races/{race_id}/calibrate/accept": "No frontend caller (see above).",
     "/api/races/{race_id}/checkpoints": "Same flat-races family as /api/races above — no caller.",
     "/api/races/{race_id}/checkpoints/{checkpoint_id}": "Same flat-races family as /api/races above — no caller.",
     "/api/races/{race_id}/readiness": "training-performance.js's own comment (line 1374): 'the tab needs no separate /api/races/{id}/readiness call' — deliberately unused.",

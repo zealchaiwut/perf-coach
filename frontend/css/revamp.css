@@ -895,3 +895,8 @@ body.rv-page .rv-week-card-actions {
   gap: 4px;
   flex-wrap: wrap;
 }
+/* Performance radar (P4-6) — one inline-SVG component, two sizes */
+body.rv-page .perf-radar { display: block; width: 100%; height: auto; }
+body.rv-page .perf-radar--large { max-width: 640px; margin: 0 auto; }
+body.rv-page .perf-radar--small { max-width: 360px; margin: 0 auto; }
+body.rv-page .perf-radar-missing { margin: 4px 0 0; font-size: 0.85rem; color: var(--rv-secondary); text-align: center; }

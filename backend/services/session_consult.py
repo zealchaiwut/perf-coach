@@ -25,6 +25,7 @@ from backend.models import (
     WorkoutSplit,
     StrydActivity,
 )
+from backend.services.decision_lessons import parse_lessons
 from backend.services.lap_classify import aggregate_intensity_zones
 from backend.services.performance_scores import (
     _PERF_FORMULA_VERSION,
@@ -435,6 +436,33 @@ def select_previous_races(
     return done[:limit]
 
 
+MAX_LESSONS_PER_RACE = 6
+
+
+def _linked_lessons(session: Session, race: Race) -> list[str]:
+    """Lessons from the decisions linked to this race, newest decision first."""
+    from backend.models import Decision
+
+    rows = (
+        session.query(Decision)
+        .filter(Decision.user_id == race.user_id, Decision.race_id == race.id)
+        .order_by(Decision.decided_on.desc(), Decision.created_at.desc())
+        .all()
+    )
+    out: list[str] = []
+    for d in rows:
+        for lesson in parse_lessons(d.raw_text):
+            if lesson not in out:
+                out.append(lesson)
+    return out[:MAX_LESSONS_PER_RACE]
+
+
+def _lessons_text(lessons: list[str]) -> str:
+    if not lessons:
+        return "none recorded"
+    return " ".join(f"({i}) {l.rstrip('.')}." for i, l in enumerate(lessons, 1))
+
+
 def _previous_race_lines(session: Session, races: Iterable[Race]) -> list[str]:
     lines = []
     for r in races:
@@ -457,7 +485,7 @@ def _previous_race_lines(session: Session, races: Iterable[Race]) -> list[str]:
         lines.append(
             f"  - {r.race_date.isoformat()} {_na(float(r.distance_km), suffix=' km')}: "
             f"time {_fmt_duration(r.actual_time_seconds)} pace {pace} "
-            f"HR {avg_hr} power {avg_pwr} lessons: none recorded"
+            f"HR {avg_hr} power {avg_pwr} lessons: {_lessons_text(_linked_lessons(session, r))}"
         )
     return lines
 

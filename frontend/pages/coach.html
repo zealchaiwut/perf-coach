@@ -160,6 +160,8 @@
       background: color-mix(in srgb, var(--text) 8%, transparent);
       color: var(--text-sub);
     }
+    .dc-entry.is-target { outline: 2px solid #1f3b8a; }
+    .dc-lessons { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
     .dc-chip.due { background: #fff3bf; color: #8a6100; }
     .dc-chip.notapplied { background: #ffe3e3; color: #c92a2a; }
     .dc-raw {
@@ -220,7 +222,7 @@
       back here.
     </p>
 
-    <section class="dc-card" aria-labelledby="dc-add-heading">
+    <section class="dc-card" id="paste" aria-labelledby="dc-add-heading">
       <div class="dc-label" id="dc-add-heading">Paste a change list</div>
       <textarea id="dc-raw" class="dc-textarea" spellcheck="false"
         placeholder="CHANGES TO APPLY&#10;prefs:    plyo_sessions_per_week  0 → 1&#10;skeleton: move long run Sat → Sun&#10;habits:   protein-first, every meal&#10;review:   weight trend + endurance score, 2 weeks"></textarea>
@@ -236,6 +238,10 @@
         <label class="dc-field">
           <span class="dc-hint">Tags, comma separated</span>
           <input type="text" id="dc-tags" class="dc-input" placeholder="fuel, training">
+        </label>
+        <label class="dc-field">
+          <span class="dc-hint">Race (optional)</span>
+          <select id="dc-race" class="dc-input"><option value="">None</option></select>
         </label>
       </div>
       <button type="button" class="dc-btn" id="dc-save">Save decision</button>

@@ -148,6 +148,7 @@ from backend.routers.coach import router as _coach_router
 from backend.routers.preferences import router as _preferences_router
 from backend.routers.decisions import router as _decisions_router
 from backend.routers.admin import router as _admin_router
+from backend.routers.performance_axes import router as _performance_axes_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -186,6 +187,7 @@ app.include_router(_coach_router)
 app.include_router(_preferences_router)
 app.include_router(_decisions_router)
 app.include_router(_admin_router)
+app.include_router(_performance_axes_router)
 
 
 def _today_bkk() -> _date:
