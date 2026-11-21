@@ -219,7 +219,92 @@
       .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Focus</span><p>Not available.</p></div>'; });
   }
 
+  // ── A-race hero and the after-the-race card (P4-8) ────────────────────────
+  // Display only: every value comes from /api/performance/hero; the one local
+  // calculation is formatting seconds as h:mm:ss.
+
+  function fmtHMS(sec) {
+    if (sec == null) return "—";
+    var s = Math.abs(Math.round(sec));
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(r).padStart(2, "0");
+  }
+  function fmtPace(sec) { return sec == null ? "—" : fmtHMS(sec).replace(/^0:/, "") + " /km"; }
+  function signedGap(sec) {
+    if (sec == null) return "—";
+    if (sec === 0) return "0:00";
+    // goal minus estimate: positive means the estimate beats the goal (shown as a minus time vs goal)
+    return (sec > 0 ? "\u2212" : "+") + fmtHMS(sec);
+  }
+
+  function tile(label, value, sub, extra) {
+    return '<div class="rv-metric"' + (extra || "") + '><span class="rv-label">' + esc(label) + '</span><br>' +
+      '<strong>' + value + '</strong>' + (sub ? '<br><span class="rv-subtitle">' + sub + '</span>' : "") + '</div>';
+  }
+
+  function renderHero(host, afterHost, data) {
+    var r = data.race;
+    if (!r) {
+      host.innerHTML = '<span class="rv-label">A race</span><p class="rv-subtitle">No upcoming A race. Add one on the race list.</p>';
+    } else {
+      var est = data.estimate || {};
+      var goal = data.goal || {};
+      var gap = data.gap || {};
+      var estTile = est.available
+        ? tile("Estimate", esc(fmtHMS(est.est_sec)), esc(fmtPace(est.pace_seconds_per_km)), ' data-hero="estimate"')
+        : tile("Estimate", "—", esc(est.reason || "not available"), ' data-hero="estimate"');
+      var rangeTile = est.available && est.range_low_sec != null
+        ? tile("Range" + (est.uncertainty_min ? " · ±" + esc(est.uncertainty_min) + " min" : ""),
+            esc(fmtHMS(est.range_low_sec)) + " –<br>" + esc(fmtHMS(est.range_high_sec)), "", ' data-hero="range"')
+        : tile("Range", "—", "not available", ' data-hero="range"');
+      var rs = data.race_specific || {};
+      host.innerHTML =
+        '<div class="rv-row"><div><span class="rv-chip">' + esc(r.priority) + '</span> ' +
+        '<h2 style="display:inline;margin:0 8px">' + esc(r.name) + '</h2>' +
+        '<span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") + '</span></div>' +
+        '<div class="rv-row"><span class="rv-chip" data-hero="countdown"><strong>' + esc(r.days_to_race) + '</strong>&nbsp;days</span>' +
+        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-hero-change-race">Change race</button></div></div>' +
+        '<div class="rv-row" style="align-items:stretch;flex-wrap:wrap">' +
+        tile("Goal", esc(fmtHMS(goal.time_sec)), esc(fmtPace(goal.pace_seconds_per_km)), ' data-hero="goal"') +
+        estTile + rangeTile +
+        tile("Gap to goal", esc(signedGap(gap.goal_minus_estimate_sec)), esc(gap.reading || ""), ' data-hero="gap"') +
+        '</div>' +
+        '<div class="rv-row" style="justify-content:flex-start;flex-wrap:wrap"><span class="rv-label">Race-specific</span>' +
+        '<span class="rv-chip" data-hero="race-endurance">End ' + esc(rs.endurance == null ? "—" : Math.round(rs.endurance)) + '</span>' +
+        '<span class="rv-chip" data-hero="race-speed">Spd ' + esc(rs.speed == null ? "—" : Math.round(rs.speed)) + '</span>' +
+        '<span class="rv-subtitle">' + esc(rs.explanation || "") + '</span></div>';
+      var change = host.querySelector("#v2-hero-change-race");
+      if (change) {
+        change.addEventListener("click", function () {
+          document.dispatchEvent(new CustomEvent("perf:edit-race", { detail: { raceId: r.id } }));
+          var list = document.getElementById("v2-perf-races");
+          if (list && list.scrollIntoView) list.scrollIntoView({ behavior: "smooth" });
+        });
+      }
+    }
+    var after = data.after_race || {};
+    var cp = after.next_checkpoint;
+    var cpHtml = "";
+    if (cp) {
+      var ce = cp.estimate || {};
+      cpHtml = '<div class="rv-row" data-after="checkpoint"><span><strong>' + esc(cp.label) + '</strong> · ' + esc(cp.target_date) +
+        (cp.distance_km ? " · " + esc(cp.distance_km) + " km" : "") + '</span>' +
+        '<span>' + (ce.available ? "Estimate " + esc(fmtHMS(ce.est_sec)) : "Estimate not available") + '</span></div>';
+    }
+    afterHost.innerHTML = '<span class="rv-label">After the race</span><p>' + esc(after.copy || "") + '</p>' + cpHtml;
+  }
+
+  function loadHero() {
+    var host = document.getElementById("v2-perf-hero");
+    var after = document.getElementById("v2-perf-after-race");
+    if (!host || !after) return;
+    getJSON("/api/performance/hero")
+      .then(function (data) { renderHero(host, after, data); })
+      .catch(function () { host.innerHTML = '<span class="rv-label">A race</span><p>Not available.</p>'; });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    loadHero();
     loadFocus();
     loadMobility();
     loadAnchors();
