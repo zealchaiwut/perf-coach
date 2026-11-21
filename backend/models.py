@@ -2174,6 +2174,11 @@ class Decision(Base):
     outcome_note = Column(Text, nullable=True)
     # When to check whether this change worked — surfaced to the next consult.
     review_on = Column(Date, nullable=True)
+    # Optional links to the race / session this decision came from (P4-13). A
+    # race-debrief paste links its race; the race row's Debrief chip and the next
+    # consult's "Previous races" lessons both read through this.
+    race_id = Column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="SET NULL"), nullable=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
 
@@ -2181,6 +2186,7 @@ class Decision(Base):
         CheckConstraint("source IN ('consult')", name="ck_decisions_source_values"),
         CheckConstraint("length(raw_text) > 0", name="ck_decisions_raw_text_non_empty"),
         Index("ix_decisions_user_decided_on", "user_id", decided_on.desc()),
+        Index("ix_decisions_race_id", "race_id"),
     )
 
 

@@ -116,6 +116,32 @@ def _race_specific(session, user_id, race, today: date) -> dict[str, Any]:
     return {"endurance": chip("endurance"), "speed": chip("speed")}
 
 
+def debrief_by_race(session, user_id, race_ids: list) -> dict[str, dict[str, Any]]:
+    """Newest linked decision per race (P4-13) — drives the Debrief chip."""
+    if not race_ids:
+        return {}
+    from backend.models import Decision
+    from backend.services.decision_lessons import parse_lessons
+
+    rows = (
+        session.query(Decision)
+        .filter(Decision.user_id == user_id, Decision.race_id.in_(race_ids))
+        .order_by(Decision.decided_on.desc(), Decision.created_at.desc())
+        .all()
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for d in rows:
+        key = str(d.race_id)
+        if key not in out:
+            out[key] = {
+                "decision_id": str(d.id),
+                "decided_on": d.decided_on.isoformat(),
+                "lessons_count": len(parse_lessons(d.raw_text)),
+                "link": f"/coach#decision-{d.id}",
+            }
+    return out
+
+
 def needs_result_row(race, workouts: list) -> dict[str, Any]:
     row = _base(race)
     distance = row["distance_km"]
@@ -183,10 +209,15 @@ def build_race_list(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
 
     target = next_a_race(session, user_id, today)
     target_id = target.id if target is not None else None
+    debriefs = debrief_by_race(session, user_id, [r.id for r in need_rows_races])
+    needs_rows = [needs_result_row(r, runs) for r in needs]
+    done_rows = [completed_row(r, runs) for r in done]
+    for row in needs_rows + done_rows:
+        row["debrief"] = debriefs.get(row["id"])
     return {
         "today": today.isoformat(),
-        "needs_result": [needs_result_row(r, runs) for r in needs],
+        "needs_result": needs_rows,
         "upcoming": [upcoming_row(session, user_id, r, today, target_id) for r in upcoming[:UPCOMING_LIMIT]],
         "total_upcoming": len(upcoming),
-        "completed": [completed_row(r, runs) for r in done],
+        "completed": done_rows,
     }

@@ -193,3 +193,22 @@ stored decision `raw_text` (`CHANGES TO APPLY` lines are `key:  text`).
 - Weekly check-in entry (P6-13 not built): done when a decision is dated this week (Mon-Sun),
   otherwise due; link to `/coach`.
 - Outcome and did-not-apply save through `PATCH /api/decisions/{id}` (`outcome_note`, `applied`).
+
+## Race debrief (P4-13) — `decision_lessons.py`, `decisions.race_id` / `session_id`
+
+- Migration `040c0bcc655a`: nullable `decisions.race_id` (-> races, SET NULL) and
+  `decisions.session_id` (-> workouts, SET NULL), index on `race_id`; idempotent with downgrade.
+- `POST /api/decisions` accepts optional `race_id` / `session_id` (ownership checked: 404 when not the
+  caller's; 422 on a malformed id). A session link with no race links the race that run matched
+  (`session_consult._find_linked_race`).
+- Lessons are derived from `raw_text` on read (`parse_lessons`) — `raw_text` is never edited and no
+  second copy exists. `lessons:` carries one to three lessons (same line first, then following lines,
+  bullets/numbers stripped) and ends at the next change-list key, a blank line, or the third lesson.
+  A paste with no `lessons:` line (an ordinary check-in) yields none.
+- Paste form (`/coach`): optional race select, auto-prefilled with the most recent finished race when the
+  text carries `prompt_version: race-debrief-v1` or a `lessons:` line (never overrides a manual choice);
+  a pasted `session_id:` header is sent as the session link.
+- Race rows show a Debrief chip (`/api/performance/races` -> `debrief`) linking to
+  `/coach#decision-<id>`, which scrolls to and highlights that history entry.
+- Consult "Previous races" block: each listed race prints its linked lessons
+  (`lessons: (1) ... (2) ...`, newest decision first, de-duplicated, max 6) or `none recorded`.

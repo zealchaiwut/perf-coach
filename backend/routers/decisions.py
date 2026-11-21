@@ -24,7 +24,8 @@ from sqlalchemy.orm import Session
 
 from backend.auth import resolve_user
 from backend.db import engine
-from backend.models import Decision, User
+from backend.models import Decision, Race, User, Workout
+from backend.services.decision_lessons import parse_lessons
 
 router = APIRouter()
 
@@ -50,6 +51,10 @@ def _decision_dict(d: Decision) -> dict:
         "applied": bool(d.applied),
         "outcome_note": d.outcome_note,
         "review_on": d.review_on.isoformat() if d.review_on else None,
+        "race_id": str(d.race_id) if getattr(d, "race_id", None) else None,
+        "session_id": str(d.session_id) if getattr(d, "session_id", None) else None,
+        # Derived from raw_text on read (raw_text stays immutable): the race-debrief lessons.
+        "lessons": parse_lessons(d.raw_text),
         "created_at": d.created_at.isoformat() if d.created_at else None,
     }
 
@@ -61,6 +66,8 @@ class _DecisionBody(BaseModel):
     applied: bool | None = None
     review_on: str | None = None
     outcome_note: str | None = None
+    race_id: str | None = None
+    session_id: str | None = None
 
 
 class _DecisionPatchBody(BaseModel):
@@ -93,6 +100,35 @@ def _clean_tags(tags: list | None, errors: list) -> list[str] | None:
     return cleaned
 
 
+def _parse_uuid(raw: str | None, field: str, errors: list) -> _uuid.UUID | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        return _uuid.UUID(str(raw))
+    except (ValueError, TypeError):
+        errors.append({"field": field, "msg": f"{field} must be a valid id"})
+        return None
+
+
+def _resolve_links(db, user_id, race_id, session_id):
+    """Validate ownership of the optional race / session links. A session with no
+    explicit race links the race it was matched to (the debrief case)."""
+    if session_id is not None:
+        workout = db.query(Workout).filter(Workout.id == session_id, Workout.user_id == user_id).first()
+        if workout is None:
+            raise HTTPException(status_code=404, detail="session not found")
+        if race_id is None:
+            from backend.services.session_consult import _find_linked_race
+
+            linked, _ = _find_linked_race(db, workout)
+            race_id = linked.id if linked is not None else None
+    if race_id is not None:
+        race = db.query(Race).filter(Race.id == race_id, Race.user_id == user_id).first()
+        if race is None:
+            raise HTTPException(status_code=404, detail="race not found")
+    return race_id, session_id
+
+
 @router.post("/api/decisions", status_code=201)
 async def create_decision(body: _DecisionBody, user: User = Depends(resolve_user)):
     """Store one consult decision. The MVP is a single textarea — paste the
@@ -122,6 +158,9 @@ async def create_decision(body: _DecisionBody, user: User = Depends(resolve_user
     if body.decided_on and decided_on and decided_on > _today_bangkok():
         errors.append({"field": "decided_on", "msg": "decided_on cannot be in the future"})
 
+    race_uuid = _parse_uuid(body.race_id, "race_id", errors)
+    session_uuid = _parse_uuid(body.session_id, "session_id", errors)
+
     if errors:
         raise HTTPException(status_code=422, detail=errors)
 
@@ -130,6 +169,7 @@ async def create_decision(body: _DecisionBody, user: User = Depends(resolve_user
         review_on = decided_on + _timedelta(days=DEFAULT_REVIEW_DAYS)
 
     with Session(engine) as db:
+        race_uuid, session_uuid = _resolve_links(db, user.id, race_uuid, session_uuid)
         decision = Decision(
             # Generated here rather than leaning on the server default so the
             # insert round-trips identically on every backend.
@@ -142,6 +182,8 @@ async def create_decision(body: _DecisionBody, user: User = Depends(resolve_user
             applied=True if body.applied is None else bool(body.applied),
             outcome_note=outcome_note,
             review_on=review_on,
+            race_id=race_uuid,
+            session_id=session_uuid,
         )
         db.add(decision)
         db.commit()
