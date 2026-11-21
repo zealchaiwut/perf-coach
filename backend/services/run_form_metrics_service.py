@@ -66,6 +66,7 @@ def upsert_form_metrics_for_activity(
                 "vertical_oscillation_cm": row["vertical_oscillation_cm"],
                 "cadence_spm": row["cadence_spm"],
                 "power_w": row["power_w"],
+                "form_power_ratio": row["form_power_ratio"],
                 "workout_id": row["workout_id"],
             },
         )

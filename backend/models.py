@@ -1958,6 +1958,8 @@ class RunFormMetrics(Base):
     vertical_oscillation_cm = Column(Numeric(6, 2), nullable=True)
     cadence_spm = Column(Numeric(6, 2), nullable=True)
     power_w = Column(Numeric(6, 1), nullable=True)
+    # form power / running power (dimensionless, ~0.2-0.3). Added in P4-3.
+    form_power_ratio = Column(Numeric(6, 4), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
     __table_args__ = (

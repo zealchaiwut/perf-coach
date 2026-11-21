@@ -1005,6 +1005,7 @@ Per-run Stryd running-dynamics extracted from `stryd_activities.form_metrics` JS
 | vertical_oscillation_cm | numeric(6,2) | nullable |
 | cadence_spm | numeric(6,2) | nullable |
 | power_w | numeric(6,1) | nullable |
+| form_power_ratio | numeric(6,4) | nullable — form power / running power (P4-3, migration `bf3569410f9f`) |
 | created_at | timestamptz | NOT NULL, server default now() |
 
 Unique: `(stryd_activity_pk)` (`uq_run_form_metrics_stryd_activity_pk`). Index: `ix_run_form_metrics_user_run_date` on `(user_id, run_date)`. Migration: `3bd978fbbf19_add_run_form_metrics_table`.

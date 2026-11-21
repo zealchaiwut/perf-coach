@@ -39,7 +39,7 @@ def register_axis(axis: str, fn: AxisComputer) -> None:
 
 
 # Modules that expose ``AXIS_FUNCS = {axis: fn}``; later P4 tickets append here.
-_AXIS_MODULES: tuple[str, ...] = ("axis_durability",)
+_AXIS_MODULES: tuple[str, ...] = ("axis_durability", "axis_economy")
 
 
 def _load_computers() -> None:
