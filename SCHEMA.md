@@ -977,10 +977,15 @@ Durable daily endurance/speed scores with formula-version stamps. Upserted (writ
 | score_date | date | NOT NULL |
 | endurance | float | nullable |
 | speed | float | nullable |
+| durability | float | nullable — Phase 4 axis (P4-2); NULL = never-measured that day |
+| economy | float | nullable — Phase 4 axis (P4-3) |
+| strength | float | nullable — Phase 4 axis (P4-4) |
+| mobility | float | nullable — Phase 4 axis (P4-5) |
+| power_to_weight | float | nullable — Phase 4 axis (P4-4) |
 | formula_version | text | NOT NULL |
 | created_at | timestamptz | server default now() |
 
-Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_user_date_version`). Index: `ix_performance_score_history_user_date` on `(user_id, score_date)`. Migration: `129d863fa625_add_performance_score_history`.
+Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_user_date_version`). Index: `ix_performance_score_history_user_date` on `(user_id, score_date)`. Migrations: `129d863fa625_add_performance_score_history`, `27d247208ac6_performance_score_history_phase4_axes` (adds the five Phase 4 axis columns). The Phase 4 columns are written once a day by `axis_snapshot.run_daily_snapshot` (worker job `axis_snapshot`).
 
 ---
 
