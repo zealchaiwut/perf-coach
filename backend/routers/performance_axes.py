@@ -292,3 +292,14 @@ def get_performance_races(user: User = Depends(resolve_user)):
 
     with Session(engine) as db:
         return JSONResponse(build_race_list(db, user.id, today_bangkok()))
+
+
+# ── Coach block (P4-12) ──────────────────────────────────────────────────────
+
+@router.get("/api/performance/coach-block")
+def get_performance_coach_block(user: User = Depends(resolve_user)):
+    from backend.services.coach_block import fetch_coach_block
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(fetch_coach_block(db, user.id, today_bangkok()))

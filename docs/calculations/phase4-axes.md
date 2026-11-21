@@ -174,3 +174,22 @@ call the hero uses).
   it suggests new constants); edits use `PATCH /api/races/{id}`, adds use `POST /api/races`.
   `build_projection` runs `ensure_calibrations`, so a recorded result is a calibration row
   before the chain is built and the P4-10 invariants keep holding.
+
+## Coach block (P4-12) — `backend/services/coach_block.py`
+
+`GET /api/performance/coach-block`. No model call; everything is read from the
+stored decision `raw_text` (`CHANGES TO APPLY` lines are `key:  text`).
+
+- Review due: newest decision (decided_on, then created_at) with `review_on <= today`
+  and no outcome. Due on the review date and every day after; a blank outcome is no
+  outcome; a decision marked not applied is never due.
+- Review question = its `review:` lines. History summary = first `skeleton:` / `goal:`
+  line (else the first non-heading line).
+- Status chips: open (no outcome, applied), kept ("Worked or kept": outcome present, applied),
+  skipped (applied false).
+- Evidence chips (fixed mapping, silently absent on a miss): "long run(s)" -> long runs
+  (>= `LONG_RUN_MIN_MINUTES`) since the decision date; "gel"/"fuel" -> first-gel minute of the
+  latest long run that logged one (`first_gel_minute`, P1-9 — absent until that field has data).
+- Weekly check-in entry (P6-13 not built): done when a decision is dated this week (Mon-Sun),
+  otherwise due; link to `/coach`.
+- Outcome and did-not-apply save through `PATCH /api/decisions/{id}` (`outcome_note`, `applied`).
