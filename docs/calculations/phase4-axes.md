@@ -67,3 +67,16 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
   (the weaker side counts), sit-and-reach = `(value + 10) / 30 x 100`. Score =
   rounded mean. Latest test wins.
 - Stale after 45 days (the 46th day shows the test-due chip); the score is kept.
+
+## Radar (P4-6) — `radar_payload.py`, `radar_svg.py`, `frontend/js/lib/perf-radar.js`
+
+- `GET /api/performance/radar?size=large|small` returns, per axis (P4-1 order):
+  `score`, `score_28d_ago` (snapshot at or before today − 28 d), `delta_28d`,
+  `stale`, `never_measured`, `focus`, `status`, plus `not_yet_measured`, an
+  accessible `summary` sentence and the rendered inline `svg`.
+- Home (small) and Performance (large) mount the same component against the same
+  endpoint; scores are never recomputed client-side.
+- Never-measured axes are omitted from the polygon (it closes over the rest) and
+  listed under the chart. Stale axes: hollow dashed point. Focus axis: amber point
+  and label. Dashed outline = 28 days ago. Rings at 25 / 50 / 75.
+- Status label precedence: focus, stale (test due for mobility), signed 28-day delta.

@@ -27,11 +27,20 @@
       <a class="rv-btn rv-btn--secondary" href="/home">Back to classic app</a>
       <a class="rv-btn rv-btn--secondary" href="/v2/components">Component gallery</a>
     </p>
+    <section class="rv-card rv-stack" aria-labelledby="rv-radar-h">
+      <div class="rv-row">
+        <h2 id="rv-radar-h" class="rv-label">Status · same as Performance</h2>
+        <a href="/v2/performance">Performance</a>
+      </div>
+      <div data-perf-radar data-size="small" id="v2-home-radar"></div>
+    </section>
     <section class="rv-card" aria-labelledby="rv-empty-h">
       <h2 id="rv-empty-h" class="rv-label">Coming soon</h2>
       <p>Readiness, week summary, and quick actions will live here.</p>
     </section>
   </div>
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/lib/perf-radar.js"></script>
   <script>
     fetch("/api/auth/me").then(function (r) { return r.ok ? r.json() : null; }).then(function (u) {
       if (u && u.is_admin) document.getElementById("rv-admin-tab").hidden = false;

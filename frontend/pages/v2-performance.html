@@ -21,6 +21,10 @@
     </header>
 
     <div id="v2-perf-shell" class="rv-stack">
+      <section class="rv-card rv-stack" id="v2-perf-radar" aria-label="Performance radar">
+        <span class="rv-label">Status</span>
+        <div data-perf-radar data-size="large" id="v2-perf-radar-chart"></div>
+      </section>
       <section class="rv-card rv-stack" id="v2-perf-mobility" aria-label="Mobility self-test"></section>
       <section class="rv-card rv-stack" id="v2-perf-strength-anchors" aria-label="Strength anchor lifts"></section>
     </div>
@@ -33,6 +37,7 @@
   </aside>
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/lib/perf-radar.js"></script>
   <script src="/js/v2-performance.js"></script>
 </body>
 </html>

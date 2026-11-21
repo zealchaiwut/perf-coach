@@ -153,3 +153,27 @@ def delete_mobility_test(test_id: str, user: User = Depends(resolve_user)):
         db.delete(row)
         db.commit()
     return Response(status_code=204)
+
+
+# ── Radar (P4-6) ─────────────────────────────────────────────────────────────
+
+@router.get("/api/performance/radar")
+def get_performance_radar(size: str = "large", user: User = Depends(resolve_user)):
+    """One payload (and its rendered inline SVG) for the Home and Performance radars."""
+    from backend.services.radar_payload import build_radar
+    from backend.services.radar_svg import render_radar_svg
+    from backend.utils.time import today_bangkok
+
+    if size not in ("large", "small"):
+        raise HTTPException(status_code=422, detail="size must be 'large' or 'small'")
+    today = today_bangkok()
+    with Session(engine) as db:
+        payload = build_radar(db, user.id, today, focus_axis=_focus_axis_for(db, user.id, today))
+    payload["size"] = size
+    payload["svg"] = render_radar_svg(payload, size)
+    return JSONResponse(payload)
+
+
+def _focus_axis_for(db, user_id, as_of):
+    """Focus axis for the radar's amber point (wired to the P4-7 ranking)."""
+    return None
