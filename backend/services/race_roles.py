@@ -36,3 +36,12 @@ def race_role(race) -> str:
 
 def recalibrates(race) -> bool:
     return race_role(race) in RECALIBRATING_ROLES
+
+
+ROLE_LABELS = {"a_race": "A race", "pb": "PB attempt", "long_run": "Long run", "fun": "Fun run"}
+ROLE_TARGETS = {
+    "a_race": "Target: the goal time",
+    "pb": "Target: a personal best",
+    "long_run": "Target: a steady effort",
+    "fun": "Target: enjoy it",
+}

@@ -481,10 +481,216 @@
       .catch(function () { host.innerHTML = '<span class="rv-label">Races and projections</span><p>Not available.</p>'; });
   }
 
+  // ── Race list: needs result, upcoming, completed, add/edit (P4-11) ────────
+  // Rows come from /api/performance/races. Recording uses the existing
+  // POST /api/races/{id}/calibrate flow; edits use PATCH /api/races/{id}.
+
+  var raceIndex = {};
+
+  function parseHMS(text) {
+    var t = String(text || "").trim();
+    if (!t) return null;
+    var parts = t.split(":");
+    if (parts.length < 2 || parts.length > 3) return NaN;
+    var nums = parts.map(function (p) { return /^\d+$/.test(p) ? parseInt(p, 10) : NaN; });
+    if (nums.some(isNaN)) return NaN;
+    if (nums.length === 2) return nums[0] * 60 + nums[1];
+    return nums[0] * 3600 + nums[1] * 60 + nums[2];
+  }
+
+  function reloadProjectionViews() {
+    loadHero();
+    loadProjection();
+    loadRaces();
+    loadRaces();
+  }
+
+  function roleChips(r) {
+    return '<span class="rv-chip" data-race-priority>' + esc(r.priority) + '</span> ' +
+      '<span class="rv-chip" data-race-role="' + esc(r.role) + '">' + esc(r.role_label) + '</span>';
+  }
+
+  function raceHead(r, extra) {
+    return '<div>' + roleChips(r) + ' <strong>' + esc(r.name) + '</strong>' + (extra || "") +
+      '<br><span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " \u00b7 " + esc(r.distance_km) + " km" : "") +
+      ' \u00b7 ' + esc(r.role_target) + '</span></div>';
+  }
+
+  function goalCell(r) {
+    return '<div><span class="rv-label">Goal</span><br><strong>' + esc(fmtHMS(r.goal_sec)) + '</strong>' +
+      (r.goal_pace_seconds_per_km ? ' <span class="rv-subtitle">' + esc(fmtPace(r.goal_pace_seconds_per_km)) + '</span>' : "") + '</div>';
+  }
+
+  function deltaChip(label, c) {
+    if (!c || c.score == null) return '<span class="rv-chip">' + label + ' \u2014</span>';
+    var d = c.delta_28d == null ? "" : " " + (c.delta_28d > 0 ? "+" : c.delta_28d < 0 ? "\u2212" : "") + Math.abs(Math.round(c.delta_28d));
+    return '<span class="rv-chip">' + label + " " + esc(Math.round(c.score)) + esc(d) + '</span>';
+  }
+
+  function renderNeedsResult(r) {
+    var sug = r.suggested_actual;
+    var actual = sug
+      ? '<strong data-suggested-actual>' + esc(fmtHMS(sug.moving_seconds)) + '</strong> <span class="rv-subtitle">suggested \u00b7 ' +
+        esc(sug.date) + ' \u00b7 ' + esc(sug.distance_km) + ' km</span>'
+      : '<span class="rv-subtitle" data-no-match>' + esc(r.suggestion_reason || "No synced run matched") + '</span>';
+    return '<div class="rv-row rv-card--soft" data-needs-result="' + esc(r.id) + '" style="flex-wrap:wrap;padding:10px">' +
+      raceHead(r) + goalCell(r) +
+      '<div><span class="rv-label">Actual</span><br>' + actual + '</div>' +
+      '<div class="rv-row"><label class="rv-label">Time <input type="text" inputmode="numeric" placeholder="h:mm:ss" size="8" data-actual-input value="' +
+      esc(sug ? fmtHMS(sug.moving_seconds) : "") + '"></label>' +
+      '<button type="button" class="rv-btn rv-btn--primary" data-record="' + esc(r.id) + '">Record and recalibrate</button></div></div>';
+  }
+
+  function renderUpcoming(r) {
+    var est = r.estimate || {};
+    var estHtml = est.available
+      ? '<strong data-race-estimate>' + esc(fmtHMS(est.est_sec)) + '</strong>' +
+        (est.band_sec != null ? ' <span class="rv-subtitle">\u00b1' + esc(fmtHMS(est.band_sec)) + '</span>' : "")
+      : '<span class="rv-subtitle">not available</span>';
+    var rs = r.race_specific || {};
+    var extra = (r.is_target ? ' <span class="rv-chip" data-race-target>Target</span>' : "") +
+      (r.recalibrates_here ? ' <span class="rv-subtitle" data-recalibrates-here>recalibrates here</span>' : "");
+    return '<div class="rv-row" data-upcoming="' + esc(r.id) + '" style="flex-wrap:wrap;padding:8px 0">' +
+      raceHead(r, extra) + goalCell(r) +
+      '<div><span class="rv-label">Estimate</span><br>' + estHtml + '</div>' +
+      '<div class="rv-row">' + deltaChip("End", rs.endurance) + deltaChip("Spd", rs.speed) + '</div>' +
+      '<button type="button" class="rv-btn rv-btn--secondary" data-edit-race="' + esc(r.id) + '">Edit</button></div>';
+  }
+
+  function renderCompleted(r) {
+    var g = r.goal_minus_actual_sec;
+    var vs = g == null ? "" : g >= 0 ? "beat goal by " + fmtHMS(g) : "missed goal by " + fmtHMS(g);
+    return '<div class="rv-metric" data-completed="' + esc(r.id) + '">' + roleChips(r) + ' <strong>' + esc(r.name) + '</strong><br>' +
+      '<span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " \u00b7 " + esc(r.distance_km) + " km" : "") + '</span><br>' +
+      '<span class="rv-label">Chip</span> <strong data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + '</strong>' +
+      (r.moving_time_sec != null ? ' <span class="rv-subtitle" data-moving-time>moving ' + esc(fmtHMS(r.moving_time_sec)) + '</span>' : "") +
+      '<br><span class="rv-subtitle">goal ' + esc(fmtHMS(r.goal_sec)) + (vs ? " \u00b7 " + esc(vs) : "") + '</span></div>';
+  }
+
+  function renderRaces(host, data) {
+    var needs = data.needs_result || [], up = data.upcoming || [], done = data.completed || [];
+    raceIndex = {};
+    needs.concat(up, done).forEach(function (r) { raceIndex[r.id] = r; });
+    var more = data.total_upcoming > up.length ? '<span class="rv-subtitle">Showing ' + up.length + ' of ' + esc(data.total_upcoming) + ' upcoming races</span>' : "";
+    host.innerHTML =
+      '<div class="rv-row"><span class="rv-label">Races</span><button type="button" class="rv-btn rv-btn--primary" id="v2-race-add">Add a race</button></div>' +
+      (needs.length ? '<div class="rv-stack" data-section="needs-result"><span class="rv-label">Needs a result</span>' + needs.map(renderNeedsResult).join("") + '</div>' : "") +
+      '<div class="rv-stack" data-section="upcoming"><span class="rv-label">Upcoming</span>' +
+      (up.length ? up.map(renderUpcoming).join("") + more : '<p class="rv-subtitle">No upcoming races.</p>') + '</div>' +
+      (done.length ? '<div class="rv-stack" data-section="completed"><span class="rv-label">Completed</span><div class="rv-row" style="flex-wrap:wrap;align-items:stretch">' + done.map(renderCompleted).join("") + '</div></div>' : "");
+    host.querySelector("#v2-race-add").addEventListener("click", function () { openRaceDrawer(null); });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-edit-race]"), function (b) {
+      b.addEventListener("click", function () { openRaceDrawer(raceIndex[b.getAttribute("data-edit-race")]); });
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-record]"), function (b) {
+      b.addEventListener("click", function () {
+        var row = b.closest("[data-needs-result]");
+        recordResult(b.getAttribute("data-record"), row.querySelector("[data-actual-input]").value, b);
+      });
+    });
+  }
+
+  function recordResult(raceId, text, btn) {
+    var secs = parseHMS(text);
+    if (secs == null || isNaN(secs) || secs <= 0) { toast("Enter the finish time as h:mm:ss"); return; }
+    btn.disabled = true;
+    sendJSON("POST", "/api/races/" + encodeURIComponent(raceId) + "/calibrate", { actual_time_seconds: secs })
+      .then(function (res) {
+        var s = (res && res.suggestions) || {};
+        toast("Result recorded and projection recalibrated");
+        reloadProjectionViews();
+        if (s.suggested_ctl_days != null || s.suggested_atl_days != null) openAcceptDrawer(raceId, s);
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        var m = String(e.message || "");
+        toast(m.indexOf("goal") >= 0 ? "Set a goal time on this race first (Edit), then record the result" : "Could not record: " + m);
+      });
+  }
+
+  function openAcceptDrawer(raceId, s) {
+    var body = openDrawer(
+      '<h2 class="rv-label" id="v2-perf-drawer-title">Update your fitness constants?</h2>' +
+      '<p>' + esc(s.explanation || "This result suggests new fitness constants.") + '</p>' +
+      '<p class="rv-subtitle">Fitness ' + esc(s.suggested_ctl_days == null ? "unchanged" : s.suggested_ctl_days + " days") +
+      ' \u00b7 fatigue ' + esc(s.suggested_atl_days == null ? "unchanged" : s.suggested_atl_days + " days") + '</p>' +
+      '<div class="rv-row"><button type="button" class="rv-btn rv-btn--secondary" data-close>Keep current</button>' +
+      '<button type="button" class="rv-btn rv-btn--primary" data-accept>Accept</button></div>'
+    );
+    if (!body) return;
+    body.querySelector("[data-close]").addEventListener("click", closeDrawer);
+    body.querySelector("[data-accept]").addEventListener("click", function () {
+      sendJSON("POST", "/api/races/" + encodeURIComponent(raceId) + "/calibrate/accept",
+        { ctl_days: s.suggested_ctl_days, atl_days: s.suggested_atl_days })
+        .then(function () { closeDrawer(); toast("Constants updated"); reloadProjectionViews(); })
+        .catch(function (e) { toast("Could not save: " + e.message); });
+    });
+  }
+
+  function openRaceDrawer(race) {
+    var editing = !!race;
+    var body = openDrawer(
+      '<h2 class="rv-label" id="v2-perf-drawer-title">' + (editing ? "Edit race" : "Add a race") + '</h2>' +
+      '<form id="v2-race-form" class="rv-stack" novalidate>' +
+      '<label class="rv-label">Name <input type="text" name="name" required value="' + esc(editing ? race.name : "") + '"></label>' +
+      '<label class="rv-label">Date <input type="date" name="race_date" required value="' + esc(editing ? race.race_date : "") + '"></label>' +
+      '<label class="rv-label">Distance (km) <input type="number" name="distance_km" min="0.1" step="0.001" required value="' + esc(editing && race.distance_km ? race.distance_km : "") + '"></label>' +
+      '<label class="rv-label">Goal time (h:mm:ss, optional) <input type="text" name="goal" placeholder="4:30:00" value="' + esc(editing && race.goal_sec ? fmtHMS(race.goal_sec) : "") + '"></label>' +
+      '<label class="rv-label">Priority <select name="priority">' +
+      [["A", "A \u00b7 A race"], ["B", "B \u00b7 PB attempt"], ["C", "C \u00b7 Fun run"]].map(function (o) {
+        return '<option value="' + o[0] + '"' + ((editing ? race.priority : "B") === o[0] ? " selected" : "") + '>' + o[1] + '</option>';
+      }).join("") + '</select></label>' +
+      '<p class="rv-subtitle">The race role follows priority: A is the A race, B a PB attempt, C a fun run. Only the first two recalibrate the projection.</p>' +
+      '<p class="rv-warn-inline" id="v2-race-error" role="alert" hidden></p>' +
+      '<div class="rv-row"><button type="button" class="rv-btn rv-btn--secondary" data-close>Cancel</button>' +
+      '<button type="submit" class="rv-btn rv-btn--primary">' + (editing ? "Save race" : "Add race") + '</button></div></form>'
+    );
+    if (!body) return;
+    body.querySelector("[data-close]").addEventListener("click", closeDrawer);
+    body.querySelector("#v2-race-form").addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var f = ev.target, err = body.querySelector("#v2-race-error");
+      var goal = parseHMS(f.elements.goal.value);
+      if (isNaN(goal)) { err.textContent = "Goal time must look like 4:30:00"; err.hidden = false; return; }
+      var dist = parseFloat(f.elements.distance_km.value);
+      if (!f.elements.name.value.trim() || !f.elements.race_date.value || !(dist > 0)) {
+        err.textContent = "Name, date and a distance above zero are required"; err.hidden = false; return;
+      }
+      var payload = { name: f.elements.name.value.trim(), distance_km: dist, goal_time_seconds: goal, priority: f.elements.priority.value };
+      var req;
+      if (editing) {
+        payload.race_date = f.elements.race_date.value;
+        req = sendJSON("PATCH", "/api/races/" + encodeURIComponent(race.id), payload);
+      } else {
+        payload.date = f.elements.race_date.value;
+        req = sendJSON("POST", "/api/races", payload);
+      }
+      req.then(function () {
+        closeDrawer();
+        toast(editing ? "Race saved" : "Race added");
+        reloadProjectionViews();
+      }).catch(function (e) { err.textContent = e.message; err.hidden = false; });
+    });
+  }
+
+  function loadRaces() {
+    var host = document.getElementById("v2-perf-races");
+    if (!host) return;
+    getJSON("/api/performance/races")
+      .then(function (data) { renderRaces(host, data); })
+      .catch(function () { host.innerHTML = '<span class="rv-label">Races</span><p>Not available.</p>'; });
+  }
+
+  document.addEventListener("perf:edit-race", function (ev) {
+    var r = ev.detail && raceIndex[ev.detail.raceId];
+    if (r) openRaceDrawer(r);
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     loadScoreCards();
     loadHero();
     loadProjection();
+    loadRaces();
     loadFocus();
     loadMobility();
     loadAnchors();

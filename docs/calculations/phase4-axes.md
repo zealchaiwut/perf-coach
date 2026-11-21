@@ -157,3 +157,20 @@ call the hero uses).
 - A-race goal: `provisional` until the last pb race before the A race has a
   result, then `locked`; always editable. With no pb race before it, it stays
   provisional.
+
+## Race list (P4-11) — `backend/services/race_list.py`
+
+`GET /api/performance/races`: needs-result, upcoming (first 8, plus `total_upcoming`) and completed (last 6) rows.
+
+- Suggested actual (`match_run`, suggestion only): a synced run on the race date +/- 1 day
+  with distance within 5% of the race distance; closest distance, then nearest day, wins.
+  The suggested time is the run's moving time. No match reads "No synced run matched".
+- Upcoming rows: priority + role chips and role target, goal with pace, estimate with band
+  (`build_estimate_block`, the same call as the hero and the chain), race-specific End/Spd
+  chips (`get_race_scores`), target chip on the A race, "recalibrates here" for pb / a_race.
+- Completed rows: chip time (`actual_time_seconds`) first, matched run moving time second,
+  goal minus actual.
+- Recording uses the existing `POST /api/races/{id}/calibrate` (and `/calibrate/accept` when
+  it suggests new constants); edits use `PATCH /api/races/{id}`, adds use `POST /api/races`.
+  `build_projection` runs `ensure_calibrations`, so a recorded result is a calibration row
+  before the chain is built and the P4-10 invariants keep holding.
