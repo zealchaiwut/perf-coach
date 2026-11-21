@@ -40,6 +40,10 @@
   </div>
 
   <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <div id="v2-session-editor-backdrop" class="rv-drawer-backdrop" hidden></div>
+  <aside id="v2-session-editor" class="rv-drawer rv-drawer--wide" role="dialog" aria-modal="true" aria-labelledby="v2-session-editor-title" hidden>
+    <div class="rv-drawer-scroll" id="v2-session-editor-body"></div>
+  </aside>
   <div class="rv-popover-backdrop" id="v2-coach-import-backdrop" hidden></div>
   <div class="rv-card rv-stack" id="v2-coach-import" role="dialog" aria-labelledby="v2-coach-import-title" hidden
     style="position:fixed;left:50%;top:12%;transform:translateX(-50%);z-index:50;max-width:640px;width:calc(100% - 32px);max-height:75vh;overflow:auto">
@@ -68,6 +72,7 @@
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/lib/v2-sync-toolbar.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-session-editor.js"></script>
   <script src="/js/v2-plan-week-board.js"></script>
   <script src="/js/v2-training-plan.js"></script>
 </body>

@@ -102,7 +102,14 @@
       host.querySelector('#v2-week-next').onclick = function () { shiftWeek(7); };
       host.querySelectorAll('[data-add-date]').forEach(function (btn) {
         btn.onclick = function () {
-          toast('Session editor (P3-8) opens on ' + btn.getAttribute('data-add-date'));
+          var d = btn.getAttribute('data-add-date');
+          if (window.V2SessionEditor && window.V2SessionEditor.openPlanned) {
+            window.V2SessionEditor.openPlanned({
+              plannedDate: d,
+              weekStart: data.week_start,
+              onSaved: refresh,
+            });
+          }
         };
       });
       bindDnD(host, data);

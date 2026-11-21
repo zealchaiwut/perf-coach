@@ -18859,6 +18859,38 @@ def get_plan_revamp_week_load(
     return JSONResponse(payload)
 
 
+@app.get("/api/plan/revamp-planned-editor/context")
+def get_plan_revamp_planned_editor_context(
+    planned_date: str = Query(...),
+    week_start: Optional[str] = Query(default=None),
+    session_id: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.revamp_planned_editor import planned_editor_context
+
+    try:
+        pdate = _validate_planned_date(planned_date)
+    except HTTPException:
+        raise
+    ws = None
+    if week_start:
+        try:
+            raw = _date.fromisoformat(week_start.strip())
+            ws = raw - _timedelta(days=raw.weekday())
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+    sid = None
+    if session_id:
+        try:
+            sid = _uuid.UUID(session_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid session id")
+    with Session(engine) as db:
+        return JSONResponse(
+            planned_editor_context(db, user.id, planned_date=pdate, session_id=sid, week_start=ws)
+        )
+
+
 @app.post("/api/plan/rule-evaluate")
 def post_plan_rule_evaluate(body: PlanRuleEvaluateIn, user: User = Depends(resolve_user)):
     """Evaluate planning rule hits for a pending move or edit (P3-9)."""
