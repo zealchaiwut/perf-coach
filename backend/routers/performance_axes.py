@@ -260,3 +260,13 @@ def get_performance_hero(user: User = Depends(resolve_user)):
 
     with Session(engine) as db:
         return JSONResponse(build_hero(db, user.id, today_bangkok()))
+
+
+# ── Endurance and Speed score cards (P4-9) ───────────────────────────────────
+
+@router.get("/api/performance/score-cards")
+def get_performance_score_cards(user: User = Depends(resolve_user)):
+    from backend.services.score_cards import build_cards
+    from backend.utils.time import today_bangkok
+
+    return JSONResponse(build_cards(user.id, as_of=today_bangkok()))

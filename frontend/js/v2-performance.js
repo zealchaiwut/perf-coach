@@ -303,7 +303,60 @@
       .catch(function () { host.innerHTML = '<span class="rv-label">A race</span><p>Not available.</p>'; });
   }
 
+  // ── Endurance and Speed cards (P4-9) ──────────────────────────────────────
+
+  function sparkline(spark) {
+    if (!spark || !spark.values || spark.values.length < 2) return "";
+    var v = spark.values, lo = Math.min.apply(null, v), hi = Math.max.apply(null, v);
+    var span = hi - lo || 1, w = 200, h = 44;
+    var pts = v.map(function (y, i) {
+      return (i * w / (v.length - 1)).toFixed(1) + "," + (h - 4 - (y - lo) / span * (h - 8)).toFixed(1);
+    }).join(" ");
+    return '<svg viewBox="0 0 200 44" style="width:100%;height:44px" aria-hidden="true" data-sparkline>' +
+      '<polyline points="' + pts + '" fill="none" stroke="#1f3b8a" stroke-width="2"/></svg>';
+  }
+
+  function num(v) { return v == null ? "—" : (Math.round(v * 10) / 10).toString(); }
+  function signed(v) {
+    if (v == null) return "";
+    var n = Math.round(v);
+    return n === 0 ? "0" : (n > 0 ? "+" + n : "\u2212" + Math.abs(n));
+  }
+
+  function renderScoreCard(c) {
+    var chip = c.delta_28d == null ? "" :
+      '<span class="rv-chip" data-card-delta>' + esc(signed(c.delta_28d)) + ' in 28 days</span>';
+    var d = c.decomposition;
+    var line = d ? '<p class="rv-subtitle" data-card-decomposition>' +
+      esc(num(d.score_then)) + ' then · ' + esc(num(d.decay)) + ' decay · ' + esc(num(d.efforts)) +
+      ' efforts · ' + esc(num(d.consistency)) + ' consistency · ' + esc(num(d.score_now)) + ' now</p>' : "";
+    var split = c.split && (c.split.decay || c.split.gains) ?
+      '<div class="rv-zone-bar" role="img" aria-label="Decay ' + esc(num(c.split.decay)) + ' points versus gains ' + esc(num(c.split.gains)) + ' points" data-card-split>' +
+      '<span class="rv-zone-seg" style="width:' + (c.split.decay_share * 100).toFixed(1) + '%;background:#f0b27a"></span>' +
+      '<span class="rv-zone-seg" style="width:' + (c.split.gains_share * 100).toFixed(1) + '%;background:#1f3b8a"></span></div>' : "";
+    var reason = c.reason ? '<p data-card-reason>' + esc(c.reason) + '</p>' : "";
+    var toReach = c.to_reach ? '<p data-card-to-reach>' + esc(c.to_reach) + '</p>' : "";
+    var anchors = (c.anchors || []).map(function (a) {
+      return '<li>' + esc(a.date) + ' · raw ' + esc(num(a.raw_score)) + ' · ' + esc(num(a.age_weeks)) + ' wk' +
+        (a.is_stale ? ' · <strong>stale</strong>' : '') + '</li>';
+    }).join("");
+    return '<div class="rv-card rv-stack" data-score-card="' + esc(c.axis) + '">' +
+      '<div class="rv-row"><span class="rv-label">' + esc(c.label) + '</span>' + chip + '</div>' +
+      '<strong style="font-size:1.8rem">' + esc(c.score == null ? "—" : Math.round(c.score)) + '</strong>' +
+      sparkline(c.sparkline) + line + split + reason + toReach +
+      (anchors ? '<details><summary>Anchors</summary><ul>' + anchors + '</ul></details>' : "") + '</div>';
+  }
+
+  function loadScoreCards() {
+    var host = document.getElementById("v2-perf-score-cards");
+    if (!host) return;
+    getJSON("/api/performance/score-cards")
+      .then(function (data) { host.innerHTML = (data.cards || []).map(renderScoreCard).join(""); })
+      .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Endurance and Speed</span><p>Not available.</p></div>'; });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    loadScoreCards();
     loadHero();
     loadFocus();
     loadMobility();
