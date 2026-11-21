@@ -367,6 +367,18 @@ def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]
 
     race = next_a_race(session, user_id, today)
     try:
+        # Same self-heal the calibration-status endpoint runs: a freshly recorded
+        # result becomes a calibration row before the chain is built.
+        from backend.services.race_calibration import ensure_calibrations
+
+        ensure_calibrations(str(user_id), session)
+    except Exception:
+        _log.warning("ensure_calibrations failed", exc_info=True)
+        try:
+            session.rollback()
+        except Exception:
+            pass
+    try:
         cal_rows = load_calibrations(str(user_id), session)
     except Exception:
         _log.warning("load_calibrations failed", exc_info=True)

@@ -281,3 +281,14 @@ def get_performance_projection(user: User = Depends(resolve_user)):
 
     with Session(engine) as db:
         return JSONResponse(build_projection(db, user.id, today_bangkok()))
+
+
+# ── Race list (P4-11) ────────────────────────────────────────────────────────
+
+@router.get("/api/performance/races")
+def get_performance_races(user: User = Depends(resolve_user)):
+    from backend.services.race_list import build_race_list
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(build_race_list(db, user.id, today_bangkok()))
