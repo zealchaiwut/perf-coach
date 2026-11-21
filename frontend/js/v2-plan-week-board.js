@@ -82,7 +82,12 @@
           '<div class="rv-week-col-body">' + body + '</div></div>'
         );
       }).join('');
-      host.innerHTML = head + '<div class="rv-week-board">' + cols + '</div>';
+      var suggestBar =
+        '<button type="button" class="rv-suggest-banner" id="v2-suggest-open" style="width:100%;margin-bottom:12px;padding:14px 16px;border-radius:12px;border:0;background:#0b1530;color:#fff;text-align:left;cursor:pointer">' +
+        '<span style="font-weight:700;display:block">Suggest sessions</span>' +
+        '<span class="rv-subtitle" style="color:#c9d5ef">Fill gap to target with mobility, drills, or templates · rules-aware</span></button>' +
+        '<div id="v2-suggest-panel" class="rv-card rv-stack" hidden></div>';
+      host.innerHTML = head + suggestBar + '<div class="rv-week-board">' + cols + '</div>';
 
       host.querySelectorAll('.rv-move-select').forEach(function (sel) {
         data.days.forEach(function (d) {
@@ -104,6 +109,43 @@
       bindCoachPopover(host);
       bindKeyboardMove(host);
       bindCoachImport(host, data);
+      bindSuggestFill(host, data);
+    }
+
+    function bindSuggestFill(host, data) {
+      var open = host.querySelector('#v2-suggest-open');
+      var panel = host.querySelector('#v2-suggest-panel');
+      if (!open || !panel) return;
+      open.onclick = function () {
+        fetch('/api/plan/revamp-suggest/preview' + weekQuery(), {
+          method: 'POST',
+          credentials: 'include',
+        }).then(function (r) { return r.json(); }).then(function (payload) {
+          panel.hidden = false;
+          if (!payload.proposed || !payload.proposed.length) {
+            panel.innerHTML = '<p class="rv-subtitle">' + esc(payload.message || 'Nothing to suggest.') + '</p>';
+            return;
+          }
+          var rows = payload.proposed.map(function (p) {
+            return '<li>' + esc(p.planned_date) + ' · ' + esc(p.name) + ' · ' + esc(String(p.estimated_tss)) + ' TSS</li>';
+          }).join('');
+          panel.innerHTML =
+            '<p class="rv-subtitle">Gap ' + esc(String(payload.gap_tss)) + ' TSS → target ' + esc(String(payload.target_tss)) + '</p>' +
+            '<ul class="rv-subtitle">' + rows + '</ul>' +
+            '<button type="button" class="rv-btn" id="v2-suggest-apply">Apply suggestions</button>';
+          panel.querySelector('#v2-suggest-apply').onclick = function () {
+            fetch('/api/plan/revamp-suggest/apply', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ proposed: payload.proposed }),
+            }).then(function () {
+              panel.hidden = true;
+              refresh();
+            });
+          };
+        });
+      };
     }
 
     function bindCoachImport(host, data) {

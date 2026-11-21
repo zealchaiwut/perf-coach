@@ -18745,6 +18745,39 @@ def post_plan_coach_week_import_commit(body: CoachWeekImportCommitIn, user: User
     return JSONResponse(out)
 
 
+class RevampSuggestApplyIn(BaseModel):
+    proposed: list[dict]
+
+
+@app.post("/api/plan/revamp-suggest/preview")
+def post_plan_revamp_suggest_preview(
+    week_start: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.revamp_suggest_sessions import suggest_week_fill
+
+    today = _today_bkk()
+    ws = today - _timedelta(days=today.weekday())
+    if week_start:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        ws = ws - _timedelta(days=ws.weekday())
+    with Session(engine) as db:
+        return JSONResponse(suggest_week_fill(db, user.id, week_start=ws, today=today))
+
+
+@app.post("/api/plan/revamp-suggest/apply")
+def post_plan_revamp_suggest_apply(body: RevampSuggestApplyIn, user: User = Depends(resolve_user)):
+    from backend.services.revamp_suggest_sessions import apply_week_suggestions
+
+    with Session(engine) as db:
+        out = apply_week_suggestions(db, user.id, body.proposed or [])
+        db.commit()
+    return JSONResponse(out)
+
+
 @app.get("/api/plan/revamp-week-board")
 def get_plan_revamp_week_board(
     week_start: Optional[str] = Query(default=None),
