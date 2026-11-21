@@ -32,3 +32,27 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
   at least 2 required. lss 9.4, gct 248, fpr 0.23 -> mean(56.67, 57.78, 70.0) = 61.
 - Stale: fewer than 5 easy runs with form data in the 28-day window.
 - The same pool supplies the median power for power-to-weight (P4-4).
+
+## Strength (P4-4) — `backend/services/axis_strength.py`
+
+- Anchor lifts: `user_preferences.anchor_lifts` (JSONB, migration `b12573ca9afa`),
+  default single-leg deadlift (target 0.6) and calf raise (1.2). Edit via
+  `GET/PUT /api/performance/anchor-lifts`. Exercise names match by substring.
+- e1RM = `kg x (1 + reps/30)` from the best non-warmup set per exercise row;
+  `8/side` counts as 8 reps. Ratio = best e1RM of the last 45 days /
+  (target factor x trend mass). Score = `clamp(mean ratio x 100, 0, 100)`.
+- An anchor with nothing logged in the window falls back to the best e1RM before
+  its latest session and the axis is **stale** (not never-measured).
+- Worked example (70 kg): SLDL 24 kg x 8/side -> 0.724, calf raise 60 kg x 10 ->
+  0.952, mean 0.838 -> **84**.
+- Trend mass = last value of `weight_ewma.compute_ewma` (span 14) over `weight_entries`.
+
+## Power-to-weight (P4-4)
+
+- raw = median `power_w` of the P4-3 easy pool / trend mass; score =
+  `clamp(raw / profile target x 100, 0, 100)`. Target = the next A-race goal's
+  profile row (P4-1), else the 3:30 row (3.2 W/kg).
+- 210 W median / 70 kg = 3.0 W/kg vs 3.2 -> **94**.
+- Weigh-in older than 14 days -> **stale** (score kept, never wrong); no weigh-in
+  at all -> never-measured. This basis intentionally differs from
+  `power_to_weight.compute_power_to_weight_series` (FTP / EWMA weight).

@@ -264,6 +264,7 @@ Unique: `(user_id, date)`.
 | column | type | notes |
 |--------|------|-------|
 | id | UUID PK | |
+| anchor_lifts | jsonb | nullable — strength-axis anchor lifts `[{key,label,target_factor,match[]}]`; NULL = defaults (P4-4, migration `b12573ca9afa`) |
 | user_id | UUID FK→users | CASCADE, unique |
 | ftp_w | int | nullable |
 | ftp_w_source | varchar(30) | nullable; `user_accepted` or `manual`; tracks how the threshold was set |

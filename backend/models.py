@@ -1018,6 +1018,9 @@ class UserPreferences(Base):
         nullable=False,
         unique=True,
     )
+    # Strength-axis anchor lifts (P4-4): [{key, label, target_factor, match: [...]}].
+    # NULL = DEFAULT_ANCHOR_LIFTS in backend/services/axis_strength.py.
+    anchor_lifts = Column(JSONB, nullable=True)
     ftp_w = Column(Integer, nullable=True)
     ftp_w_source = Column(String(30), nullable=True)
     ftp_w_updated_at = Column(DateTime(timezone=True), nullable=True)
