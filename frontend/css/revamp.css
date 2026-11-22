@@ -974,3 +974,74 @@ body.rv-page .rv-warn-box {
   margin: 0;
 }
 body.rv-page .rv-btn--accent { background: var(--rv-accent); color: var(--rv-ink); border: 0; }
+
+body.rv-page .rv-home-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  body.rv-page .rv-home-cols { grid-template-columns: 1fr; }
+}
+body.rv-page .rv-home-col { display: flex; flex-direction: column; gap: 16px; }
+body.rv-page .rv-week-bar {
+  height: 22px;
+  border-radius: 8px;
+  background: #eef2fb;
+  display: flex;
+  overflow: hidden;
+  margin: 8px 0;
+}
+body.rv-page .rv-week-bar span:first-child { background: var(--rv-primary); }
+body.rv-page .rv-week-bar span:last-child { background: #6d93e8; }
+body.rv-page .rv-week-days { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+body.rv-page .rv-week-day {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 8px;
+  border-radius: 10px;
+}
+body.rv-page .rv-week-day.is-today { background: #f3f6fd; }
+body.rv-page .rv-week-day.is-race-day { background: #fbffe0; }
+body.rv-page .rv-week-day-label { display: flex; flex-direction: column; line-height: 1.1; }
+body.rv-page .rv-weekday { font-size: 11px; font-weight: 700; color: var(--rv-label); }
+body.rv-page .rv-day-num { font-family: var(--rv-mono); font-size: 16px; font-weight: 600; }
+body.rv-page .rv-week-day-body { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+body.rv-page .rv-kind-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+body.rv-page .rv-week-day-title { font-size: 14px; font-weight: 600; }
+body.rv-page .rv-week-day-title.is-done { color: var(--rv-secondary); text-decoration: line-through; }
+body.rv-page .rv-chip {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+body.rv-page .rv-chip--done { background: var(--rv-good-bg); color: var(--rv-good-ink); }
+body.rv-page .rv-chip--today { background: var(--rv-ink); color: var(--rv-accent); }
+body.rv-page .rv-chip--race { background: var(--rv-warn-bg); color: var(--rv-warn-ink); }
+body.rv-page .rv-chip--who { background: #dbe4fd; color: #1e3fb0; font-family: var(--rv-mono); font-size: 11px; }
+body.rv-page .rv-recent-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid #cfd9ee;
+  text-decoration: none;
+  color: var(--rv-ink);
+}
+body.rv-page .rv-recent-row:first-of-type { border-top: 0; padding-top: 4px; }
+body.rv-page .rv-recent-title { font-size: 15px; font-weight: 600; display: block; }
+body.rv-page .rv-countdown { font-size: 30px; font-weight: 600; font-family: var(--rv-mono); }
+body.rv-page .rv-focus-banner {
+  background: #0b1530;
+  color: #fff;
+  border-radius: 11px;
+  padding: 13px 15px;
+  margin: 8px 0;
+}
