@@ -14698,6 +14698,8 @@ class _RaceCreateBody(BaseModel):
     goal_band_low_seconds: Optional[int] = None
     goal_band_high_seconds: Optional[int] = None
     addon_workout_id: Optional[str] = None
+    notes: Optional[str] = None
+    toilet_plan_done: Optional[bool] = None
 
 
 class _RaceUpdateBody(BaseModel):
@@ -14716,6 +14718,8 @@ class _RaceUpdateBody(BaseModel):
     goal_band_low_seconds: Optional[int] = None
     goal_band_high_seconds: Optional[int] = None
     addon_workout_id: Optional[str] = None
+    notes: Optional[str] = None
+    toilet_plan_done: Optional[bool] = None
 
 
 def _race_met_status(race: Race) -> str:
@@ -14821,6 +14825,8 @@ def _race_dict(
         "role_result": role_result,
         "met_status": _race_met_status(race),
         "created_at": race.created_at.isoformat() if race.created_at else None,
+        "notes": getattr(race, "notes", None),
+        "toilet_plan_done": bool(getattr(race, "toilet_plan_done", False)),
         "updated_at": race.updated_at.isoformat() if race.updated_at else None,
     }
 
@@ -15135,6 +15141,10 @@ def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve
         if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
             race.race_type = body.race_type
         _apply_race_role_fields(race, body, body.model_fields_set)
+        if "notes" in body.model_fields_set:
+            race.notes = body.notes
+        if "toilet_plan_done" in body.model_fields_set:
+            race.toilet_plan_done = bool(body.toilet_plan_done)
 
         race.goal_pace_seconds_per_km = _derive_goal_pace(
             race.goal_time_seconds,
