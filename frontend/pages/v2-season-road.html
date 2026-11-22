@@ -14,14 +14,7 @@
         <h1 class="rv-title rv-title--invert">Season road</h1>
         <p class="rv-subtitle rv-subtitle--invert" id="sr-subtitle">PB attempts, long runs, and the projection to your A race.</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav rv-tabnav--invert">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab on" href="/v2/performance" aria-current="page">Performance</a></li>
-          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
 
     <p class="rv-row" style="margin:0">
@@ -35,7 +28,9 @@
   <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/v2-sync-status.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js"></script>
   <script src="/js/v2-season-road.js"></script>
 </body>
 </html>

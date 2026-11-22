@@ -65,12 +65,25 @@
     return 'rv-session--support';
   }
 
-  function whoColor(who) {
-    var w = (who || '').toUpperCase();
-    if (w.indexOf('MISSED') >= 0 || w.indexOf('CHECKPOINT') >= 0) return '#7a3a10';
-    if (w.indexOf('SUPPORT') >= 0 || w.indexOf('STRENGTH') >= 0) return '#4c1d95';
-    if (w.indexOf('RACE') >= 0) return '#6b4408';
-    return '#1e3fb0';
+  function whoChipHtml(kind, who) {
+    var label = (who || String(kind || 'run').replace(/_/g, ' ')).toUpperCase();
+    if (label.length > 14) label = label.split(' ')[0];
+    var cls = 'rv-chip rv-chip--who';
+    if (kind === 'strength' || kind === 'support') cls = 'rv-chip rv-chip--who-support';
+    else if (kind === 'quality_run') cls = 'rv-chip rv-chip--who-quality';
+    else if (kind === 'race') cls = 'rv-chip rv-chip--who-race';
+    else if (kind === 'rest') cls = 'rv-chip rv-chip--outline';
+    return '<span class="' + cls + '">' + esc(label) + '</span>';
+  }
+
+  function listTypeChip(entry) {
+    var t = (entry.type || 'run').toLowerCase();
+    if (entry.row_kind === 'missed_plan') return '<span class="rv-chip rv-chip--outline">MISSED</span>';
+    if (t.indexOf('strength') >= 0) return '<span class="rv-chip rv-chip--who-support">STRENGTH</span>';
+    if (t.indexOf('plyo') >= 0) return '<span class="rv-chip rv-chip--who-support">PLYO</span>';
+    if (t.indexOf('mobility') >= 0) return '<span class="rv-chip rv-chip--who-support">MOBILITY</span>';
+    if (t.indexOf('race') >= 0) return '<span class="rv-chip rv-chip--who-race">RACE</span>';
+    return '<span class="rv-chip rv-chip--who">RUN</span>';
   }
 
   function renderMonth(data) {
@@ -116,7 +129,7 @@
           '</div>'
         );
         (day.items || []).forEach(function (item) {
-          var cardCls = 'rv-month-card ' + sessionCardClass(item.kind, item.status);
+          var cardCls = 'rv-month-card rv-session ' + sessionCardClass(item.kind, item.status);
           var isRun = item.kind === 'run' || item.kind === 'quality_run';
           var isStr = item.kind === 'strength' || item.kind === 'support';
           var clickable = item.status === 'done' && item.workout_id && (isRun || isStr);
@@ -129,10 +142,10 @@
           var tag = item.status === 'done' ? 'DONE' : '';
           html.push(
             '<h3 class="' + cardCls + '" tabindex="' + (clickable ? '0' : '-1') + '" data-workout-id="' + esc(item.workout_id || '') + '" data-session-kind="' + esc(item.kind || '') + '">' +
-            '<span class="rv-month-who" style="color:' + esc(whoColor(who)) + '">' + esc(who) + '</span>' +
+            whoChipHtml(item.kind, who) +
             '<span class="rv-month-card-title">' + esc(item.name) + '</span>' +
             (meta.length ? '<div class="rv-month-card-meta">' + esc(meta.join(' · ')) + '</div>' : '') +
-            (tag ? '<span class="rv-chip rv-chip--done">' + tag + '</span>' : '') +
+            (tag ? '<span class="rv-chip rv-chip--done">' + esc(tag) + '</span>' : '') +
             '</h3>'
           );
         });
@@ -310,11 +323,16 @@
     return true;
   }
 
-  function dotClassForType(tpe) {
-    var t = (tpe || '').toLowerCase();
-    if (t.indexOf('strength') >= 0 || t.indexOf('plyo') >= 0 || t.indexOf('mobility') >= 0) return 'rv-sync-dot--purple';
-    if (t.indexOf('race') >= 0) return 'rv-sync-dot--amber';
-    return 'rv-sync-dot--blue';
+  function fmtDurationMin(m) {
+    if (m == null) return null;
+    return Math.round(Number(m)) + " min";
+  }
+
+  function fmtPaceSpk(spk) {
+    if (!spk) return null;
+    var m = Math.floor(spk / 60);
+    var s = Math.round(spk % 60);
+    return m + ":" + (s < 10 ? "0" : "") + s + " /km";
   }
 
   function badgeChips(entry) {
@@ -323,9 +341,9 @@
       chips.push('<span class="rv-chip rv-chip--dark">STRYD</span>');
     }
     if (entry.plan_match) {
-      chips.push('<span class="rv-chip rv-chip--good">Matched coach plan</span>');
+      chips.push('<span class="rv-chip rv-chip--good">MATCHED COACH PLAN</span>');
     } else if (entry.row_kind !== 'missed_plan' && entry.id && String(entry.id).indexOf('plan:') !== 0) {
-      chips.push('<span class="rv-chip">Unplanned</span>');
+      chips.push('<span class="rv-chip rv-chip--outline">UNPLANNED</span>');
     }
     if (entry.speed_signal != null) {
       chips.push('<span class="rv-chip rv-chip--warn">Hard effort · speed signal</span>');
@@ -372,20 +390,22 @@
           var str = !missed && window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(tpe);
           if (run || str) rowCls += ' rv-session-row--clickable';
           var meta = [];
-          if (entry.duration_minutes != null) meta.push(entry.duration_minutes + ' min');
+          var dur = fmtDurationMin(entry.duration_minutes);
+          if (dur) meta.push(dur);
           if (entry.distance_km != null) meta.push(entry.distance_km + ' km');
-          if (entry.average_pace_seconds_per_km) meta.push(Math.round(entry.average_pace_seconds_per_km / 60) + ' min/km');
+          var pace = fmtPaceSpk(entry.average_pace_seconds_per_km);
+          if (pace) meta.push(pace);
           if (entry.avg_power) meta.push(entry.avg_power + ' W');
           if (entry.avg_hr) meta.push(entry.avg_hr + ' bpm');
           html.push('<div class="' + rowCls + '"' + ((run || str) ? ' data-run-id="' + esc(entry.id) + '" data-workout-type="' + esc(entry.type || '') + '" tabindex="0" role="button"' : '') + '>');
-          html.push('<span class="rv-subtitle" style="margin:0">' + esc(entry.date.slice(-2)) + '</span>');
-          html.push('<span class="rv-sync-dot ' + dotClassForType(entry.type) + '" aria-hidden="true"></span>');
-          html.push('<div><strong>' + esc(entry.title || 'Session') + '</strong>' +
-            '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' + esc(meta.join(' · ')) + '</div>' +
-            '<div class="rv-row" style="gap:6px;flex-wrap:wrap;margin-top:4px">' + badgeChips(entry) + '</div></div>');
+          html.push('<span class="rv-session-date">' + esc(entry.date.slice(-2)) + '</span>');
+          html.push('<div class="rv-session-main">');
+          html.push('<div class="rv-session-title-row">' + listTypeChip(entry) + '<strong class="rv-session-title">' + esc(entry.title || 'Session') + '</strong></div>');
+          if (meta.length) html.push('<div class="rv-session-metrics">' + esc(meta.join(' · ')) + '</div>');
+          html.push('<div class="rv-session-badges">' + badgeChips(entry) + '</div></div>');
           html.push(
             '<div class="rv-session-side">' +
-            '<span class="rv-mono">' + (entry.tss != null ? Math.round(entry.tss) : '—') + ' TSS</span>' +
+            '<span class="rv-session-tss">' + (entry.tss != null ? Math.round(entry.tss) + ' TSS' : '—') + '</span>' +
             (run ? '<div class="rv-list-feel" data-feel-host="' + esc(entry.id) + '" data-feel-val="' + esc(entry.feeling || '') + '"></div>' : '') +
             (missed
               ? '<div class="rv-missed-actions">' +
@@ -467,12 +487,15 @@
     var el = document.getElementById('v2-list-filters');
     if (!el) return;
     var filters = ['all', 'runs', 'strength', 'plyo', 'mobility', 'missed'];
-    el.innerHTML = filters.map(function (f) {
-      var on = state.filter === f ? ' rv-btn--primary' : ' rv-btn--secondary';
-      return '<button type="button" class="rv-btn' + on + '" data-filter="' + f + '">' + f + '</button>';
-    }).join('') +
-      '<input type="search" class="rv-btn rv-btn--secondary" style="min-width:180px" id="v2-search" placeholder="Search name" value="' + esc(state.search) + '"/>' +
-      '<select id="v2-range" class="rv-btn rv-btn--secondary"><option value="8w">Last 8 weeks</option><option value="block">This block</option><option value="all">All time</option></select>';
+    var labels = { all: 'All', runs: 'Run', strength: 'Strength', plyo: 'Plyo', mobility: 'Mobility', missed: 'Missed' };
+    el.innerHTML =
+      '<div class="rv-chip-row rv-list-filter-chips">' + filters.map(function (f) {
+        var on = state.filter === f ? ' is-on' : '';
+        return '<button type="button" class="rv-chip' + on + '" data-filter="' + f + '">' + labels[f] + '</button>';
+      }).join('') + '</div>' +
+      '<div class="rv-list-filter-tools">' +
+      '<input type="search" class="rv-input rv-list-search" id="v2-search" placeholder="Search sessions" value="' + esc(state.search) + '"/>' +
+      '<select id="v2-range" class="rv-input rv-list-range"><option value="8w">Last 8 weeks</option><option value="block">This block</option><option value="all">All time</option></select></div>';
     document.getElementById('v2-range').value = state.range;
     el.querySelectorAll('[data-filter]').forEach(function (btn) {
       btn.addEventListener('click', function () {

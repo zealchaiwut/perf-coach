@@ -288,7 +288,7 @@
     if (!host) return;
     host.innerHTML = RANGES.map(function (r) {
       var on = r.key === state.range ? " is-active" : "";
-      return '<button type="button" class="rv-seg rv-trends-range-btn' + on + '" data-range="' + esc(r.key) + '">' + esc(r.label) + "</button>";
+      return '<button type="button" class="rv-trends-range-btn' + on + '" data-range="' + esc(r.key) + '">' + esc(r.label) + "</button>";
     }).join("");
     host.querySelectorAll("[data-range]").forEach(function (btn) {
       btn.addEventListener("click", function () {

@@ -14,14 +14,7 @@
         <a href="/v2/training/plan" class="rv-subtitle" style="font-weight:600;color:#e3ecff;text-decoration:none">‹ Back to Training</a>
         <h1 class="rv-title">Admin · training library</h1>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-          <li id="rv-admin-tab"><a class="rv-tab" href="/v2/training/admin" aria-current="page">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav"></nav>
     </header>
 
     <section class="rv-card rv-stack" id="pending-queue-card" hidden>
@@ -166,7 +159,9 @@
 
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/v2-sync-status.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js"></script>
   <script src="/js/v2-training-admin.js"></script>
 </body>
 </html>

@@ -122,7 +122,7 @@ def sync_alert(provider_rows: dict[str, Any], *, now: Optional[datetime] = None)
             return {
                 "rule_id": "sync_error",
                 "message": f"{source.title()} sync failed — open Integrations to retry.",
-                "href": "/settings?tab=integrations",
+                "href": "/v2/settings#integrations",
             }
         age_h = _sync_freshness_hours(p.get("last_success_at"), now)
         if age_h is None or age_h > SYNC_STALE_HOURS:
@@ -131,7 +131,7 @@ def sync_alert(provider_rows: dict[str, Any], *, now: Optional[datetime] = None)
         return {
             "rule_id": "sync_stale",
             "message": f"Last sync {' and '.join(stale_sources)} older than {SYNC_STALE_HOURS} hours.",
-            "href": "/settings?tab=integrations",
+            "href": "/v2/settings#integrations",
         }
     return None
 
@@ -364,6 +364,8 @@ def build_this_week(
     user_id: uuid.UUID,
     today: date,
     board: dict[str, Any],
+    *,
+    hero: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     ws = normalize_week_start(today)
     wl = revamp_week_load(user_id, ws, session=session, today=today)
@@ -407,6 +409,35 @@ def build_this_week(
             for row in items_out:
                 if (row.get("kind") or "") == "race" or race.name in (row.get("name") or ""):
                     row["race_priority"] = (race.priority or "A").upper()
+        if not items_out and d == today and hero:
+            st = hero.get("state")
+            if st == "rest":
+                items_out.append(
+                    {"name": "Rest", "kind": "rest", "status": "planned", "plan_source": None, "estimated_tss": None}
+                )
+            elif st == "empty":
+                items_out.append(
+                    {
+                        "name": "Rest",
+                        "kind": "rest",
+                        "status": "planned",
+                        "plan_source": None,
+                        "estimated_tss": None,
+                        "notes": hero.get("empty_copy"),
+                    }
+                )
+            elif hero.get("session"):
+                s = hero["session"]
+                items_out.append(
+                    {
+                        "name": s.get("name") or "Today",
+                        "kind": s.get("kind") or "run",
+                        "status": s.get("status") or "planned",
+                        "plan_source": s.get("plan_source"),
+                        "estimated_tss": (s.get("tiles") or {}).get("target_tss"),
+                        "notes": s.get("notes"),
+                    }
+                )
         days_out.append(
             {
                 "date": iso,
@@ -650,7 +681,7 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
             "stryd": dot_state(providers.get("stryd") or {}),
         },
         "race_week": show_race_plan,
-        "this_week": build_this_week(session, user_id, today, board),
+        "this_week": build_this_week(session, user_id, today, board, hero=hero),
         "next_race": next_race,
         "focus": build_focus_teaser(session, user_id, today),
         "recent_sessions": build_recent_sessions(session, user_id, today),
