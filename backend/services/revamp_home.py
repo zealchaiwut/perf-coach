@@ -8,19 +8,19 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
-from backend.models import Decision, PlannedSession, Race
-from backend.services.coach_block import checkin_state, newest_due, review_lines
+from backend.models import Decision, PlannedSession, Race, UserPreferences, Workout
+from backend.services.coach_block import checkin_state, fetch_coach_block, newest_due, review_lines
 from backend.services.load_plan import ACWR_CEILING_MULT
 from backend.services.perf_a_race import next_a_race
 from backend.services.plan_match_payload import planned_tss_estimate
 from backend.services.plan_matching import _planned_duration_seconds
 from backend.services.plan_rules_engine import PlanSessionView, effective_plan_source_attr
-from backend.services.revamp_load_plan import chronic_weekly_tss
+from backend.services.revamp_load_plan import chronic_weekly_tss, revamp_week_load
 from backend.services.race_finish_estimate import estimate_race_finish
 from backend.services.revamp_week_board import week_board
 from backend.services.sync_provider_status import build_providers, dot_state
 from backend.services.training_load import estimate_historical_pace_and_tss, estimate_planned_session_metrics
-from backend.services.weekly_rollup import normalize_week_start
+from backend.services.weekly_rollup import normalize_week_start, weekly_rollup
 from backend.utils.time import today_bangkok
 
 FUEL_DEFAULT = "Gels every 30 min from 40"
@@ -302,6 +302,230 @@ def week_planned_over_ceiling(session: Session, user_id: uuid.UUID, today: date)
     }
 
 
+def format_duration_hms(seconds: Optional[int]) -> Optional[str]:
+    if seconds is None or seconds <= 0:
+        return None
+    h, rem = divmod(int(seconds), 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def format_race_time(seconds: Optional[int]) -> Optional[str]:
+    return format_duration_hms(seconds)
+
+
+def _relative_workout_date(workout_date: date, today: date) -> str:
+    delta = (today - workout_date).days
+    if delta == 0:
+        return "Today"
+    if delta == 1:
+        return "Yesterday"
+    if delta < 7:
+        return f"{delta} days ago"
+    return workout_date.isoformat()
+
+
+def _races_in_week(session: Session, user_id: uuid.UUID, ws: date, we: date) -> dict[str, Race]:
+    rows = (
+        session.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.race_date >= ws,
+            Race.race_date <= we,
+            Race.status == "planned",
+        )
+        .all()
+    )
+    return {r.race_date.isoformat(): r for r in rows}
+
+
+def build_this_week(
+    session: Session,
+    user_id: uuid.UUID,
+    today: date,
+    board: dict[str, Any],
+) -> dict[str, Any]:
+    ws = normalize_week_start(today)
+    wl = revamp_week_load(user_id, ws, session=session, today=today)
+    rollup = weekly_rollup(user_id, ws, session=session, today=today)
+    we = ws + timedelta(days=6)
+    races = _races_in_week(session, user_id, ws, we)
+    days_out: list[dict[str, Any]] = []
+    for day in board.get("days") or []:
+        iso = day["date"]
+        d = date.fromisoformat(iso)
+        race = races.get(iso)
+        items_out: list[dict[str, Any]] = []
+        if race is not None and not day.get("items"):
+            items_out.append(
+                {
+                    "name": race.name,
+                    "kind": "race",
+                    "status": "planned",
+                    "plan_source": "coach",
+                    "estimated_tss": None,
+                    "race_priority": (race.priority or "A").upper(),
+                }
+            )
+        elif day.get("rest_placeholder") and not day.get("items"):
+            items_out.append({"name": "Rest", "kind": "rest", "status": "planned", "plan_source": None, "estimated_tss": None})
+        else:
+            for it in day.get("items") or []:
+                items_out.append(
+                    {
+                        "name": it.get("name"),
+                        "kind": it.get("kind"),
+                        "status": it.get("status"),
+                        "plan_source": it.get("plan_source"),
+                        "estimated_tss": it.get("estimated_tss"),
+                        "notes": it.get("notes"),
+                    }
+                )
+                if race is not None and (it.get("kind") or "") == "race":
+                    items_out[-1]["race_priority"] = (race.priority or "A").upper()
+        if race is not None and items_out and "race_priority" not in items_out[0]:
+            for row in items_out:
+                if (row.get("kind") or "") == "race" or race.name in (row.get("name") or ""):
+                    row["race_priority"] = (race.priority or "A").upper()
+        days_out.append(
+            {
+                "date": iso,
+                "weekday": (day.get("label") or d.strftime("%a"))[:3].upper(),
+                "day_of_month": d.day,
+                "is_today": d == today,
+                "is_race_day": race is not None,
+                "items": items_out,
+            }
+        )
+    load_bar = None
+    subtitle = None
+    if wl:
+        target = float(wl.get("target_tss") or 0)
+        logged = float(wl.get("logged_tss") or 0)
+        planned = float(wl.get("planned_tss") or 0)
+        base = target if target > 0 else 1.0
+        load_bar = {
+            "logged_pct": round(100 * logged / base, 1),
+            "planned_pct": round(100 * planned / base, 1),
+            "target_tss": wl.get("target_tss"),
+            "logged_tss": wl.get("logged_tss"),
+            "planned_tss": wl.get("planned_tss"),
+        }
+        phase = (wl.get("phase") or "build").replace("_", " ")
+        subtitle = f"{phase.title()} · {logged + planned:.0f} / {target:.0f} TSS"
+    return {
+        "week_start": ws.isoformat(),
+        "subtitle": subtitle,
+        "load_bar": load_bar,
+        "rollup_partial": bool(rollup.get("partial")),
+        "days": days_out,
+        "plan_href": "/v2/training/plan",
+    }
+
+
+def build_recent_sessions(session: Session, user_id: uuid.UUID, today: date, *, limit: int = 3) -> list[dict[str, Any]]:
+    from backend.services.plan_match_payload import plan_match_map
+    from backend.services.session_tss import session_tss
+    from backend.services.plan_match_payload import session_kind_for_workout, who_label
+
+    prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
+    rows = (
+        session.query(Workout)
+        .filter(Workout.user_id == user_id)
+        .order_by(Workout.workout_date.desc(), Workout.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    match_map = plan_match_map(session, [w.id for w in rows])
+    out: list[dict[str, Any]] = []
+    for w in rows:
+        kind = session_kind_for_workout(w)
+        match = match_map.get(str(w.id))
+        source = (match or {}).get("source") or "unplanned"
+        tss = session_tss(w, prefs=prefs, session=session).get("tss")
+        out.append(
+            {
+                "id": str(w.id),
+                "name": w.name or "Session",
+                "kind": kind,
+                "who": who_label(kind=kind, source=source, status="done"),
+                "relative_date": _relative_workout_date(w.workout_date, today),
+                "distance_km": float(w.distance_km) if w.distance_km is not None else None,
+                "duration_min": round(w.duration_seconds / 60, 1) if w.duration_seconds else None,
+                "tss": round(float(tss), 1) if tss is not None else None,
+                "log_href": f"/v2/training/log?session={w.id}",
+            }
+        )
+    return out
+
+
+def build_focus_teaser(session: Session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
+    from backend.services import focus_ranking as fr
+    from backend.services.radar_payload import build_radar
+
+    race = next_a_race(session, user_id, today)
+    km = float(race.distance_km) if race is not None and race.distance_km else None
+    axes = build_radar(session, user_id, today)["axes"]
+    ranked = fr.rank_axes(axes, km)
+    focus = ranked.get("focus")
+    advice = None
+    axis = None
+    score = None
+    if focus:
+        axis = focus.get("axis")
+        score = focus.get("score")
+        advice = (ranked.get("advice") or {}).get(axis) or fr.WORK_MAP.get(axis or "", {}).get("advice")
+    return {
+        "axis": axis,
+        "score": score,
+        "advice": advice,
+        "href": "/v2/performance",
+    }
+
+
+def build_next_race_card(session: Session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
+    from backend.services.race_hero import build_hero
+
+    hero = build_hero(session, user_id, today)
+    race = hero.get("race")
+    if race is None:
+        return {"available": False}
+    est = hero.get("estimate") or {}
+    goal = hero.get("goal") or {}
+    range_label = None
+    if est.get("available") and est.get("range_low_sec") is not None and est.get("range_high_sec") is not None:
+
+        def _short(sec: int) -> str:
+            h, rem = divmod(int(sec), 3600)
+            m, s = divmod(rem, 60)
+            if h:
+                return f"{h}:{m:02d}"
+            return f"{m:02d}:{s:02d}"
+
+        range_label = f"{_short(est['range_low_sec'])}–{_short(est['range_high_sec'])}"
+    return {
+        "available": True,
+        "race": race,
+        "goal_time_label": format_race_time(goal.get("time_sec")),
+        "estimate_time_label": format_race_time(est.get("est_sec")) if est.get("available") else None,
+        "range_label": range_label,
+        "days_to_race": race.get("days_to_race"),
+        "href": "/v2/performance",
+    }
+
+
+def build_coach_card(session: Session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
+    block = fetch_coach_block(session, user_id, today)
+    return {
+        "checkin": block.get("checkin"),
+        "review_due": block.get("review_due"),
+        "consult_endpoint": "/api/coach/consult",
+        "paste_link": block.get("paste_link"),
+    }
+
+
 def build_alerts(
     *,
     provider_rows: dict[str, Any],
@@ -385,4 +609,9 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
             "stryd": dot_state(providers.get("stryd") or {}),
         },
         "race_week": show_race_plan,
+        "this_week": build_this_week(session, user_id, today, board),
+        "next_race": build_next_race_card(session, user_id, today),
+        "focus": build_focus_teaser(session, user_id, today),
+        "recent_sessions": build_recent_sessions(session, user_id, today),
+        "coach": build_coach_card(session, user_id, today),
     }

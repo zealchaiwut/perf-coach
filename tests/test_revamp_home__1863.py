@@ -150,7 +150,13 @@ def test_race_week_flag_in_payload():
             patch.object(rh, "checkin_state", return_value={"state": "done"}), \
             patch.object(rh, "estimate_race_finish", return_value={"est_sec": 15000}), \
             patch.object(rh, "estimate_historical_pace_and_tss", return_value={}), \
-            patch.object(rh, "estimate_planned_session_metrics", return_value={"estimated_tss": 0}):
+            patch.object(rh, "estimate_planned_session_metrics", return_value={"estimated_tss": 0}), \
+            patch.object(rh, "build_this_week", return_value={"days": []}), \
+            patch.object(rh, "build_next_race_card", return_value={"available": False}), \
+            patch.object(rh, "build_focus_teaser", return_value={}), \
+            patch.object(rh, "build_recent_sessions", return_value=[]), \
+            patch.object(rh, "build_coach_card", return_value={}), \
+            patch.object(rh, "fetch_coach_block", return_value={"checkin": {}}):
         session.query.return_value.filter.return_value.filter.return_value.all.return_value = []
         out = rh.home_payload(session, UID, today=TODAY)
     assert out["show_race_plan"] is True
