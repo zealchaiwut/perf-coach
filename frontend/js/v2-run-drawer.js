@@ -204,7 +204,17 @@
         e.body.innerHTML = drawerChrome() + '<div id="v2-rd4-host" class="rd4-drawer-host" aria-labelledby="rd4-title"></div>';
         bindChrome(id);
         var host = document.getElementById('v2-rd4-host');
-        var painted = global.RunDetailView.render(host, payload, pair[1], {});
+        var syncMeta = {};
+        if (global.V2SyncStatus && typeof global.V2SyncStatus.lastDetail === 'function') {
+          var d = global.V2SyncStatus.lastDetail();
+          var providers = (d && d.providers) || {};
+          if (providers.strava) syncMeta.stravaLatest = { synced_at: providers.strava.last_success_at };
+          if (providers.stryd) {
+            syncMeta.strydLatest = { synced_at: providers.stryd.last_success_at };
+            syncMeta.strydConnected = providers.stryd.connected !== false;
+          }
+        }
+        var painted = global.RunDetailView.render(host, payload, pair[1], syncMeta);
         if (!painted) {
           host.innerHTML = '<section class="rd4-card"><p class="rd4-muted">Could not render run detail.</p></section>';
           return;

@@ -11,6 +11,12 @@ from sqlalchemy.orm import Session
 from backend.models import StravaToken, StrydCredentials, SyncJob
 
 
+# Rows left in pending/running after a crash (UAT has June 2026 Stryd
+# zombies) must not paint the toolbar as "Syncing…" forever. Incremental
+# pulls finish in seconds; 15 minutes is well past a live job.
+RUNNING_MAX_AGE = timedelta(minutes=15)
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -23,6 +29,15 @@ def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
+def job_is_live(started_at: Optional[datetime], created_at: Optional[datetime], *, now: Optional[datetime] = None) -> bool:
+    """True when a pending/running SyncJob is young enough to still be executing."""
+    now = now or _utc_now()
+    ts = _as_utc(started_at) or _as_utc(created_at)
+    if ts is None:
+        return False
+    return (now - ts) < RUNNING_MAX_AGE
+
+
 def _provider_running(session: Session, user_id: uuid.UUID, source: str) -> bool:
     row = session.execute(
         select(SyncJob)
@@ -32,7 +47,9 @@ def _provider_running(session: Session, user_id: uuid.UUID, source: str) -> bool
         .order_by(SyncJob.created_at.desc())
         .limit(1)
     ).scalar_one_or_none()
-    return row is not None
+    if row is None:
+        return False
+    return job_is_live(row.started_at, row.created_at)
 
 
 def _last_completed(session: Session, user_id: uuid.UUID, source: str) -> Optional[SyncJob]:

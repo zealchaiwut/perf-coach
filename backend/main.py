@@ -14474,7 +14474,8 @@ async def get_sync_status(user: User = Depends(resolve_user)):
     from backend.models import WorkerJobRun as _WorkerJobRun
     from sqlalchemy import select as _sel, or_ as _or
     from datetime import datetime, timezone as _tz, timedelta as _td
-    _cutoff = datetime.now(_tz.utc) - _td(minutes=10)
+    _recent = datetime.now(_tz.utc) - _td(minutes=10)
+    _running_max = datetime.now(_tz.utc) - _td(hours=2)
     try:
         with Session(engine) as _db:
             wjr = _db.execute(
@@ -14482,8 +14483,9 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 .where(_WorkerJobRun.user_id == user.id)
                 .where(
                     _or(
-                        _WorkerJobRun.status == "running",
-                        _WorkerJobRun.started_at >= _cutoff,
+                        # A crashed worker can leave status=running forever.
+                        (_WorkerJobRun.status == "running") & (_WorkerJobRun.started_at >= _running_max),
+                        _WorkerJobRun.started_at >= _recent,
                     )
                 )
                 .order_by(_WorkerJobRun.started_at.desc())

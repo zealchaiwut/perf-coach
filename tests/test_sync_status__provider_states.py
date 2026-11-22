@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from backend.services.sync_provider_status import (
     build_providers,
+    job_is_live,
     provider_ui_state,
     _snapshot_running,
 )
@@ -54,6 +55,14 @@ def test_provider_ui_state_stale_and_reauth():
         {"connected": True, "running": False, "needs_reauth": True}, now=NOW
     ) == "failed"
     assert provider_ui_state({"connected": False, "running": False}, now=NOW) == "failed"
+
+
+def test_zombie_running_job_is_not_live():
+    june = datetime(2026, 6, 27, 8, 20, tzinfo=timezone.utc)
+    assert job_is_live(june, june, now=NOW) is False
+    fresh = NOW - timedelta(minutes=5)
+    assert job_is_live(fresh, fresh, now=NOW) is True
+    assert job_is_live(None, None, now=NOW) is False
 
 
 def test_snapshot_running_uses_phase():
@@ -133,8 +142,27 @@ def test_log_page_loads_status_module_and_pill_markup():
     assert "v2-sync-status.js" in LOG_HTML
     assert "rv-sync-pill--syncing" in TOOLBAR_JS
     assert "rv-sync-pill--failed" in TOOLBAR_JS
+    assert "rv-sync-pill--stale" in TOOLBAR_JS
     assert "Log a strength session" in TOOLBAR_JS
     assert "Syncing " in TOOLBAR_JS
     assert "Stryd needs reconnecting" in TOOLBAR_JS
+    assert "last synced " in TOOLBAR_JS
     assert "/v2/settings#integrations" in TOOLBAR_JS
     assert "onRefresh" in TOOLBAR_JS
+    assert "/api/strava/sync" in TOOLBAR_JS
+    assert "/api/stryd/sync" in TOOLBAR_JS
+    assert "v2-sync-panel" in TOOLBAR_JS
+    assert "v2-sync-btn-stryd" in TOOLBAR_JS
+    assert "aria-controls=\"v2-sync-panel\"" in TOOLBAR_JS
+    assert "rv-sync-panel" in CSS
+    assert "rv-sync-row-btn" in CSS
+
+
+def test_stale_sync_is_named_not_all_synced():
+    assert "tap to sync" in STATUS_JS
+    assert "days ago" in STATUS_JS
+    assert "rv-sync-dot-label" in STATUS_JS
+    assert "rv-sync-pill--stale" in CSS
+    detail = (REPO / "frontend" / "js" / "lib" / "run-detail-view.js").read_text(encoding="utf-8")
+    assert "No Stryd on this session" in detail
+    assert "No Stryd data on this session" in detail

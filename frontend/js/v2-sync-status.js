@@ -61,23 +61,41 @@
     li.innerHTML =
       '<a class="rv-sync-dot-link" id="rv-sync-dot-link" href="/v2/settings#integrations" title="Integration status">' +
       '<span class="rv-sync-dot rv-sync-dot--amber" id="rv-sync-dot" aria-hidden="true"></span>' +
+      '<span class="rv-sync-dot-label" id="rv-sync-dot-label" hidden></span>' +
       '<span class="sr-only">Sync status</span></a>';
     nav.appendChild(li);
     return document.getElementById("rv-sync-dot");
+  }
+
+  function ageLabel(iso) {
+    if (!iso) return "";
+    var last = new Date(iso);
+    if (isNaN(last.getTime())) return "";
+    var hours = (Date.now() - last.getTime()) / 3600000;
+    if (hours < 24) return "today";
+    var days = Math.round(hours / 24);
+    if (days === 1) return "1 day ago";
+    return days + " days ago";
   }
 
   function srText(detail) {
     var providers = detail.providers || {};
     var running = [];
     var failed = [];
+    var stale = [];
     ["strava", "stryd"].forEach(function (key) {
       var p = providers[key] || {};
       var name = key === "strava" ? "Strava" : "Stryd";
       if (p.state === "syncing") running.push(name);
       else if (p.state === "failed") failed.push(name);
+      else if (p.state === "stale") {
+        var when = ageLabel(p.last_success_at);
+        stale.push(when ? name + " " + when : name);
+      }
     });
     if (running.length) return "Syncing " + running.join(" + ") + "…";
-    if (failed.length) return failed.join(" and ") + " sync failed";
+    if (failed.length) return failed.join(" and ") + " sync failed — tap to fix";
+    if (stale.length) return stale.join(" · ") + " — tap to sync";
     return "All synced";
   }
 
@@ -90,10 +108,27 @@
     else if (detail.overall === "stale") cls += " rv-sync-dot--amber";
     else cls += " rv-sync-dot--green";
     dot.className = cls;
+    var copy = srText(detail);
     var sr = dot.parentElement && dot.parentElement.querySelector(".sr-only");
-    if (sr) sr.textContent = srText(detail);
     var link = document.getElementById("rv-sync-dot-link");
-    if (link) link.title = srText(detail);
+    if (link) {
+      link.title = copy;
+      link.setAttribute("aria-label", copy);
+    }
+    var label = document.getElementById("rv-sync-dot-label");
+    if (label) {
+      if (detail.overall === "ok") {
+        label.hidden = true;
+        label.textContent = "";
+        if (sr) sr.textContent = copy;
+      } else {
+        label.hidden = false;
+        label.textContent = copy;
+        if (sr) sr.textContent = "";
+      }
+    } else if (sr) {
+      sr.textContent = copy;
+    }
   }
 
   function emit(data) {

@@ -69,6 +69,7 @@
       '<li class="rv-nav-util">' +
       '<a class="rv-sync-dot-link" id="rv-sync-dot-link" href="/v2/settings#integrations" title="Integration status">' +
       '<span class="rv-sync-dot rv-sync-dot--amber" id="rv-sync-dot" aria-hidden="true"></span>' +
+      '<span class="rv-sync-dot-label" id="rv-sync-dot-label" hidden></span>' +
       '<span class="sr-only">Sync status</span></a></li>' +
       '<li class="rv-nav-util"><a class="rv-tab rv-tab--util' + (settingsOn ? " on" : "") + '" href="/v2/settings"' +
       (settingsOn ? ' aria-current="page"' : "") +
