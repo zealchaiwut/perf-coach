@@ -18828,6 +18828,22 @@ def get_home_revamp(user: User = Depends(resolve_user)):
         return JSONResponse(home_payload(db, user.id, today=today))
 
 
+@app.get("/api/training/trends/revamp")
+def get_training_trends_revamp(
+    range: Optional[str] = Query(default="3m", description="4w | 3m | 6m | 12m"),
+    user: User = Depends(resolve_user),
+):
+    """Revamp Training Trends: fitness chart + weekly load (P5-3)."""
+    from backend.services.revamp_trends import RANGE_KEYS, normalize_range_key, trends_payload
+
+    rk = normalize_range_key(range)
+    if (range or "").strip().lower() not in RANGE_KEYS and (range or "").strip():
+        raise HTTPException(status_code=422, detail="range must be one of: 4w, 3m, 6m, 12m")
+    today = _today_bkk()
+    with Session(engine) as db:
+        return JSONResponse(trends_payload(db, user.id, range_key=rk, today=today))
+
+
 @app.get("/api/plan/revamp-week-board")
 def get_plan_revamp_week_board(
     week_start: Optional[str] = Query(default=None),
