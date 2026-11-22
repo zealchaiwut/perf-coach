@@ -74,6 +74,7 @@ def _stryd_cred_row(
     row.stryd_email = stryd_email
     row.session_token = session_token
     row.session_token_expires_at = session_expires_at
+    row.auth_failed_at = None
     return row
 
 
@@ -301,8 +302,10 @@ def test_stryd_status_expired_session_refresh_succeeds(as_user):
     assert res.json()["connected"] is True
 
 
-def test_stryd_status_refresh_fails_deletes_credentials_returns_not_connected(as_user):
-    """Re-auth failure → credentials row deleted, connected: false, HTTP 200."""
+def test_stryd_status_refresh_fails_keeps_credentials_marks_unreachable(as_user):
+    """Transient refresh failure → credentials kept, status unreachable."""
+    from backend.services.stryd import StrydUnavailable
+
     as_user(_USER_ID)
     cred_row = _stryd_cred_row(session_expires_at=_EXPIRED)
     delete_called = [False]
@@ -318,14 +321,14 @@ def test_stryd_status_refresh_fails_deletes_credentials_returns_not_connected(as
     mock_s.delete.side_effect = _delete
 
     with patch("backend.main.Session", return_value=mock_s), \
-         patch("backend.main.refresh_stryd_session_if_needed", side_effect=Exception("re-auth failed")):
+         patch("backend.main.refresh_stryd_session_if_needed", side_effect=StrydUnavailable("down")):
         res = client.get("/api/stryd/status")
 
     assert res.status_code == 200
     body = res.json()
-    assert body["connected"] is False
-    assert body["athlete_id"] is None
-    assert delete_called[0] is True
+    assert body["connected"] is True
+    assert body["status"] == "unreachable"
+    assert delete_called[0] is False
 
 
 # ── DELETE /api/stryd/disconnect ──────────────────────────────────────────────

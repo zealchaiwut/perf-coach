@@ -5772,7 +5772,8 @@
         }),
     ]).then(function (results) {
       var stravaConnected = results[0] && results[0].connected;
-      var strydConnected = results[1] && results[1].connected;
+      var strydSt = results[1];
+      var strydConnected = strydSt && strydSt.connected;
       var stravaBtn = document.getElementById("sync-btn-strava");
       var strydBtn = document.getElementById("sync-btn-stryd");
       var stravaTimeEl = document.getElementById("sync-time-strava");
@@ -5784,6 +5785,11 @@
       if (!strydConnected) {
         if (strydBtn) strydBtn.disabled = true;
         if (strydTimeEl) strydTimeEl.textContent = "Not connected";
+      } else if (strydSt.status === "reauth_required") {
+        if (strydBtn) strydBtn.disabled = true;
+        if (strydTimeEl) strydTimeEl.textContent = "Stryd needs your password again";
+      } else if (strydSt.status === "unreachable" && strydTimeEl) {
+        strydTimeEl.textContent = "Connected (Stryd unreachable)";
       }
     });
 

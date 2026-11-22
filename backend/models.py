@@ -62,6 +62,8 @@ class User(Base):
     # Last time GET /api/coach/export/paste was served for this user; the export's
     # meta.previous_export_date, so the coach message can skip a season re-check.
     last_coach_export_at = Column(DateTime(timezone=True), nullable=True)
+    # Bumped when workouts, plan, races, prefs, body, mobility, or anchors change — derived-cache signature.
+    data_version = Column(Integer, nullable=False, server_default=text("0"))
 
 
 class WeightEntry(Base):
@@ -330,6 +332,7 @@ class Workout(Base):
     stryd_activity_pk = Column(UUID(as_uuid=True), ForeignKey("stryd_activities.id", ondelete="SET NULL"), nullable=True)
     manual_overrides = Column(JSONB, nullable=True)
     zone2_minutes = Column(Integer, nullable=True)
+    easy_minutes = Column(Integer, nullable=True)
     # Workout-level Stryd power/cadence/stride aggregates (nullable; manual runs → null).
     avg_power = Column(Integer, nullable=True)
     max_power = Column(Integer, nullable=True)
@@ -834,6 +837,7 @@ class StrydCredentials(Base):
     stryd_password_encrypted = Column(Text, nullable=False)
     session_token = Column(Text, nullable=True)
     session_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    auth_failed_at = Column(DateTime(timezone=True), nullable=True)
     # Stryd athlete id is a UUID string (not numeric like Strava's).
     athlete_id = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))

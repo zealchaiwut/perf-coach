@@ -45,6 +45,8 @@ def axis_status(axis: dict[str, Any]) -> str:
         return ""
     if axis.get("focus"):
         return "focus"
+    if axis.get("axis") == "mobility" and axis.get("days_since_test") is not None:
+        return f"test {int(axis['days_since_test'])} d ago"
     if axis["stale"]:
         return "test due" if axis.get("test_due") else "stale"
     return fmt_delta(axis.get("delta_28d")) or ""
@@ -97,6 +99,7 @@ def build_axes(
             "never_measured": never,
             "focus": (name == focus_axis) and not never,
             "test_due": bool(block.get("test_due")) if name == "mobility" else False,
+            "days_since_test": block.get("days_since_test") if name == "mobility" else None,
         }
         axis["status"] = axis_status(axis)
         axes.append(axis)

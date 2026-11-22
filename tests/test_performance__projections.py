@@ -304,7 +304,8 @@ def test_build_projection_one_estimate_feeds_chain_chart_and_hero():
     with patch.object(race_hero, "next_a_race", return_value=a), \
             patch.object(race_hero, "estimate_race_finish", return_value=EST), \
             patch.object(race_hero, "build_after_race", return_value={}), \
-            patch.object(race_hero, "get_race_scores", return_value={}):
+            patch.object(race_hero, "get_race_scores", return_value={}), \
+            patch("backend.services.a_race_readiness_checklist.build_checklist", return_value={"summary": None}):
         hero = race_hero.build_hero(MagicMock(), UID, TODAY)
     assert hero["estimate"]["est_sec"] == out["chain"]["final"]["est_sec"]
 
@@ -312,9 +313,34 @@ def test_build_projection_one_estimate_feeds_chain_chart_and_hero():
 def test_no_a_race_still_returns_tiles():
     with patch.object(pv, "next_a_race", return_value=None), \
             patch("backend.services.race_calibration.load_calibrations", return_value=[]), \
-            patch.object(pv, "_calibration_tiles", return_value=pv.build_tiles(None, [], None, None)):
+            patch.object(pv, "_calibration_tiles", return_value=pv.build_tiles(None, [], None, None)), \
+            patch.object(pv, "_reference_race_for_history", return_value=None), \
+            patch("backend.services.score_reader.get_scores", side_effect=RuntimeError("skip chain")):
         out = pv.build_projection(MagicMock(), UID, TODAY)
     assert out["chain"] is None and out["chart"] is None and "tiles" in out
+
+
+def test_no_a_race_returns_partial_chain_and_history_chart():
+    a = race_obj(status="done", race_date=date(2026, 10, 1), actual_time_seconds=15000)
+    scores = {"overall": {"endurance": {"score": 41.0}, "speed": {"score": 45.0}}}
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
+    with patch.object(pv, "next_a_race", return_value=None), \
+            patch("backend.services.race_calibration.load_calibrations", return_value=[{
+                "race_id": str(a.id), "race_date": a.race_date, "actual_seconds": 15000,
+            }]), \
+            patch.object(pv, "_calibration_tiles", return_value=pv.build_tiles(None, [], None, BLEND)), \
+            patch.object(pv, "_reference_race_for_history", return_value=a), \
+            patch.object(pv, "_block_start", return_value=START), \
+            patch.object(pv, "_markers", return_value=([], [], [])), \
+            patch.object(pv, "_history", return_value=[(START, 16100), (TODAY, 14950)]), \
+            patch("backend.services.score_reader.get_scores", return_value=scores):
+        out = pv.build_projection(db, UID, TODAY)
+    assert out["chain"] is not None
+    assert out["chain"]["blended"]["available"] is True
+    assert out["chain"]["final"]["available"] is False
+    assert out["chart"]["available"] is True and out["chart"]["history_only"] is True
+    assert out["chart"]["projection"] is None
 
 
 # ── endpoint / page ──────────────────────────────────────────────────────────

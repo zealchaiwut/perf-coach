@@ -3159,6 +3159,35 @@
 
       // ── Stryd ──────────────────────────────────────────────────────────────
 
+      function renderStrydReauth(email) {
+        document.getElementById('stryd-badge').textContent = 'Needs your password again';
+        document.getElementById('stryd-badge').className = 'integration-badge integration-badge--disconnected';
+        document.getElementById('stryd-meta').textContent =
+          (email ? email + ' — ' : '') + 'Stryd needs your password again';
+        document.getElementById('stryd-form-wrap').innerHTML =
+          '<p class="u-muted-13" style="margin:0 0 10px;">Your saved password is still on file, but Stryd rejected the session. Enter your password to refresh it.</p>' +
+          '<div class="stryd-form" id="stryd-cred-form">' +
+          '<label for="stryd-email">Email</label>' +
+          '<input type="email" id="stryd-email" placeholder="Stryd email" autocomplete="username" aria-label="Stryd email" value="' + (email ? String(email).replace(/"/g, '&quot;') : '') + '">' +
+          '<label for="stryd-password">Password</label>' +
+          '<input type="password" id="stryd-password" placeholder="Stryd password" autocomplete="current-password" aria-label="Stryd password">' +
+          '</div>';
+        var actions = document.getElementById('stryd-actions');
+        actions.innerHTML = '';
+        var btn = document.createElement('button');
+        btn.className = 'integration-btn integration-btn--primary';
+        btn.id = 'stryd-connect-btn';
+        btn.textContent = 'Reconnect';
+        btn.addEventListener('click', strydConnect);
+        actions.appendChild(btn);
+        var disc = document.createElement('button');
+        disc.className = 'integration-btn integration-btn--danger';
+        disc.id = 'stryd-disconnect-btn';
+        disc.textContent = 'Disconnect';
+        disc.addEventListener('click', strydDisconnect);
+        actions.appendChild(disc);
+      }
+
       function renderStrydDisconnected() {
         document.getElementById('stryd-badge').textContent = 'Disconnected';
         document.getElementById('stryd-badge').className = 'integration-badge integration-badge--disconnected';
@@ -3417,10 +3446,21 @@
           .then(function (r) {
             if (!r.ok) { renderComingSoon('stryd-card'); return; }
             return r.json().then(function (st) {
-              if (st.connected) {
-                renderStrydConnected(st.stryd_email, st.session_expires_at);
-              } else {
+              if (!st.connected) {
                 renderStrydDisconnected();
+                return;
+              }
+              if (st.status === 'reauth_required') {
+                renderStrydReauth(st.stryd_email);
+                return;
+              }
+              renderStrydConnected(st.stryd_email, st.session_expires_at);
+              if (st.status === 'unreachable') {
+                intFeedback(
+                  'stryd-feedback',
+                  'Stryd is temporarily unreachable — your password is still saved.',
+                  'info'
+                );
               }
             });
           })

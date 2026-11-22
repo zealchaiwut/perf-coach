@@ -98,9 +98,15 @@ def build_race_block(race, today: date) -> dict[str, Any]:
 
 def build_race_specific(scores: dict[str, Any]) -> dict[str, Any]:
     rs = (scores or {}).get("race_specific") or {}
+    spd_race = rs.get("speed_race_specific")
+    if spd_race is None:
+        spd_race = (rs.get("speed") or {}).get("score")
     return {
         "endurance": (rs.get("endurance") or {}).get("score"),
-        "speed": (rs.get("speed") or {}).get("score"),
+        "speed": spd_race,
+        "speed_race_specific": spd_race,
+        "speed_overall": rs.get("speed_overall"),
+        "speed_label": "Race-specific speed",
         "explanation": RACE_SPECIFIC_EXPLANATION,
     }
 

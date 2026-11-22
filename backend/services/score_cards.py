@@ -14,9 +14,9 @@ Reason rule (from the decomposition only):
 - effort gains outweigh decay       -> "Lifted by the effort on <date>."
 - otherwise                         -> no sentence.
 
-There is no to-reach line: ``threshold_suggestions.suggest_thresholds`` proposes
-pace / HR / power thresholds, not a score to reach, so ``to_reach`` is always None
-(and no new math is added).
+``to_reach`` and ``formula_line`` come from ``get_performance_payload`` —
+``improve_hint`` (pace at the score type's reference effort) and the breakdown's
+``anchor_mean_now`` / ``race_floor_now`` / ``consistency_bonus_now`` terms.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from backend.services import performance_scores as _performance_scores
 from backend.services import score_reader
+from backend.services.revamp_home import format_pace_seconds_per_km
 
 EPS = 0.005
 AXES = ("endurance", "speed")
@@ -57,6 +58,42 @@ def reason_sentence(breakdown: Optional[dict[str, Any]]) -> Optional[str]:
         newest = min(anchors, key=lambda a: float(a.get("age_weeks") or 0.0))
         return f"Lifted by the effort on {newest['date']}."
     return None
+
+
+def formula_line(breakdown: Optional[dict[str, Any]], *, top_k: int = 3) -> Optional[str]:
+    """Auditable score composition: max(avg of K, race floor) + consistency bonus."""
+    if not isinstance(breakdown, dict) or "error" in breakdown:
+        return None
+    if breakdown.get("anchor_mean_now") is None and breakdown.get("score_now") is None:
+        return None
+    avg = float(breakdown.get("anchor_mean_now") or 0.0)
+    floor = breakdown.get("race_floor_now")
+    cons = float(breakdown.get("consistency_bonus_now") or 0.0)
+    total = breakdown.get("score_now")
+    if total is None:
+        return None
+    avg_part = f"{round(avg, 1)} avg of {top_k}"
+    if floor is not None:
+        inner = f"max({avg_part}, {round(float(floor), 1)} race floor)"
+    else:
+        inner = avg_part
+    return f"{inner} + {round(cons, 1)} consistency = {round(float(total), 1)}"
+
+
+def to_reach_line(axis: str, hint: Optional[dict[str, Any]]) -> Optional[str]:
+    if not isinstance(hint, dict) or hint.get("pace_seconds_per_km") is None:
+        return None
+    pace = format_pace_seconds_per_km(int(hint["pace_seconds_per_km"]))
+    if not pace:
+        return None
+    target = hint.get("target_score")
+    mins = hint.get("effort_minutes")
+    if target is None or mins is None:
+        return None
+    mins_i = int(round(float(mins)))
+    if axis == "speed":
+        return f"To reach {target}: one hard effort at {pace} held about {mins_i} min."
+    return f"To reach {target}: hold {pace} for {mins_i} min at threshold."
 
 
 def split_bar(breakdown: Optional[dict[str, Any]]) -> Optional[dict[str, float]]:
@@ -97,6 +134,7 @@ def build_card(axis: str, reader_block: dict[str, Any], perf_block: Optional[dic
         ]
     dates = perf_block.get("history_trend_dates") or []
     values = perf_block.get("history_trend") or []
+    top_k = int((perf_block.get("model") or {}).get("top_k") or 3)
     return {
         "axis": axis,
         "label": AXIS_LABELS[axis],
@@ -105,9 +143,10 @@ def build_card(axis: str, reader_block: dict[str, Any], perf_block: Optional[dic
         "stale": bool(reader_block.get("stale")),
         "sparkline": {"dates": list(dates), "values": list(values)} if dates and values else None,
         "decomposition": decomposition,
+        "formula_line": formula_line(breakdown, top_k=top_k) if valid else None,
         "split": split_bar(breakdown) if valid else None,
         "reason": reason_sentence(breakdown) if valid else None,
-        "to_reach": None,
+        "to_reach": to_reach_line(axis, perf_block.get("improve_hint")),
         "anchors": anchors,
     }
 

@@ -53,7 +53,7 @@
     var wasRunning = false;
 
     function toast(msg) {
-      var el = document.getElementById('v2-toast');
+      var el = document.getElementById('v2-toast') || document.getElementById('rv-toast');
       if (!el) return;
       el.textContent = msg;
       el.classList.add('is-visible');
@@ -99,7 +99,6 @@
           esc(failedLabel(item.key, item.p)) + '</a>'
         );
       });
-
       if (ready && !syncing.length && okNames.length) {
         var time = clockLabel(latestSuccess(providers));
         var dot = (detail && detail.overall === 'stale') ? 'rv-sync-dot--amber' : 'rv-sync-dot--green';
@@ -119,9 +118,12 @@
         (running ? 'disabled aria-busy="true"' : '') + '>' +
         (running ? 'Syncing…' : 'Sync now') + '</button>'
       );
-      parts.push(
-        '<button type="button" class="rv-btn rv-btn--primary" id="v2-log-strength">Log a strength session</button>'
-      );
+      var onLog = typeof window !== 'undefined' && window.location && window.location.pathname.indexOf('/v2/training/log') >= 0;
+      if (onLog) {
+        parts.push(
+          '<button type="button" class="rv-btn rv-btn--primary" id="v2-log-strength">Log a strength session</button>'
+        );
+      }
       container.innerHTML = parts.join('');
       var btn = document.getElementById('v2-sync-now');
       if (btn) btn.addEventListener('click', startSync);

@@ -16,11 +16,15 @@
   }
 
   function toast(msg) {
-    var el = document.getElementById('v2-toast');
+    var el = document.getElementById('v2-toast') || document.getElementById('rv-toast');
+    if (!el && global.RevampUI && global.RevampUI.showToast) {
+      global.RevampUI.showToast(msg);
+      return;
+    }
     if (!el) return;
     el.textContent = msg;
     el.classList.add('is-visible');
-    setTimeout(function () { el.classList.remove('is-visible'); }, 2800);
+    setTimeout(function () { el.classList.remove('is-visible'); }, 3200);
   }
 
   function close() {
@@ -216,7 +220,11 @@
       .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
       .then(function (data) {
         var label = data.kind === 'race' ? 'race debrief' : 'session review';
-        var msg = 'Copied · ' + label + ' · ' + (data.chars || 0).toLocaleString() + ' chars';
+        var caveat = (data.missing && data.missing.length)
+          ? 'Not available: ' + data.missing.join(', ')
+          : '';
+        var msg = 'Copied · ' + label + ' · ' + (data.chars || 0).toLocaleString() + ' chars' +
+          (caveat ? ' · ' + caveat : '');
         var text = data.prompt || '';
         function done() { toast(msg); }
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -294,10 +302,13 @@
       if (fl) body.fluid_level = fl.value || null;
       if (st && st.value) body.stomach_ok = st.value === 'yes';
       if (sh) body.shoe_id = sh.value || null;
-      fetch('/api/workouts/' + encodeURIComponent(w.id), {
+      var patch = global.AppCommon && global.AppCommon.fetchWithCsrf
+        ? global.AppCommon.fetchWithCsrf
+        : function (u, o) { return fetch(u, o); };
+      patch('/api/workouts/' + encodeURIComponent(w.id), {
         method: 'PATCH',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': global.AppCommon.csrfToken() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }).then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
         .then(function () { toast('Fuel log saved'); global.dispatchEvent(new Event('v2:log-refresh')); loadCurrent(); })
@@ -347,14 +358,16 @@
       '<button type="button" class="rv-btn rv-btn--secondary" id="v2-drawer-next" ' + (index >= ids.length - 1 ? 'disabled' : '') + ' aria-label="Older session">›</button></div>' +
       '<div class="rv-row" style="gap:4px">' +
       '<button type="button" class="rv-btn rv-btn--secondary" id="v2-drawer-consult">Consult</button>' +
-      '<button type="button" class="rv-btn rv-btn--secondary" id="v2-drawer-shot" aria-label="Save as image">📷</button></div></header>' +
+      '<button type="button" class="rv-btn rv-btn--secondary" id="v2-drawer-shot" aria-label="Save as image">📷</button>' +
+      '<button type="button" class="rv-btn rv-btn--secondary" id="v2-drawer-more" aria-label="More actions">⋮</button></div></header>' +
 
       '<section class="rv-drawer-sec">' +
       '<div class="rv-row" style="flex-wrap:wrap">' +
       chip('RUN', 'background:#dbe4fd;color:#1e3fb0') +
       (data.plan_match ? chip('COACH PLAN', 'background:#eef2fb;color:#33405e') : chip('UNPLANNED', 'background:#eef2fb')) +
       (method === 'stryd' ? chip('STRYD', 'background:#0b1530;color:#fff') : '') + '</div>' +
-      '<h2 id="v2-drawer-title" style="margin:8px 0 4px;font-size:1.6rem">' + esc(w.name || 'Run') + '</h2>' +
+      '<div class="rv-row" style="align-items:center;gap:8px"><h2 id="v2-drawer-title" style="margin:8px 0 4px;font-size:1.6rem;flex:1">' + esc(w.name || 'Run') + '</h2>' +
+      '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-drawer-rename" aria-label="Rename session">✎</button></div>' +
       '<p class="rv-subtitle" style="margin:0">' + esc(w.workout_date || '') +
       (w.start_time ? ' · started ' + esc(String(w.start_time).slice(11, 16)) : '') + '</p>' +
       '<div class="rv-drawer-trio">' +
@@ -393,7 +406,7 @@
       '<a href="/v2/performance" style="font-size:13px;font-weight:600">Performance</a></div>' +
       scoreRow('Endurance', sig.endurance) +
       scoreRow('Speed', sig.speed) +
-      (w.durability_signal != null ? scoreRow('Durability', { value: w.durability_signal, reason: 'rep drift' }) : '') +
+      scoreRow('Durability', sig.durability || { value: w.durability_signal, reason: sig.durability && sig.durability.reason ? sig.durability.reason : 'no drift signal' }) +
       '</section>' +
 
       formBlock(data.form, !!stryd) +
@@ -409,6 +422,27 @@
     document.getElementById('v2-drawer-next').onclick = function () { if (index < ids.length - 1) { index += 1; loadCurrent(); } };
     document.getElementById('v2-drawer-consult').onclick = function () { consult(w.id); };
     document.getElementById('v2-drawer-shot').onclick = screenshot;
+    var moreBtn = document.getElementById('v2-drawer-more');
+    if (moreBtn) {
+      moreBtn.onclick = function () { toast('More actions coming soon'); };
+    }
+    var renameBtn = document.getElementById('v2-drawer-rename');
+    if (renameBtn) {
+      renameBtn.onclick = function () {
+        var next = window.prompt('Rename session', w.name || 'Run');
+        if (!next || next === w.name) return;
+        var patch = global.AppCommon && global.AppCommon.fetchWithCsrf
+          ? global.AppCommon.fetchWithCsrf
+          : function (u, o) { return fetch(u, o); };
+        patch('/api/workouts/' + encodeURIComponent(w.id), {
+          method: 'PATCH',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: next }),
+        }).then(function (r) { if (!r.ok) throw new Error(); loadCurrent(); toast('Renamed'); })
+          .catch(function () { toast('Could not rename'); });
+      };
+    }
 
     if (global.V2FeelButtons) {
       global.V2FeelButtons.mount(document.getElementById('v2-drawer-feel'), w.id, w.feeling);

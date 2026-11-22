@@ -187,6 +187,7 @@ def run_strava_sync(
             )
         run_plan_matcher(uid)
         recorder.mark_success(uid)
+        _post_sync_warm(str(uid))
     except Exception as exc:  # noqa: BLE001
         recorder.mark_error(uid, str(exc))
 
@@ -236,6 +237,29 @@ def _upsert_form_metrics_incremental(uid: _uuid.UUID, stryd_activity_ids: list) 
     except Exception as exc:  # noqa: BLE001
         _logging.getLogger(__name__).warning(
             "form_metrics incremental upsert failed for user %s: %s", uid, exc
+        )
+
+
+def _post_sync_warm(user_id: str) -> None:
+    """Bump data version and warm derived caches (web + worker sync path)."""
+    from backend.db import engine
+    from backend.services import precompute
+    from backend.services.data_version import bump_data_version
+
+    uid = _uuid.UUID(user_id)
+    try:
+        with Session(engine) as session:
+            bump_data_version(session, uid)
+            session.commit()
+    except Exception:
+        _logging.getLogger(__name__).warning(
+            "data_version bump failed after sync for %s", user_id, exc_info=True
+        )
+    try:
+        precompute.precompute_user(user_id, v2=True)
+    except Exception:
+        _logging.getLogger(__name__).warning(
+            "post-sync precompute failed for %s", user_id, exc_info=True
         )
 
 
@@ -293,5 +317,6 @@ def run_stryd_sync(
             result.get("stryd_activity_ids") or [],
         )
         recorder.mark_success(uid)
+        _post_sync_warm(str(uid))
     except Exception as exc:  # noqa: BLE001
         recorder.mark_error(uid, str(exc))

@@ -1,5 +1,8 @@
 """Convert an expressible fitness score to an estimated race finish time — VDOT.
 
+v2 race finish owner: ``race_finish_estimate.estimate_race_finish`` (this module
+is a pure math helper — ``score_to_estimated_finish_time`` — not a page surface).
+
 Pure function module — no database access, no side effects.
 
 The "expressible score" is a 0–100 fitness indicator on the same **universal

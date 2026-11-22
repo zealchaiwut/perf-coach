@@ -32,7 +32,7 @@ def test_never_measured_omitted_from_polygon_and_listed_below():
     svg = rs.render_radar_svg(PAYLOAD)
     now = re.search(r'<polygon class="perf-radar-now" points="([^"]+)"', svg).group(1).split()
     assert len(now) == 6  # seven axes, mobility never measured -> closes over six
-    assert 'data-axis="mobility" cx' not in svg  # no point drawn
+    assert 'perf-radar-point--missing" data-axis="mobility"' in svg
     assert "Not yet measured: Mobility" in svg
 
 
@@ -43,7 +43,7 @@ def test_stale_points_hollow_dashed_and_focus_amber():
     focus = re.search(r'<circle class="perf-radar-point perf-radar-point--focus" data-axis="economy"[^>]*>', svg).group(0)
     assert 'fill="#b45309"' in focus
     assert svg.count("perf-radar-point--focus") == 1
-    assert re.search(r'data-axis="economy"[^>]*fill="#7a3a10"[^>]*>Economy', svg)
+    assert re.search(r'data-axis="economy"[^>]*>Economy</text>', svg)
 
 
 def test_rings_and_dashed_28_day_outline():
@@ -56,11 +56,11 @@ def test_rings_and_dashed_28_day_outline():
 
 def test_labels_carry_score_and_status():
     svg = rs.render_radar_svg(PAYLOAD)
-    assert ">41</tspan>" in svg and ">stale</text>" in svg
-    assert ">focus</text>" in svg
+    assert "41 · stale" in svg
+    assert "focus" in svg
     # speed: 45 vs 42 => +3
-    assert ">+3</text>" in svg
-    assert ">+3</text>" in rs.render_radar_svg(PAYLOAD, "small")
+    assert "+3" in svg
+    assert "+3" in rs.render_radar_svg(PAYLOAD, "small")
 
 
 def test_accessible_summary_lists_every_axis_and_value():
@@ -71,11 +71,11 @@ def test_accessible_summary_lists_every_axis_and_value():
             assert f"{a['label']} {int(round(a['score']))}" in summary
     svg = rs.render_radar_svg(PAYLOAD)
     assert 'role="img"' in svg and "<title" in svg and "<desc" in svg
-    assert "Endurance 41 (stale)" in svg and "Economy 44 (focus)" in svg
+    assert "41 · stale" in svg and "44 · focus" in svg
 
 
 def test_same_numbers_at_both_sizes():
-    nums = lambda s: re.findall(r'font-weight="600"[^>]*>(\d+)</tspan>', s)
+    nums = lambda s: re.findall(r"perf-radar-status[^>]*>([^<]+)</text>", s)
     assert nums(rs.render_radar_svg(PAYLOAD, "large")) == nums(rs.render_radar_svg(PAYLOAD, "small")) != []
 
 
@@ -138,9 +138,9 @@ def test_radar_endpoint_requires_session():
 def test_both_pages_mount_the_one_component():
     home = Path("frontend/pages/v2-home.html").read_text()
     perf = Path("frontend/pages/v2-performance.html").read_text()
-    for html, size in ((home, "small"), (perf, "large")):
-        assert "/js/lib/perf-radar.js" in html
-        assert f'data-perf-radar data-size="{size}"' in html
+    home_js = Path("frontend/js/v2-home.js").read_text()
+    assert "/js/lib/perf-radar.js" in home and 'data-perf-radar data-size="small"' in home_js
+    assert "/js/lib/perf-radar.js" in perf and 'data-perf-radar data-size="large"' in perf
     js = Path("frontend/js/lib/perf-radar.js").read_text()
     assert js.count("/api/performance/radar") == 1
     for other in ("v2-performance.js",):

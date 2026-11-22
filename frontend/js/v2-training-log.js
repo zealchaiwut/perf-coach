@@ -35,7 +35,9 @@
   }
 
   function sectionLoading(el, msg) {
-    el.innerHTML = '<p class="rv-section-state" role="status">' + esc(msg || 'Loading…') + '</p>';
+    el.innerHTML = '<div class="rv-skeleton-stack" role="status" aria-busy="true"><span class="rv-skeleton rv-skeleton--bar"></span>' +
+      '<span class="rv-skeleton rv-skeleton--line"></span><span class="rv-skeleton rv-skeleton--line short"></span>' +
+      '<span class="rv-subtitle">' + esc(msg || 'Loading…') + '</span></div>';
   }
 
   function sectionError(el, msg) {
@@ -52,7 +54,10 @@
 
   function sessionCardClass(kind, status) {
     if (status === 'missed') return 'rv-session--missed';
-    if (status === 'planned') return 'rv-session--run rv-month-card--planned';
+    if (status === 'planned') {
+      if (kind === 'mobility' || kind === 'plyo') return 'rv-month-card--planned-mobility';
+      return 'rv-month-card--planned';
+    }
     if (kind === 'rest') return 'rv-session--rest';
     if (kind === 'race') return 'rv-session--race';
     if (kind === 'quality_run') return 'rv-session--quality';
@@ -74,11 +79,13 @@
     if (!body || !nav) return;
     var label = new Date(data.month + '-01').toLocaleString('en', { month: 'long', year: 'numeric' });
     nav.innerHTML =
-      '<button type="button" class="rv-btn rv-btn--secondary" aria-label="Previous month" id="v2-month-prev">‹</button>' +
-      '<span style="font-weight:700;min-width:150px;text-align:center">' + esc(label) + '</span>' +
-      '<button type="button" class="rv-btn rv-btn--secondary" aria-label="Next month" id="v2-month-next">›</button>' +
-      '<button type="button" class="rv-btn rv-btn--secondary" id="v2-month-today">Today</button>' +
-      '<span class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">So far: ' +
+      '<div class="rv-month-nav-controls">' +
+      '<button type="button" class="rv-month-nav-btn" aria-label="Previous month" id="v2-month-prev">‹</button>' +
+      '<span class="rv-month-nav-label">' + esc(label) + '</span>' +
+      '<button type="button" class="rv-month-nav-btn" aria-label="Next month" id="v2-month-next">›</button>' +
+      '<button type="button" class="rv-month-nav-btn rv-month-nav-today" id="v2-month-today">Today</button>' +
+      '</div>' +
+      '<span class="rv-month-nav-summary">So far: ' +
       Math.round(data.summary.tss_total || 0) + ' TSS · ' + (data.summary.distance_km || 0) + ' km · ' +
       (data.summary.session_count || 0) + ' sessions' +
       (data.summary.plan_kept_label ? ' · plan kept ' + esc(data.summary.plan_kept_label) : '') +
@@ -92,16 +99,22 @@
     };
 
     var html = ['<div class="rv-month-grid" role="grid">'];
-    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Week'].forEach(function (h) {
+    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(function (h) {
       html.push('<div class="rv-month-head">' + h + '</div>');
     });
+    html.push('<div class="rv-month-head rv-month-head--week">Week</div>');
     (data.weeks || []).forEach(function (week) {
       week.days.forEach(function (day) {
         var cls = 'rv-month-day';
         if (!day.in_month) cls += ' rv-month-day--out';
         if (day.is_today) cls += ' rv-month-day--today';
         html.push('<div class="' + cls + '" role="gridcell">');
-        html.push('<div class="rv-month-daynum">' + esc(day.date.slice(-2)) + (day.is_today ? ' <span class="rv-chip" style="min-height:auto;padding:0 6px;font-size:10px">Today</span>' : '') + '</div>');
+        html.push(
+          '<div class="rv-month-daynum">' +
+          esc(String(parseInt(day.date.slice(-2), 10))) +
+          (day.is_today ? '<span class="rv-month-today-chip">TODAY</span>' : '') +
+          '</div>'
+        );
         (day.items || []).forEach(function (item) {
           var cardCls = 'rv-month-card ' + sessionCardClass(item.kind, item.status);
           var isRun = item.kind === 'run' || item.kind === 'quality_run';
@@ -113,13 +126,13 @@
           if (item.distance_km != null) meta.push(item.distance_km + ' km');
           if (item.duration_min != null) meta.push(item.duration_min + ' min');
           var who = item.who || String(item.kind || '').replace('_', ' ').toUpperCase();
-          var tag = item.status === 'done' ? 'Done' : (item.status === 'planned' ? '' : item.status);
+          var tag = item.status === 'done' ? 'DONE' : '';
           html.push(
             '<h3 class="' + cardCls + '" tabindex="' + (clickable ? '0' : '-1') + '" data-workout-id="' + esc(item.workout_id || '') + '" data-session-kind="' + esc(item.kind || '') + '">' +
             '<span class="rv-month-who" style="color:' + esc(whoColor(who)) + '">' + esc(who) + '</span>' +
             '<span class="rv-month-card-title">' + esc(item.name) + '</span>' +
-            (meta.length ? '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono);font-size:10px">' + esc(meta.join(' · ')) + '</div>' : '') +
-            (tag ? '<span class="rv-chip rv-chip--done">' + esc(tag) + '</span>' : '') +
+            (meta.length ? '<div class="rv-month-card-meta">' + esc(meta.join(' · ')) + '</div>' : '') +
+            (tag ? '<span class="rv-chip rv-chip--done">' + tag + '</span>' : '') +
             '</h3>'
           );
         });
@@ -236,6 +249,13 @@
       parts.push('<polyline points="' + linePts.join(' ') + '" fill="none" stroke="#d97706" stroke-width="2.5"/>');
     }
     parts.push('</svg>');
+    parts.push(
+      '<div class="rv-log-chart-legend">' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#bfd3f8"></i>Run TSS</span>' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#c9b6f2"></i>Lift TSS</span>' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#d97706;height:3px;border-radius:0"></i>Distance</span>' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#fff;border:2px dashed #6d93e8"></i>Planned</span></div>'
+    );
     el.innerHTML = parts.join('');
     el.querySelectorAll('[data-week]').forEach(function (node) {
       function jump() {
@@ -259,10 +279,15 @@
     var startDate = new Date(end);
     startDate.setDate(startDate.getDate() - 7 * 8);
     var fromW = startDate.toISOString().slice(0, 10);
-    fetch('/api/weekly-rollup?from=' + encodeURIComponent(fromW) + '&to=' + encodeURIComponent(end))
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 25000);
+    fetch('/api/weekly-rollup?from=' + encodeURIComponent(fromW) + '&to=' + encodeURIComponent(end), { signal: ctrl.signal })
       .then(function (r) { if (!r.ok) throw new Error('chart'); return r.json(); })
-      .then(function (data) { drawChart((data && data.weeks) || []); })
-      .catch(function () { sectionError(el, 'Could not load weekly volume.'); });
+      .then(function (data) { clearTimeout(timer); drawChart((data && data.weeks) || []); })
+      .catch(function (e) {
+        clearTimeout(timer);
+        sectionError(el, e && e.name === 'AbortError' ? 'Chart timed out — try again.' : 'Could not load weekly volume.');
+      });
   }
 
   function listRange() {
@@ -285,13 +310,30 @@
     return true;
   }
 
-  function badges(entry) {
-    var b = [];
-    if (entry.is_stryd_synced || entry.has_stryd) b.push('STRYD');
-    if (entry.plan_match) b.push('Matched coach plan');
-    else if (entry.row_kind !== 'missed_plan' && entry.id && String(entry.id).indexOf('plan:') !== 0) b.push('Unplanned');
-    if (entry.speed_signal != null) b.push('Hard effort');
-    return b;
+  function dotClassForType(tpe) {
+    var t = (tpe || '').toLowerCase();
+    if (t.indexOf('strength') >= 0 || t.indexOf('plyo') >= 0 || t.indexOf('mobility') >= 0) return 'rv-sync-dot--purple';
+    if (t.indexOf('race') >= 0) return 'rv-sync-dot--amber';
+    return 'rv-sync-dot--blue';
+  }
+
+  function badgeChips(entry) {
+    var chips = [];
+    if (entry.is_stryd_synced || entry.has_stryd) {
+      chips.push('<span class="rv-chip rv-chip--dark">STRYD</span>');
+    }
+    if (entry.plan_match) {
+      chips.push('<span class="rv-chip rv-chip--good">Matched coach plan</span>');
+    } else if (entry.row_kind !== 'missed_plan' && entry.id && String(entry.id).indexOf('plan:') !== 0) {
+      chips.push('<span class="rv-chip">Unplanned</span>');
+    }
+    if (entry.speed_signal != null) {
+      chips.push('<span class="rv-chip rv-chip--warn">Hard effort · speed signal</span>');
+    }
+    if (entry.row_kind === 'missed_plan') {
+      chips.push('<span class="rv-chip rv-chip--warn">Planned, not done</span>');
+    }
+    return chips.join(' ');
   }
 
   function renderList(data) {
@@ -337,10 +379,10 @@
           if (entry.avg_hr) meta.push(entry.avg_hr + ' bpm');
           html.push('<div class="' + rowCls + '"' + ((run || str) ? ' data-run-id="' + esc(entry.id) + '" data-workout-type="' + esc(entry.type || '') + '" tabindex="0" role="button"' : '') + '>');
           html.push('<span class="rv-subtitle" style="margin:0">' + esc(entry.date.slice(-2)) + '</span>');
-          html.push('<span class="rv-sync-dot rv-sync-dot--green" aria-hidden="true"></span>');
+          html.push('<span class="rv-sync-dot ' + dotClassForType(entry.type) + '" aria-hidden="true"></span>');
           html.push('<div><strong>' + esc(entry.title || 'Session') + '</strong>' +
             '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' + esc(meta.join(' · ')) + '</div>' +
-            '<p style="margin:4px 0 0;font-size:12px">' + esc(badges(entry).join(' · ')) + '</p></div>');
+            '<div class="rv-row" style="gap:6px;flex-wrap:wrap;margin-top:4px">' + badgeChips(entry) + '</div></div>');
           html.push(
             '<div class="rv-session-side">' +
             '<span class="rv-mono">' + (entry.tss != null ? Math.round(entry.tss) : '—') + ' TSS</span>' +

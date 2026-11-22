@@ -124,10 +124,16 @@
       var panel = host.querySelector('#v2-suggest-panel');
       if (!open || !panel) return;
       open.onclick = function () {
-        fetch('/api/plan/revamp-suggest/preview' + weekQuery(), {
+        var post = window.AppCommon && window.AppCommon.fetchWithCsrf
+          ? window.AppCommon.fetchWithCsrf
+          : function (u, o) { return fetch(u, o); };
+        post('/api/plan/revamp-suggest/preview' + weekQuery(), {
           method: 'POST',
           credentials: 'include',
-        }).then(function (r) { return r.json(); }).then(function (payload) {
+        }).then(function (r) {
+          if (!r.ok) throw new Error(r.status === 403 ? 'Session expired — refresh and try again' : 'Suggest failed (' + r.status + ')');
+          return r.json();
+        }).then(function (payload) {
           panel.hidden = false;
           if (!payload.proposed || !payload.proposed.length) {
             panel.innerHTML = '<p class="rv-subtitle">' + esc(payload.message || 'Nothing to suggest.') + '</p>';
@@ -141,16 +147,23 @@
             '<ul class="rv-subtitle">' + rows + '</ul>' +
             '<button type="button" class="rv-btn" id="v2-suggest-apply">Apply suggestions</button>';
           panel.querySelector('#v2-suggest-apply').onclick = function () {
-            fetch('/api/plan/revamp-suggest/apply', {
+            post('/api/plan/revamp-suggest/apply', {
               method: 'POST',
               credentials: 'include',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ proposed: payload.proposed }),
+            }).then(function (r) {
+              if (!r.ok) throw new Error('Apply failed');
+              return r.json();
             }).then(function () {
               panel.hidden = true;
               refresh();
             });
           };
+        }).catch(function (e) {
+          panel.hidden = false;
+          panel.innerHTML = '<p class="rv-subtitle" role="alert">' + esc(e.message || 'Could not suggest sessions.') + '</p>';
+          toast(e.message || 'Could not suggest sessions');
         });
       };
     }

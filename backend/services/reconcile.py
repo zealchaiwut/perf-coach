@@ -119,13 +119,14 @@ def _make_proxy(
 
 
 def _apply_best(workout, best: dict) -> None:
-    if best.get("best_name"):
+    overrides = workout.manual_overrides or {}
+    if "name" not in overrides and best.get("best_name"):
         workout.name = best["best_name"]
-    if best.get("best_distance_km") is not None:
+    if "distance_km" not in overrides and best.get("best_distance_km") is not None:
         workout.distance_km = best["best_distance_km"]
-    if best.get("best_duration_seconds") is not None:
+    if "duration_seconds" not in overrides and best.get("best_duration_seconds") is not None:
         workout.duration_seconds = best["best_duration_seconds"]
-    if best.get("best_avg_hr") is not None:
+    if "avg_hr" not in overrides and best.get("best_avg_hr") is not None:
         from backend.services.workout_merge import clean_hr
 
         hr = clean_hr(best["best_avg_hr"])
@@ -607,6 +608,15 @@ def reconcile_workouts(
             "Duration curve update failed for user %s; sync will still complete", uid
         )
 
+    try:
+        from backend.services.data_version import bump_data_version
+
+        with _Session(engine) as session:
+            bump_data_version(session, uid)
+            session.commit()
+    except Exception:
+        _log.exception("data_version bump after reconcile failed for user %s", uid)
+
 
 def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
     """Per-run: fill zone2_minutes (time in the user's Zone-2 HR band) from the
@@ -616,8 +626,7 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
     When workout_ids is set, only those runs are updated (incremental sync)."""
     from backend.db import engine
     from backend.models import UserPreferences, Workout, WorkoutSplit
-    from backend.services.tss import estimate_tss_for_workout
-    from types import SimpleNamespace
+    from backend.services.session_tss import refresh_workout_tss_storage
 
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     with _Session(engine) as session:
@@ -641,21 +650,17 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
             if sp:
                 z2s = sum((s.duration_seconds or 0) for s in sp
                           if s.avg_hr is not None and z_min <= s.avg_hr <= z_max)
+                easy_s = sum((s.duration_seconds or 0) for s in sp
+                             if s.avg_hr is not None and s.avg_hr <= z_max)
                 w.zone2_minutes = round(z2s / 60)
-            elif w.avg_hr is not None and w.duration_seconds and z_min <= w.avg_hr <= z_max:
-                w.zone2_minutes = round(w.duration_seconds / 60)
+                w.easy_minutes = round(easy_s / 60)
+            elif w.avg_hr is not None and w.duration_seconds:
+                if z_min <= w.avg_hr <= z_max:
+                    w.zone2_minutes = round(w.duration_seconds / 60)
+                if w.avg_hr <= z_max:
+                    w.easy_minutes = round(w.duration_seconds / 60)
 
-            if w.tss is None and w.duration_seconds:
-                proxy = SimpleNamespace(
-                    duration_seconds=w.duration_seconds,
-                    avg_power_w=w.avg_power,
-                    avg_hr=w.avg_hr,
-                    distance_km=float(w.distance_km) if w.distance_km is not None else None,
-                    avg_pace_seconds_per_km=None,
-                )
-                tss, src = estimate_tss_for_workout(proxy, uid, session)
-                w.tss = tss
-                w.tss_source = src
+            refresh_workout_tss_storage(session, w)
 
         # Weeks touched by these runs — collected while attributes are still
         # loaded (before commit expires them).

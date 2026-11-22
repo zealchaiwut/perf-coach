@@ -57,6 +57,15 @@ def test_no_sentence_when_balanced_or_zero_or_missing():
     assert sc.reason_sentence(breakdown(decay=-4.0, efforts=0.0, anchors=[])) is None
 
 
+def test_formula_line_reads_breakdown_terms():
+    bd = breakdown(decay=0, efforts=0, consistency=0)
+    bd["anchor_mean_now"] = 55.0
+    bd["race_floor_now"] = None
+    bd["consistency_bonus_now"] = 2.5
+    bd["score_now"] = 57.5
+    assert sc.formula_line(bd) == "55.0 avg of 3 + 2.5 consistency = 57.5"
+
+
 def test_split_bar_shares_use_the_decomposition_terms():
     out = sc.split_bar(breakdown(decay=-3.0, efforts=1.0, consistency=0.5))
     assert out["decay"] == 3.0 and out["gains"] == 1.5
@@ -66,6 +75,10 @@ def test_split_bar_shares_use_the_decomposition_terms():
 
 
 def _perf_payload():
+    bd_end = breakdown(decay=-4.5, efforts=1.0)
+    bd_end["anchor_mean_now"] = 39.0
+    bd_end["race_floor_now"] = 38.3
+    bd_end["consistency_bonus_now"] = 1.9
     return {
         "state": "scored",
         "generated_at": "2026-11-20T00:00:00+00:00",
@@ -73,12 +86,23 @@ def _perf_payload():
             "score": 41.0, "block_delta": -2.0,
             "anchors": [{"date": "2026-08-02", "is_stale": True, "title": "10K race"}],
             "history_trend": [43.0, 42.0, 41.0], "history_trend_dates": ["2026-11-01", "2026-11-10", "2026-11-20"],
-            "breakdown": breakdown(decay=-4.5, efforts=1.0),
+            "breakdown": bd_end,
+            "model": {"top_k": 3},
+            "improve_hint": {
+                "target_score": 45,
+                "pace_seconds_per_km": 322,
+                "effort_minutes": 30,
+            },
         },
         "speed": {
             "score": 47.0, "block_delta": 3.0,
             "anchors": [{"date": "2026-10-30", "is_stale": False}],
             "breakdown": breakdown(decay=-1.0, efforts=5.5),
+            "improve_hint": {
+                "target_score": 49,
+                "pace_seconds_per_km": 300,
+                "effort_minutes": 8,
+            },
         },
     }
 
@@ -105,7 +129,9 @@ def test_all_numbers_flow_from_the_patched_readers():
     assert end["sparkline"] == {"dates": ["2026-11-01", "2026-11-10", "2026-11-20"], "values": [43.0, 42.0, 41.0]}
     assert spd["sparkline"] is None
     assert end["reason"].startswith("Down from decay") and spd["reason"].startswith("Lifted by the effort")
-    assert end["to_reach"] is None and spd["to_reach"] is None
+    assert end["formula_line"] and "38.3 race floor" in end["formula_line"]
+    assert end["to_reach"].startswith("To reach 45:")
+    assert spd["to_reach"].startswith("To reach 49:")
     assert [a["date"] for a in end["anchors"]][:1] == ["2026-10-30"]
     assert set(end["anchors"][0]) == {"date", "raw_score", "age_weeks", "is_stale"}
 
@@ -137,5 +163,6 @@ def test_page_wiring():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert "v2-perf-score-cards" in html
-    for needle in ("/api/performance/score-cards", "data-card-reason", "data-card-split", "<summary>Anchors</summary>", "data-sparkline"):
+    for needle in ("/api/performance/score-cards", "data-card-reason", "data-card-split", "data-card-formula", "data-card-to-reach",
+                   "<summary>Anchor efforts and other runs</summary>", "data-sparkline"):
         assert needle in js

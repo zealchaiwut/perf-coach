@@ -27,7 +27,13 @@
     var host = document.getElementById("v2-settings-conn-body");
     if (!host) return;
     var s1 = data.strava && data.strava.connected ? "Connected" : "Not connected";
-    var s2 = data.stryd && data.stryd.connected ? "Connected" : "Not connected";
+    var stryd = data.stryd || {};
+    var s2 = "Not connected";
+    if (stryd.connected) {
+      if (stryd.status === "reauth_required") s2 = "Needs your password again";
+      else if (stryd.status === "unreachable") s2 = "Connected (Stryd unreachable)";
+      else s2 = "Connected";
+    }
     host.innerHTML =
       "<p class='rv-subtitle'>Strava — " + s1 + "</p>" +
       "<p class='rv-subtitle'>Stryd — " + s2 + "</p>" +

@@ -147,25 +147,26 @@ def build_providers(
     strava_connected = (
         session.query(StravaToken).filter(StravaToken.user_id == uid).first() is not None
     )
-    stryd_connected = (
-        session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).first() is not None
+    stryd_cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).first()
+    stryd_connected = stryd_cred is not None
+    stryd_needs_reauth = stryd_cred is not None and getattr(stryd_cred, "auth_failed_at", None) is not None
+    strava = _one_provider(
+        session,
+        uid,
+        "strava",
+        connected=strava_connected,
+        job_snapshot=job_snapshot,
     )
-    return {
-        "strava": _one_provider(
-            session,
-            uid,
-            "strava",
-            connected=strava_connected,
-            job_snapshot=job_snapshot,
-        ),
-        "stryd": _one_provider(
-            session,
-            uid,
-            "stryd",
-            connected=stryd_connected,
-            job_snapshot=job_snapshot,
-        ),
-    }
+    stryd = _one_provider(
+        session,
+        uid,
+        "stryd",
+        connected=stryd_connected,
+        job_snapshot=job_snapshot,
+    )
+    if stryd_needs_reauth:
+        stryd["needs_reauth"] = True
+    return {"strava": strava, "stryd": stryd}
 
 
 def dot_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> str:
@@ -173,11 +174,13 @@ def dot_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> st
     now = now or _utc_now()
     if not provider.get("connected"):
         return "red"
-    err = provider.get("last_error") or ""
-    if err and _TEMP_UNAVAILABLE not in str(err).lower():
-        return "red"
-    if err:
+    if provider.get("needs_reauth"):
         return "amber"
+    err = provider.get("last_error") or ""
+    if err:
+        if _TEMP_UNAVAILABLE in str(err).lower():
+            return "amber"
+        return "red"
     ts = provider.get("last_success_at")
     if not ts:
         return "amber"
