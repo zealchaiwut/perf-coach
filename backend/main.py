@@ -9227,9 +9227,127 @@ def _daily_metric_dict(m: DailyMetric) -> dict:
         "mood": m.mood,
         "notes": m.notes,
         "kcal_intake": m.kcal_intake,
+        "lunch_rule": m.lunch_rule,
+        "feet": m.feet,
+        "steps": m.steps,
+        "steps_source": m.steps_source,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
     }
+
+
+# ── Body log (P6-9) ─────────────────────────────────────────────────────────────
+
+
+class BodyLogPatchIn(BaseModel):
+    weight_kg: Optional[float] = None
+    lunch_rule: Optional[bool] = None
+    feet: Optional[int] = None
+    steps: Optional[int] = None
+
+
+def _validate_body_log_fields(
+    *,
+    weight_kg: Optional[float] = None,
+    feet: Optional[int] = None,
+    steps: Optional[int] = None,
+) -> None:
+    if weight_kg is not None and not (40 <= weight_kg <= 200):
+        raise HTTPException(status_code=422, detail={"field": "weight_kg", "error": "weight_kg must be between 40 and 200"})
+    if feet is not None and not (0 <= feet <= 3):
+        raise HTTPException(status_code=422, detail={"field": "feet", "error": "feet must be between 0 and 3"})
+    if steps is not None and steps < 0:
+        raise HTTPException(status_code=422, detail={"field": "steps", "error": "steps must be a non-negative integer"})
+
+
+@app.get("/api/body-log")
+def get_body_log(
+    log_date: Optional[str] = Query(default=None, alias="date"),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.body_log_store import body_log_day_payload
+
+    today = _today_bkk()
+    if log_date is None:
+        md = today
+    else:
+        try:
+            md = _date.fromisoformat(log_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+    with Session(engine) as session:
+        return JSONResponse(body_log_day_payload(session, user.id, md))
+
+
+@app.patch("/api/body-log")
+def patch_body_log(
+    body: BodyLogPatchIn,
+    log_date: Optional[str] = Query(default=None, alias="date"),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.body_log_store import patch_body_log as _patch_body_log
+
+    if not body.model_fields_set:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    today = _today_bkk()
+    if log_date is None:
+        md = today
+    else:
+        try:
+            md = _date.fromisoformat(log_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+    _validate_body_log_fields(
+        weight_kg=body.weight_kg if "weight_kg" in body.model_fields_set else None,
+        feet=body.feet if "feet" in body.model_fields_set else None,
+        steps=body.steps if "steps" in body.model_fields_set else None,
+    )
+    with Session(engine) as session:
+        payload = _patch_body_log(
+            session,
+            user.id,
+            md,
+            weight_kg=body.weight_kg if "weight_kg" in body.model_fields_set else None,
+            lunch_rule=body.lunch_rule if "lunch_rule" in body.model_fields_set else None,
+            feet=body.feet if "feet" in body.model_fields_set else None,
+            steps=body.steps if "steps" in body.model_fields_set else None,
+        )
+    if "weight_kg" in body.model_fields_set:
+        _recompute_weigh_in_autofill(user.id, md)
+    return JSONResponse(payload)
+
+
+@app.get("/api/body-log/weekly-rollup")
+def get_body_log_weekly_rollup(
+    week_start: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.body_log_store import body_log_week_rollup
+
+    today = _today_bkk()
+    if week_start is None:
+        from backend.services.weekly_rollup import normalize_week_start
+
+        ws = normalize_week_start(today)
+    else:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid week_start; use YYYY-MM-DD")
+    with Session(engine) as session:
+        return JSONResponse(body_log_week_rollup(session, user.id, ws))
+
+
+@app.get("/api/home/weight-card")
+def get_home_weight_card(user: User = Depends(resolve_user)):
+    from backend.services.body_log_store import _weight_rows
+    from backend.services.body_log_weight_card import weight_card_payload
+
+    today = _today_bkk()
+    fetch_from = today - _timedelta(days=120)
+    with Session(engine) as session:
+        rows = _weight_rows(session, user.id, fetch_from, today)
+        return JSONResponse(weight_card_payload(session, user.id, weight_rows=rows, today=today))
 
 
 @app.get("/api/daily-metrics")
