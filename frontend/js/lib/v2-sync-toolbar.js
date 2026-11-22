@@ -7,10 +7,6 @@
     return global.AppCommon ? global.AppCommon.escapeHtml(String(s)) : String(s);
   }
 
-  function bkkNow() {
-    return new Date();
-  }
-
   function parseIso(iso) {
     if (!iso) return null;
     try {
@@ -20,45 +16,41 @@
     }
   }
 
-  function relativeLabel(iso) {
+  function clockLabel(iso) {
     var ts = parseIso(iso);
-    if (!ts) return 'never';
-    var now = bkkNow();
-    var diffMs = now - ts;
-  if (diffMs < 0) diffMs = 0;
-    var mins = diffMs / 60000;
-    var fmtToday = new Intl.DateTimeFormat('en-GB', {
+    if (!ts) return '';
+    return new Intl.DateTimeFormat('en-GB', {
       timeZone: BKK,
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
-    });
-    var dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: BKK, year: 'numeric', month: '2-digit', day: '2-digit' });
-    var todayKey = dayFmt.format(now);
-    var tsKey = dayFmt.format(ts);
-    if (todayKey === tsKey) return fmtToday.format(ts);
-    if (mins < 48 * 60) {
-      var hrs = Math.max(1, Math.round(mins / 60));
-      return hrs + ' h ago';
-    }
-    var days = Math.round(mins / (60 * 24));
-    return days + ' d ago';
+    }).format(ts);
   }
 
-  function dotClass(provider) {
-    if (!provider || !provider.connected) return 'rv-sync-dot--red';
-    if (provider.last_error) return 'rv-sync-dot--red';
-    var ts = parseIso(provider.last_success_at);
-    if (!ts) return 'rv-sync-dot--amber';
-    var ageH = (bkkNow() - ts) / 3600000;
-    if (ageH >= 48) return 'rv-sync-dot--amber';
-    return 'rv-sync-dot--green';
+  function latestSuccess(providers) {
+    var best = null;
+    ['strava', 'stryd'].forEach(function (key) {
+      var iso = (providers[key] || {}).last_success_at;
+      if (!iso) return;
+      if (!best || iso > best) best = iso;
+    });
+    return best;
+  }
+
+  function providerName(key) {
+    return key === 'strava' ? 'Strava' : 'Stryd';
+  }
+
+  function failedLabel(key, p) {
+    if (key === 'stryd' && p.needs_reauth) return 'Stryd needs reconnecting';
+    return providerName(key) + ' sync failed';
   }
 
   function mount(container, opts) {
     opts = opts || {};
     var onRefresh = opts.onRefresh || function () {};
     var lastIdleSynced = null;
+    var wasRunning = false;
 
     function toast(msg) {
       var el = document.getElementById('v2-toast');
@@ -68,34 +60,71 @@
       setTimeout(function () { el.classList.remove('is-visible'); }, 3200);
     }
 
-    function renderProviders(data) {
-      var prov = (data && data.providers) || {};
-      var running = (data && (data.status === 'running' || data.status === 'pending'));
-      var lines = [];
-      ['strava', 'stryd'].forEach(function (key) {
-        var p = prov[key] || {};
-        var wait = p.pending_count > 0 ? ' · ' + p.pending_count + ' waiting' : '';
-        var label = p.connected ? relativeLabel(p.last_success_at) : 'not connected';
-        lines.push(
-          '<span class="rv-row" style="gap:7px;font-size:13px">' +
-          '<span class="rv-sync-dot ' + dotClass(p) + '" aria-hidden="true"></span>' +
-          '<b>' + esc(key === 'strava' ? 'Strava' : 'Stryd') + '</b>' +
-          '<span class="rv-subtitle" style="margin:0">' + esc(label) + esc(wait) + '</span></span>'
+    function renderPills(detail) {
+      var providers = (detail && detail.providers) || {};
+      var parts = [];
+      var syncing = [];
+      var failed = [];
+      var okNames = [];
+      var ready = !!(detail && detail.raw);
+
+      if (ready) {
+        ['strava', 'stryd'].forEach(function (key) {
+          var p = providers[key] || {};
+          var state = p.state || (global.V2SyncStatus ? global.V2SyncStatus.providerState(p) : 'ok');
+          if (state === 'syncing') {
+            syncing.push(providerName(key));
+          } else if (state === 'failed') {
+            failed.push({ key: key, p: p });
+          } else if (p.connected !== false) {
+            okNames.push(providerName(key));
+          }
+        });
+      }
+
+      if (syncing.length) {
+        parts.push(
+          '<span class="rv-sync-pill rv-sync-pill--syncing">' +
+          '<span class="rv-sync-spinner" aria-hidden="true"></span>' +
+          'Syncing ' + esc(syncing.join(' + ')) + '…</span>'
+        );
+      }
+
+      failed.forEach(function (item) {
+        var title = item.p.last_error ? esc(item.p.last_error) : '';
+        parts.push(
+          '<a class="rv-sync-pill rv-sync-pill--failed" href="/v2/settings#integrations"' +
+          (title ? ' title="' + title + '"' : '') + '>' +
+          '<span class="rv-sync-dot rv-sync-dot--red" aria-hidden="true"></span>' +
+          esc(failedLabel(item.key, item.p)) + '</a>'
         );
       });
-      var btnLabel = running ? 'Syncing…' : 'Sync now';
-      lines.push(
-        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-sync-now" ' +
-        (running ? 'disabled aria-busy="true"' : '') + '>' + btnLabel + '</button>'
-      );
-      lines.push(
-        '<button type="button" class="rv-btn rv-btn--primary" id="v2-log-strength">Log strength session</button>'
-      );
-      container.innerHTML = lines.join('');
-      var btn = document.getElementById('v2-sync-now');
-      if (btn) {
-        btn.addEventListener('click', startSync);
+
+      if (ready && !syncing.length && okNames.length) {
+        var time = clockLabel(latestSuccess(providers));
+        var dot = (detail && detail.overall === 'stale') ? 'rv-sync-dot--amber' : 'rv-sync-dot--green';
+        parts.push(
+          '<span class="rv-sync-pill rv-sync-pill--ok">' +
+          '<span class="rv-sync-dot ' + dot + '" aria-hidden="true"></span>' +
+          '<b>' + esc(okNames.join(' + ')) + '</b>' +
+          (time ? '<span class="rv-subtitle" style="margin:0">' + esc(time) + '</span>' : '') +
+          '</span>'
+        );
       }
+
+      var running = !!(detail && (detail.overall === 'syncing' ||
+        detail.status === 'running' || detail.status === 'pending'));
+      parts.push(
+        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-sync-now" ' +
+        (running ? 'disabled aria-busy="true"' : '') + '>' +
+        (running ? 'Syncing…' : 'Sync now') + '</button>'
+      );
+      parts.push(
+        '<button type="button" class="rv-btn rv-btn--primary" id="v2-log-strength">Log a strength session</button>'
+      );
+      container.innerHTML = parts.join('');
+      var btn = document.getElementById('v2-sync-now');
+      if (btn) btn.addEventListener('click', startSync);
       var logStr = document.getElementById('v2-log-strength');
       if (logStr) {
         logStr.addEventListener('click', function () {
@@ -113,34 +142,54 @@
         .then(function (r) {
           if (r.status === 409) {
             toast('Sync already running');
-            return pollStatus().then(renderProviders);
+            if (global.V2SyncStatus) global.V2SyncStatus.poll();
+            return;
           }
           if (!r.ok) throw new Error('sync failed');
           if (global.SyncPoller) global.SyncPoller.start();
-          return pollStatus().then(renderProviders);
+          if (global.V2SyncStatus) global.V2SyncStatus.poll();
         })
         .catch(function () { toast('Could not start sync'); });
     }
 
-    function handleStatus(data) {
-      renderProviders(data || { status: 'idle' });
-      if (data && data.status === 'idle' && data.items_synced != null && data.items_synced !== lastIdleSynced) {
-        if (lastIdleSynced != null) {
+    function handleDetail(detail) {
+      renderPills(detail || { status: 'idle', providers: {}, overall: 'ok' });
+      var running = !!(detail && (detail.overall === 'syncing' ||
+        detail.status === 'running' || detail.status === 'pending'));
+      if (wasRunning && !running) {
+        onRefresh();
+        var data = (detail && detail.raw) || {};
+        if (data.items_synced != null && data.items_synced !== lastIdleSynced) {
           toast((data.items_synced || 0) + ' sessions synced');
-          onRefresh();
+          lastIdleSynced = data.items_synced;
         }
-        lastIdleSynced = data.items_synced;
       }
-      if (data && (data.status === 'running' || data.status === 'pending')) {
-        if (global.SyncPoller) global.SyncPoller.start();
-      }
+      wasRunning = running;
     }
 
-    pollStatus().then(handleStatus);
+    function handleRaw(data) {
+      if (global.V2SyncStatus && data) return;
+      handleDetail({
+        status: (data && data.status) || 'idle',
+        providers: (data && data.providers) || {},
+        overall: data && (data.status === 'running' || data.status === 'pending') ? 'syncing' : 'ok',
+        raw: data,
+      });
+    }
+
+    document.addEventListener('rv:sync-status', function (ev) {
+      handleDetail(ev.detail);
+    });
+    renderPills({ status: 'idle', providers: {}, overall: 'ok' });
+    if (global.V2SyncStatus && global.V2SyncStatus.lastDetail()) {
+      handleDetail(global.V2SyncStatus.lastDetail());
+    } else {
+      pollStatus().then(handleRaw);
+    }
     if (global.SyncPoller) {
-      global.SyncPoller.subscribe(handleStatus);
+      global.SyncPoller.subscribe(handleRaw);
     }
   }
 
-  global.V2SyncToolbar = { mount: mount, dotClass: dotClass, relativeLabel: relativeLabel };
+  global.V2SyncToolbar = { mount: mount, clockLabel: clockLabel };
 })(window);
