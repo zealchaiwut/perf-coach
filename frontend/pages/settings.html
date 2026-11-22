@@ -1334,6 +1334,7 @@
           <div class="thresholds-suggestion-banner" id="thresholds-ftp-suggestion" aria-live="polite"></div>
           <p class="thresholds-last-set" id="thresholds-ftp-last-set"></p>
           <div class="thresholds-suggestion-banner" id="cp-staleness-banner" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="cp-history-line"></p>
           <p class="thresholds-desc">Your maximum sustainable power output for ~1 hour (watts). Used to compute cycling TSS. Estimate via a 20-minute all-out effort × 0.95.</p>
           <div class="profile-field-error" id="thresholds-ftp-error"></div>
         </div>
@@ -2407,7 +2408,21 @@
       // ── CP staleness / Update CP (#1877) ─────────────────────────────────
       // GET /api/cp/staleness is read-only; CP only changes when the athlete
       // clicks Update CP, which POSTs /api/cp/update (also logs cp_history).
+      function _loadCpHistory() {
+        fetch('/api/cp/history')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            var el = document.getElementById('cp-history-line');
+            if (!el || !d || !d.history || !d.history.length) return;
+            el.textContent = 'CP history: ' + d.history.slice(0, 4).map(function (h) {
+              return h.effective_date + ' ' + h.cp_w + ' W';
+            }).join(' · ');
+          })
+          .catch(function () {});
+      }
+
       function _loadCpStaleness() {
+        _loadCpHistory();
         fetch('/api/cp/staleness')
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (d) {
@@ -2439,6 +2454,7 @@
                   if (!r.ok) { b.disabled = false; return; }
                   el.innerHTML = '';
                   _tLoadPrefs();
+                  _loadCpHistory();
                 }).catch(function () { b.disabled = false; });
               });
               el.appendChild(b);
