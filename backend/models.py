@@ -319,7 +319,9 @@ class Workout(Base):
     source = Column(String(20), nullable=True)
     strava_activity_url = Column(Text, nullable=True)
     distance_km = Column(Numeric(8, 3), nullable=True)
-    duration_seconds = Column(Integer, nullable=True)
+    duration_seconds = Column(Integer, nullable=True)  # moving time
+    # Wall-clock elapsed time (Strava elapsed_time); NULL when not synced (#1876).
+    elapsed_time_seconds = Column(Integer, nullable=True)
     avg_hr = Column(Integer, nullable=True)
     max_hr = Column(Integer, nullable=True)
     elevation_m = Column(Integer, nullable=True)
@@ -527,7 +529,10 @@ class WorkoutSplit(Base):
     workout_id = Column(UUID(as_uuid=True), ForeignKey("workouts.id", ondelete="CASCADE"), nullable=False)
     split_index = Column(Integer, nullable=False)
     distance_km = Column(Numeric(6, 3), nullable=False)
-    duration_seconds = Column(Integer, nullable=False)
+    duration_seconds = Column(Integer, nullable=False)  # moving time (back-compat)
+    # Explicit moving / elapsed per lap (#1876); NULL on rows written before then.
+    moving_time_seconds = Column(Integer, nullable=True)
+    elapsed_time_seconds = Column(Integer, nullable=True)
     avg_hr = Column(Integer, nullable=True)
     # Per-km Stryd metrics (nullable; manual/Strava-only splits → null).
     avg_power = Column(Integer, nullable=True)
@@ -826,6 +831,7 @@ class StravaActivity(Base):
     name = Column(String(255), nullable=False)
     distance_km = Column(Numeric(10, 3), nullable=True)
     duration_seconds = Column(Integer, nullable=True)
+    elapsed_time_seconds = Column(Integer, nullable=True)  # Strava elapsed_time (#1876)
     avg_hr = Column(Integer, nullable=True)
     max_hr = Column(Integer, nullable=True)
     elevation_m = Column(Integer, nullable=True)

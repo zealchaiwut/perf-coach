@@ -129,6 +129,7 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | source | varchar(20) | nullable; `manual`/`strava`/`stryd`/`both` |
 | distance_km | numeric(8,3) | nullable; ≥0 |
 | duration_seconds | int | nullable; ≥0 |
+| elapsed_time_seconds | int | nullable — wall-clock elapsed time from Strava; `duration_seconds` stays = moving (#1876) |
 | avg_hr / max_hr | int | nullable; 20–250 |
 | elevation_m | int | nullable |
 | start_time | timestamptz | nullable |
@@ -188,6 +189,8 @@ Child tables: `workout_exercises`, `workout_splits`.
 | split_index | int | |
 | distance_km | numeric(6,3) | |
 | duration_seconds | int | |
+| moving_time_seconds | int | nullable — explicit moving time per lap; `duration_seconds` stays = moving (#1876) |
+| elapsed_time_seconds | int | nullable — per-lap elapsed time (#1876) |
 | avg_hr | int | nullable |
 | avg_power | int | nullable — split-level average power (watts) |
 | cadence_spm | int | nullable — cadence in steps per minute |
@@ -325,6 +328,7 @@ Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 | activity_type | varchar(50) | |
 | name | varchar(255) | |
 | distance_km / duration_seconds | numeric/int | nullable |
+| elapsed_time_seconds | int | nullable — Strava `elapsed_time` (#1876) |
 | avg_hr / max_hr | int | nullable |
 | elevation_m / avg_power_w / max_power_w | int | nullable |
 | device_name / external_id | varchar | nullable |
