@@ -1046,6 +1046,36 @@ body.rv-page .rv-focus-banner {
   margin: 8px 0;
 }
 
+body.rv-page .rv-ladder-head { align-items: center; gap: 8px; }
+body.rv-page .rv-ladder--red .rv-label { color: #b42318; }
+body.rv-page .rv-ladder-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 120px;
+  margin: 12px 0 8px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  background: #f3f6fd;
+}
+body.rv-page .rv-ladder-bar {
+  flex: 1;
+  min-width: 6px;
+  border-radius: 4px 4px 2px 2px;
+  background: var(--rv-primary);
+}
+body.rv-page .rv-ladder-bar--future {
+  background: transparent;
+  border: 2px dashed #94a3c4;
+}
+body.rv-page .rv-ladder-bar--done { opacity: 0.95; }
+body.rv-page .rv-ladder-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 4px;
+}
+
 body.rv-page .rv-trends-toolbar {
   display: flex;
   align-items: center;

@@ -14698,6 +14698,8 @@ class _RaceCreateBody(BaseModel):
     goal_band_low_seconds: Optional[int] = None
     goal_band_high_seconds: Optional[int] = None
     addon_workout_id: Optional[str] = None
+    long_run_need_seconds: Optional[int] = None
+    long_run_manual_target_seconds: Optional[int] = None
 
 
 class _RaceUpdateBody(BaseModel):
@@ -14716,6 +14718,8 @@ class _RaceUpdateBody(BaseModel):
     goal_band_low_seconds: Optional[int] = None
     goal_band_high_seconds: Optional[int] = None
     addon_workout_id: Optional[str] = None
+    long_run_need_seconds: Optional[int] = None
+    long_run_manual_target_seconds: Optional[int] = None
 
 
 def _race_met_status(race: Race) -> str:
@@ -14756,6 +14760,10 @@ def _apply_race_role_fields(race: Race, body: _RaceUpdateBody, fields_set: set) 
                 race.addon_workout_id = _uuid.UUID(body.addon_workout_id)
             except (ValueError, AttributeError):
                 raise HTTPException(status_code=400, detail="invalid addon_workout_id")
+    if "long_run_need_seconds" in fields_set:
+        race.long_run_need_seconds = body.long_run_need_seconds
+    if "long_run_manual_target_seconds" in fields_set:
+        race.long_run_manual_target_seconds = body.long_run_manual_target_seconds
 
 
 def _race_day_workouts(session: Session, user_id, race_date: _date) -> list:
@@ -14817,6 +14825,8 @@ def _race_dict(
         "goal_band_low_seconds": race.goal_band_low_seconds,
         "goal_band_high_seconds": race.goal_band_high_seconds,
         "addon_workout_id": str(race.addon_workout_id) if race.addon_workout_id else None,
+        "long_run_need_seconds": race.long_run_need_seconds,
+        "long_run_manual_target_seconds": race.long_run_manual_target_seconds,
         "pb_limit_warning": pb_limit_warning,
         "role_result": role_result,
         "met_status": _race_met_status(race),
@@ -14912,6 +14922,10 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
             race_kwargs["goal_band_low_seconds"] = body.goal_band_low_seconds
         if body.goal_band_high_seconds is not None:
             race_kwargs["goal_band_high_seconds"] = body.goal_band_high_seconds
+        if body.long_run_need_seconds is not None:
+            race_kwargs["long_run_need_seconds"] = body.long_run_need_seconds
+        if body.long_run_manual_target_seconds is not None:
+            race_kwargs["long_run_manual_target_seconds"] = body.long_run_manual_target_seconds
         race = Race(**race_kwargs)
         race.goal_pace_seconds_per_km = pace
         session.add(race)

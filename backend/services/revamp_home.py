@@ -597,9 +597,14 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
     user_row = session.get(User, user_id)
     name = (user_row.name if user_row else None) or None
 
+    from backend.services.long_run_ladder import long_run_ladder_payload
+
+    ladder = long_run_ladder_payload(session, user_id, today=today)
+
     return {
         "as_of": today.isoformat(),
         "greeting_name": name,
+        "long_run_ladder": ladder,
         "hero": hero,
         "show_race_plan": show_race_plan,
         "race_plan": race_plan,

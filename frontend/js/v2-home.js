@@ -117,6 +117,50 @@
     return "#ddd6fe";
   }
 
+  function ladderBarHeight(actual, scaleMax) {
+    if (actual == null || !scaleMax) return 4;
+    return Math.max(4, Math.round((actual / scaleMax) * 100));
+  }
+
+  function renderLadder(host, ladder) {
+    if (!host) return;
+    if (!ladder || !ladder.available) {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+    host.hidden = false;
+    var scale = ladder.scale_max_seconds || ladder.need_seconds || 1;
+    var chip =
+      (ladder.qualifying_count != null ? ladder.qualifying_count : 0) +
+      " / " +
+      (ladder.qualifying_count_target || 2) +
+      " at " +
+      esc(ladder.need_label || "3:30");
+    var red = ladder.red_state ? " rv-ladder--red" : "";
+    var bars = (ladder.weeks || []).map(function (w) {
+      var pct = ladderBarHeight(w.actual_seconds, scale);
+      var cls = "rv-ladder-bar rv-ladder-bar--" + esc(w.state || "done");
+      if (w.race_role) cls += " rv-ladder-bar--race";
+      var style = "height:" + pct + "%";
+      if (w.bar_color) style += ";background:" + esc(w.bar_color);
+      if (w.state === "current") style += ";outline:2px solid var(--rv-ink)";
+      return '<div class="' + cls + '" title="' + esc((w.actual_label || "—") + " / " + (w.target_label || "—")) + '" style="' + style + '"></div>';
+    }).join("");
+    host.innerHTML =
+      '<div class="rv-row rv-ladder-head' + red + '">' +
+      '<h2 id="rv-ladder-h" class="rv-label">Long-run ladder</h2>' +
+      '<span class="rv-chip">' + chip + "</span></div>" +
+      '<p class="rv-subtitle">' + esc(ladder.a_race_name) + " · " + esc(ladder.a_race_date) + "</p>" +
+      '<div class="rv-ladder-chart" role="img" aria-label="Weekly longest run bars">' + bars + "</div>" +
+      '<div class="rv-ladder-refs rv-mono rv-subtitle">' +
+      '<span>Need ' + esc(ladder.need_label || "3:30") + "</span>" +
+      (ladder.prior_a_peak_label
+        ? '<span>Prior A peak ' + esc(ladder.prior_a_peak_label) + "</span>"
+        : "") +
+      "</div>";
+  }
+
   function renderWeek(host, week) {
     if (!host || !week) return;
     var bar = week.load_bar;
@@ -274,6 +318,7 @@
         renderAlerts(alertsHost, data.alerts);
         renderHero(heroHost, data);
         renderWeek(document.getElementById("rv-home-week"), data.this_week);
+        renderLadder(document.getElementById("rv-home-ladder"), data.long_run_ladder);
         renderRecent(document.getElementById("rv-home-recent"), data.recent_sessions);
         renderNextRace(document.getElementById("rv-home-next-race"), data.next_race);
         renderFocus(document.getElementById("rv-home-focus"), data.focus);

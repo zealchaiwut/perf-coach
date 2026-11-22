@@ -1320,6 +1320,10 @@ class Race(Base):
         nullable=True,
     )
     """Synced run linked as the post-race add-on (revamp P6-4)."""
+    long_run_need_seconds = Column(Integer, nullable=True)
+    """a_race: minimum long-run duration reference (default 3:30 when unset)."""
+    long_run_manual_target_seconds = Column(Integer, nullable=True)
+    """a_race: fallback weekly long-run target when the plan has none (P6-8)."""
     tss_if_override = Column(Numeric(4, 3), nullable=True)
     """Optional intensity factor override for race-day TSS (revamp P3-2)."""
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
