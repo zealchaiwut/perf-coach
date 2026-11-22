@@ -69,15 +69,52 @@ def _pending_count(session: Session, user_id: uuid.UUID, source: str) -> int:
     )
 
 
+_REAUTH_HINTS = (
+    "unauthorized",
+    "401",
+    "credentials",
+    "login failed",
+    "reauth",
+    "password",
+    "reconnect",
+)
+_TEMP_UNAVAILABLE = "temporarily unavailable"
+
+
+def _snapshot_running(job_snapshot: Optional[dict], source: str) -> bool:
+    """True when the in-memory / worker snapshot is actively pulling this source."""
+    if not job_snapshot:
+        return False
+    st = (job_snapshot.get("status") or "").lower()
+    if st not in ("running", "pending"):
+        return False
+    phase = (job_snapshot.get("phase") or "").lower()
+    if phase == "pulling_strava":
+        return source == "strava"
+    if phase == "pulling_stryd":
+        return source == "stryd"
+    provider = (job_snapshot.get("provider") or "").lower()
+    if provider in ("strava", "stryd") and not phase:
+        return source == provider
+    return True
+
+
+def _needs_reauth(source: str, last_error: Optional[str]) -> bool:
+    if source != "stryd" or not last_error:
+        return False
+    blob = last_error.lower()
+    return any(hint in blob for hint in _REAUTH_HINTS)
+
+
 def _one_provider(
     session: Session,
     user_id: uuid.UUID,
     source: str,
     *,
     connected: bool,
-    global_running: bool,
+    job_snapshot: Optional[dict] = None,
 ) -> dict[str, Any]:
-    running = global_running or _provider_running(session, user_id, source)
+    running = _snapshot_running(job_snapshot, source) or _provider_running(session, user_id, source)
     last_ok = _last_completed(session, user_id, source)
     last_fail = _last_failed(session, user_id, source)
     last_error = None
@@ -95,6 +132,7 @@ def _one_provider(
         "pending_count": _pending_count(session, user_id, source),
         "last_error": last_error,
         "running": running,
+        "needs_reauth": _needs_reauth(source, last_error),
     }
 
 
@@ -111,30 +149,24 @@ def build_providers(
     )
     stryd_cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).first()
     stryd_connected = stryd_cred is not None
-    stryd_needs_reauth = stryd_cred is not None and stryd_cred.auth_failed_at is not None
-    global_running = False
-    if job_snapshot is not None:
-        st = (job_snapshot.get("status") or "").lower()
-        global_running = st in ("running", "pending")
-    return {
-        "strava": _one_provider(
-            session,
-            uid,
-            "strava",
-            connected=strava_connected,
-            global_running=global_running,
-        ),
-        "stryd": {
-            **_one_provider(
-                session,
-                uid,
-                "stryd",
-                connected=stryd_connected,
-                global_running=global_running,
-            ),
-            "needs_reauth": stryd_needs_reauth,
-        },
-    }
+    stryd_needs_reauth = stryd_cred is not None and getattr(stryd_cred, "auth_failed_at", None) is not None
+    strava = _one_provider(
+        session,
+        uid,
+        "strava",
+        connected=strava_connected,
+        job_snapshot=job_snapshot,
+    )
+    stryd = _one_provider(
+        session,
+        uid,
+        "stryd",
+        connected=stryd_connected,
+        job_snapshot=job_snapshot,
+    )
+    if stryd_needs_reauth:
+        stryd["needs_reauth"] = True
+    return {"strava": strava, "stryd": stryd}
 
 
 def dot_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> str:
@@ -144,9 +176,9 @@ def dot_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> st
         return "red"
     if provider.get("needs_reauth"):
         return "amber"
-    if provider.get("last_error"):
-        err = (provider.get("last_error") or "").lower()
-        if "temporarily unavailable" in err:
+    err = provider.get("last_error") or ""
+    if err:
+        if _TEMP_UNAVAILABLE in str(err).lower():
             return "amber"
         return "red"
     ts = provider.get("last_success_at")
@@ -160,3 +192,22 @@ def dot_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> st
     if age >= timedelta(hours=48):
         return "amber"
     return "green"
+
+
+def provider_ui_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> str:
+    """syncing | failed | stale | ok — same rules as frontend/js/v2-sync-status.js."""
+    if provider.get("running"):
+        return "syncing"
+    if provider.get("needs_reauth"):
+        return "failed"
+    err = str(provider.get("last_error") or "")
+    if err and _TEMP_UNAVAILABLE not in err.lower():
+        return "failed"
+    if not provider.get("connected"):
+        return "failed"
+    colour = dot_state(provider, now=now)
+    if colour == "red":
+        return "failed"
+    if colour == "amber":
+        return "stale"
+    return "ok"
