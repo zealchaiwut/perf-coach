@@ -359,6 +359,8 @@ class Workout(Base):
     fuelled = Column(Boolean, nullable=True)
     gel_count = Column(Integer, nullable=True)
     fluid_level = Column(String(10), nullable=True)
+    stomach_ok = Column(Boolean, nullable=True)
+    shoe_id = Column(UUID(as_uuid=True), ForeignKey("athlete_shoes.id", ondelete="SET NULL"), nullable=True)
     # Running drills done alongside this session — form drills, strides, skips.
     # A duration only, on purpose: no exercise breakdown and no TSS. Drills ride
     # along with a session rather than being one, so they never claim a skeleton
@@ -2492,6 +2494,24 @@ class PlanExercise(Base):
     __table_args__ = (
         Index("ix_plan_exercises_active", "active"),
     )
+
+
+class AthleteShoe(Base):
+    """Named running shoe for mileage tracking (revamp P6-14)."""
+
+    __tablename__ = "athlete_shoes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(120), nullable=False)
+    is_race_shoe = Column(Boolean, nullable=False, server_default=text("false"))
+    retired = Column(Boolean, nullable=False, server_default=text("false"))
+    total_km = Column(Numeric(10, 2), nullable=False, server_default=text("0"))
+    longest_run_km = Column(Numeric(10, 2), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    __table_args__ = (Index("ix_athlete_shoes_user", "user_id"),)
 
 
 class WeeklyCheckIn(Base):

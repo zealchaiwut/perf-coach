@@ -60,7 +60,11 @@
       '<select id="wci-motivation" class="rv-input" style="min-height:44px"><option value="">Motivation —</option>' + ["low","ok","high"].map(function(m){return '<option value="'+m+'"'+(self.motivation===m?' selected':'')+'>'+m+'</option>';}).join('') + '</select>' +
       '<textarea id="wci-note" rows="3" class="rv-input">' + esc(self.note || "") + '</textarea></section></div>' +
       '<div class="wci-col"><section class="rv-card rv-stack" data-checkin-step="4"><span class="rv-label">Step 4</span><pre class="wci-preview" id="wci-preview">' + esc(data.prompt_preview || "") + '</pre>' +
-      '<button type="button" class="rv-btn rv-btn--primary" id="wci-copy" style="min-height:44px">Copy check-in</button><a class="rv-btn rv-btn--secondary" href="/coach#paste">Paste change list</a></section>' +
+      '<button type="button" class="rv-btn rv-btn--primary" id="wci-copy" style="min-height:44px">Copy check-in</button>' +
+      '<textarea id="wci-paste" class="rv-input" rows="5" placeholder="Paste CHANGES TO APPLY reply"></textarea>' +
+      '<button type="button" class="rv-btn rv-btn--secondary" id="wci-parse">Preview changes</button>' +
+      '<ul id="wci-parsed" class="rv-stack"></ul>' +
+      '<button type="button" class="rv-btn" id="wci-apply" style="display:none">Save changes</button></section>' +
       '<section class="rv-card rv-card--soft rv-stack">' + streakHtml + '</section></div>';
     root.querySelectorAll(".wci-change").forEach(function (row) {
       row.querySelectorAll("[data-status]").forEach(function (btn) {
@@ -85,6 +89,34 @@
     root.querySelector("#wci-note").addEventListener("blur", saveScores);
     root.querySelector("#wci-copy").addEventListener("click", function () {
       navigator.clipboard.writeText(state.prompt_preview || "").then(function () { toast("Copied"); });
+    });
+    var parsedItems = [];
+    root.querySelector("#wci-parse").addEventListener("click", function () {
+      var raw = root.querySelector("#wci-paste").value;
+      fetch("/api/weekly-check-in/parse", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": window.AppCommon.csrfToken() },
+        body: JSON.stringify({ raw_text: raw }),
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        parsedItems = data.items || [];
+        var ul = root.querySelector("#wci-parsed");
+        ul.innerHTML = parsedItems.map(function (it) {
+          return "<li><strong>" + esc(it.change_type) + "</strong> " + esc(it.text) + "</li>";
+        }).join("");
+        root.querySelector("#wci-apply").style.display = parsedItems.length ? "" : "none";
+      }).catch(function () { toast("Could not parse reply"); });
+    });
+    root.querySelector("#wci-apply").addEventListener("click", function () {
+      fetch("/api/weekly-check-in/apply-paste", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": window.AppCommon.csrfToken() },
+        body: JSON.stringify({ raw_text: root.querySelector("#wci-paste").value, items: parsedItems }),
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d.check_in) render(d.check_in);
+        toast("Saved for next week");
+      }).catch(function () { toast("Could not save paste"); });
     });
     root.querySelector("#wci-refresh").addEventListener("click", function () {
       fetch("/api/weekly-check-in/refresh", { method: "POST", credentials: "same-origin", headers: { "X-CSRF-Token": window.AppCommon.csrfToken() } })

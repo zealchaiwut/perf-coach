@@ -14,9 +14,10 @@ from backend.services.body_log import seven_day_avg, weekly_rate_kg
 from backend.services.body_log_store import body_log_week_rollup, _weight_rows
 from backend.services.checkpoint_detector import is_run_workout
 from backend.services.perf_a_race import next_a_race
+from backend.services.checkin_changes import PROMPT_VERSION_WEEKLY, changes_to_raw_text, parse_changes_block
 from backend.services.race_roles import compute_role_result, race_role
 from backend.services.weekly_rollup import normalize_week_start, session_local_date, weekly_rollup
-from backend.utils.time import to_bangkok
+from backend.utils.time import today_bangkok, to_bangkok
 
 NA = "not_available"
 CARRIED_STATUSES = frozenset({"done", "partly", "not_yet"})
@@ -220,18 +221,12 @@ def _lines_from_changes(raw_text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _parse_change_items(raw_text: str, *, decision_id: str | None = None) -> list[dict[str, Any]]:
-    return [
-        {
-            "id": uuid.uuid4().hex,
-            "change_type": key,
-            "text": text.strip(),
-            "status": "not_yet",
-            "source_decision_id": decision_id,
-        }
-        for key, text in _lines_from_changes(raw_text)
-        if key in _CHANGE_TYPES
-    ]
+def _parse_change_items(raw_text: str, *, decision_id: str | None = None, decided_on: date | None = None) -> list[dict[str, Any]]:
+    items = parse_changes_block(raw_text, decided_on=decided_on)
+    for item in items:
+        if decision_id:
+            item["source_decision_id"] = decision_id
+    return items
 
 
 def seed_carried_changes(session: Session, user_id: uuid.UUID, week_start: date) -> list[dict[str, Any]]:
@@ -287,10 +282,10 @@ def _days_to_a_race(session: Session, user_id: uuid.UUID, today: date) -> Option
 
 def refresh_snapshot(session: Session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
     row, meta = get_or_create_checkin(session, user_id, today)
-    return checkin_payload(row, meta)
+    return checkin_payload(session, row, meta, today)
 
 
-def checkin_payload(row: WeeklyCheckIn, meta: dict[str, Any]) -> dict[str, Any]:
+def checkin_payload(session: Session, row: WeeklyCheckIn, meta: dict[str, Any], today: date) -> dict[str, Any]:
     snap = row.snapshot if isinstance(row.snapshot, dict) else {}
     carried = row.carried_changes if isinstance(row.carried_changes, list) else []
     prefill_bed = None
@@ -308,13 +303,20 @@ def checkin_payload(row: WeeklyCheckIn, meta: dict[str, Any]) -> dict[str, Any]:
             "motivation": row.motivation,
             "note": row.note,
         },
-        "prompt_preview": build_prompt_preview_stub(snap, carried, row),
+        "prompt_preview": build_prompt_preview_stub(session, row.user_id, snap, carried, row, today),
         "paste_back_href": "/coach#paste",
     }
 
 
-def build_prompt_preview_stub(snapshot: dict[str, Any], carried: list[dict[str, Any]], row: WeeklyCheckIn) -> str:
-    lines = ["weekly-checkin-v1 (preview)", "", "RULES: Canonical values are not recomputed.", "", "WEEK"]
+def build_prompt_preview_stub(
+    session: Session,
+    user_id: uuid.UUID,
+    snapshot: dict[str, Any],
+    carried: list[dict[str, Any]],
+    row: WeeklyCheckIn,
+    today: date,
+) -> str:
+    lines = [f"prompt_version: {PROMPT_VERSION_WEEKLY}", "", "RULES: Canonical values are not recomputed.", "", "WEEK"]
     tss = snapshot.get("week_tss", {})
     lines.append(f"  TSS: {tss.get('value')}" if tss.get("status") == "ok" else "  TSS: not_available")
     sd, sp = snapshot.get("sessions_done", {}), snapshot.get("sessions_planned", {})
@@ -326,6 +328,47 @@ def build_prompt_preview_stub(snapshot: dict[str, Any], carried: list[dict[str, 
             lines.append(f"  [{c.get('status', 'not_yet')}] {c.get('change_type')}: {c.get('text')}")
     lines.extend(["", "End with CHANGES TO APPLY (paste back on /coach)."])
     return "\n".join(lines)
+
+
+def apply_paste_back(
+    session: Session,
+    user_id: uuid.UUID,
+    row: WeeklyCheckIn,
+    raw_text: str,
+    today: date,
+    *,
+    items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    parsed = items if items is not None else parse_changes_block(raw_text, decided_on=today)
+    if not parsed:
+        raise ValueError("no changes parsed")
+    raw_store = raw_text.strip() if raw_text and "CHANGES TO APPLY" in raw_text.upper() else changes_to_raw_text(parsed)
+    review_on = today + timedelta(days=7)
+    for it in parsed:
+        if it.get("change_type") == "review" and it.get("review_on"):
+            try:
+                review_on = date.fromisoformat(str(it["review_on"]))
+            except ValueError:
+                pass
+            break
+    decision = Decision(
+        user_id=user_id,
+        decided_on=today,
+        source="weekly_checkin",
+        raw_text=raw_store,
+        applied=True,
+        review_on=review_on,
+    )
+    session.add(decision)
+    next_week = row.week_start + timedelta(days=7)
+    nxt = session.query(WeeklyCheckIn).filter(WeeklyCheckIn.user_id == user_id, WeeklyCheckIn.week_start == next_week).first()
+    carry = [{**it, "status": "not_yet", "source_decision_id": str(decision.id)} for it in parsed]
+    if nxt is None:
+        session.add(WeeklyCheckIn(user_id=user_id, week_start=next_week, carried_changes=carry))
+    else:
+        nxt.carried_changes = carry
+    session.flush()
+    return {"decision_id": str(decision.id), "parsed": parsed, "next_week_start": next_week.isoformat()}
 
 
 def save_self_report(session: Session, row: WeeklyCheckIn, **fields: Any) -> None:

@@ -160,6 +160,7 @@ from backend.routers.preferences import router as _preferences_router
 from backend.routers.decisions import router as _decisions_router
 from backend.routers.admin import router as _admin_router
 from backend.routers.performance_axes import router as _performance_axes_router
+from backend.routers.athlete_shoes import router as _athlete_shoes_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -199,6 +200,7 @@ app.include_router(_preferences_router)
 app.include_router(_decisions_router)
 app.include_router(_admin_router)
 app.include_router(_performance_axes_router)
+app.include_router(_athlete_shoes_router)
 
 
 def _today_bkk() -> _date:
@@ -6035,6 +6037,10 @@ class WorkoutPatch(BaseModel):
     feeling: Optional[str] = None
     # Did this session take on fuel? null clears it back to unknown.
     fuelled: Optional[bool] = None
+    gel_count: Optional[int] = None
+    fluid_level: Optional[str] = None
+    stomach_ok: Optional[bool] = None
+    shoe_id: Optional[str] = None
     # Running drills alongside this session. null clears it back to unknown.
     drills_minutes: Optional[int] = None
     tss_method_override: Optional[str] = None
@@ -6610,6 +6616,10 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
+        "gel_count": getattr(w, "gel_count", None),
+        "fluid_level": getattr(w, "fluid_level", None),
+        "stomach_ok": getattr(w, "stomach_ok", None),
+        "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
         "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
@@ -6872,6 +6882,10 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "exercise_count": exercise_count,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
+        "gel_count": getattr(w, "gel_count", None),
+        "fluid_level": getattr(w, "fluid_level", None),
+        "stomach_ok": getattr(w, "stomach_ok", None),
+        "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
         "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
@@ -7663,6 +7677,42 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             # Explicit null returns it to unknown rather than to "no" — the
             # long-run-fuel habit only ticks on a literal True.
             workout.fuelled = body.fuelled
+        if "gel_count" in body.model_fields_set:
+            if body.gel_count is not None and not (0 <= body.gel_count <= 12):
+                raise HTTPException(status_code=422, detail="gel_count must be 0–12")
+            workout.gel_count = body.gel_count
+            if body.gel_count is not None:
+                workout.fuelled = body.gel_count > 0
+        if "fluid_level" in body.model_fields_set:
+            fl = body.fluid_level
+            if fl is not None:
+                fl = fl.strip().lower()
+                if fl not in ("low", "ok", "high"):
+                    raise HTTPException(status_code=422, detail="fluid_level must be low, ok, or high")
+                workout.fluid_level = fl
+            else:
+                workout.fluid_level = None
+        if "stomach_ok" in body.model_fields_set:
+            workout.stomach_ok = body.stomach_ok
+        if "shoe_id" in body.model_fields_set:
+            from backend.models import AthleteShoe
+            from backend.services.athlete_shoes import recompute_shoe_stats
+            old_shoe = workout.shoe_id
+            if body.shoe_id is None or body.shoe_id == "":
+                workout.shoe_id = None
+            else:
+                try:
+                    sid = _uuid.UUID(body.shoe_id)
+                except ValueError:
+                    raise HTTPException(status_code=422, detail="Invalid shoe_id") from None
+                shoe = session.get(AthleteShoe, sid)
+                if shoe is None or shoe.user_id != user.id:
+                    raise HTTPException(status_code=422, detail="Unknown shoe_id")
+                workout.shoe_id = sid
+            session.flush()
+            for sid in {old_shoe, workout.shoe_id}:
+                if sid:
+                    recompute_shoe_stats(session, user.id, sid)
         if 'drills_minutes' in body.model_fields_set:
             # Explicit null returns it to unknown, which is distinct from 0
             # ("logged the session, did no drills").

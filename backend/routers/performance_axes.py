@@ -362,6 +362,39 @@ def post_weekly_check_in_refresh(user: User = Depends(resolve_user)):
         return JSONResponse(payload)
 
 
+class _WeeklyCheckInParseBody(BaseModel):
+    raw_text: str
+
+
+class _WeeklyCheckInApplyBody(BaseModel):
+    raw_text: str
+    items: list[dict[str, Any]] | None = None
+
+
+@router.post("/api/weekly-check-in/parse")
+def post_weekly_check_in_parse(body: _WeeklyCheckInParseBody, user: User = Depends(resolve_user)):
+    from backend.services.checkin_changes import parse_changes_block
+    from backend.utils.time import today_bangkok
+
+    return JSONResponse({"items": parse_changes_block(body.raw_text, decided_on=today_bangkok())})
+
+
+@router.post("/api/weekly-check-in/apply-paste")
+def post_weekly_check_in_apply(body: _WeeklyCheckInApplyBody, user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import apply_paste_back, checkin_payload, get_or_create_checkin
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        row, meta = get_or_create_checkin(db, user.id, today)
+        try:
+            result = apply_paste_back(db, user.id, row, body.raw_text, today, items=body.items)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        db.commit()
+        return JSONResponse({**result, "check_in": checkin_payload(db, row, meta, today)})
+
+
 @router.patch("/api/weekly-check-in")
 def patch_weekly_check_in(body: _WeeklyCheckInPatch, user: User = Depends(resolve_user)):
     from backend.services.weekly_checkin import (
