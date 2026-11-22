@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Training admin (revamp) – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css">
+</head>
+<body class="rv-page">
+  <div class="rv-shell rv-shell--wide">
+    <header class="rv-shell-head">
+      <div>
+        <a href="/v2/training/plan" class="rv-subtitle" style="font-weight:600;color:#e3ecff;text-decoration:none">‹ Back to Training</a>
+        <h1 class="rv-title">Admin · training library</h1>
+      </div>
+      <nav aria-label="Primary">
+        <ul class="rv-tabnav">
+          <li><a class="rv-tab" href="/v2/home">Home</a></li>
+          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
+          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
+          <li id="rv-admin-tab"><a class="rv-tab" href="/v2/training/admin" aria-current="page">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <section class="rv-card rv-stack" id="pending-queue-card" hidden>
+      <div class="rv-row">
+        <h2 class="rv-card-title">Logged as custom by users</h2>
+        <span class="rv-subtitle" id="pending-queue-count"></span>
+      </div>
+      <div id="pending-queue-list" class="rv-stack"></div>
+    </section>
+
+    <div class="rv-admin-intro rv-card rv-row">
+      <div class="rv-admin-intro-icon" aria-hidden="true">&#x1F512;</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <strong>Only admins see this tab</strong>
+        <p class="rv-subtitle">Edit the global exercise pool here. Athletes pick from active exercises when they plan; deactivated rows stay visible on old sessions.</p>
+      </div>
+    </div>
+
+    <div class="rv-admin-layout">
+      <nav class="rv-card rv-admin-sidenav" aria-label="Admin sections">
+        <a class="rv-admin-side rv-admin-side--on" href="#exercises" id="nav-exercises">Exercise library <span class="rv-mono" id="nav-ex-count">…</span></a>
+        <span class="rv-admin-side rv-admin-side--muted">Session templates <span class="rv-subtitle">P5-7</span></span>
+        <a class="rv-admin-side" href="#pending-queue-card" id="nav-pending">Custom from users <span class="rv-mono" id="nav-pending-count">0</span></a>
+      </nav>
+
+      <div class="rv-admin-main">
+        <div class="rv-admin-grid">
+          <section class="rv-card rv-admin-table-wrap">
+            <div class="rv-row rv-admin-table-head">
+              <div>
+                <h2 class="rv-card-title">Exercise library</h2>
+                <p class="rv-subtitle">What the planner can put in a support session</p>
+              </div>
+              <div class="rv-row" style="gap:8px">
+                <button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="btn-import">Import JSON</button>
+                <button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="btn-export">Export</button>
+                <button type="button" class="rv-btn rv-btn--primary rv-btn--sm" id="btn-new">New exercise</button>
+              </div>
+            </div>
+
+            <div class="rv-admin-filters">
+              <input class="rv-input" type="search" id="filter-search" placeholder="Search exercises" autocomplete="off">
+              <select class="rv-input" id="filter-group">
+                <option value="">All groups</option>
+              </select>
+              <select class="rv-input" id="filter-focus">
+                <option value="">All focus</option>
+              </select>
+            </div>
+
+            <div class="rv-admin-table-scroll">
+              <table class="rv-admin-table" id="exercise-table">
+                <thead>
+                  <tr>
+                    <th>Exercise</th>
+                    <th>Groups</th>
+                    <th>Focus</th>
+                    <th>Body parts</th>
+                    <th>Default</th>
+                    <th>TSS ×</th>
+                    <th>On</th>
+                  </tr>
+                </thead>
+                <tbody id="exercise-tbody"></tbody>
+              </table>
+            </div>
+            <p class="rv-subtitle" id="list-meta" aria-live="polite"></p>
+          </section>
+
+          <aside class="rv-card rv-admin-editor" id="exercise-editor">
+            <h2 class="rv-card-title" id="editor-title">Edit exercise</h2>
+            <label class="rv-field">
+              <span class="rv-label">Name</span>
+              <input class="rv-input" type="text" id="ed-name" autocomplete="off">
+            </label>
+
+            <div class="rv-field">
+              <span class="rv-label">Groups</span>
+              <div class="rv-chip-row" id="ed-groups"></div>
+            </div>
+            <div class="rv-field">
+              <span class="rv-label">Focus</span>
+              <div class="rv-chip-row" id="ed-focus"></div>
+            </div>
+
+            <div class="rv-field">
+              <span class="rv-label">Body parts (ratios sum to 100%)</span>
+              <div id="ed-parts"></div>
+              <button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="btn-add-part">Add part</button>
+              <p class="rv-subtitle" id="ed-parts-sum" aria-live="polite">Sum: —</p>
+            </div>
+
+            <div class="rv-admin-editor-grid">
+              <label class="rv-field">
+                <span class="rv-label">Sets</span>
+                <input class="rv-input" type="number" id="ed-sets" min="1" max="12">
+              </label>
+              <label class="rv-field">
+                <span class="rv-label">Reps</span>
+                <input class="rv-input" type="text" id="ed-reps">
+              </label>
+              <label class="rv-field">
+                <span class="rv-label">Load</span>
+                <input class="rv-input" type="text" id="ed-load">
+              </label>
+              <label class="rv-field">
+                <span class="rv-label">TSS ×</span>
+                <input class="rv-input" type="number" id="ed-tss" min="0.01" max="3" step="0.05">
+              </label>
+            </div>
+
+            <p class="rv-admin-validation" id="ed-validation" aria-live="polite"></p>
+            <div class="rv-row" style="gap:8px;margin-top:8px">
+              <button type="button" class="rv-btn rv-btn--primary" id="btn-save" disabled>Save</button>
+              <button type="button" class="rv-btn rv-btn--secondary" id="btn-discard">Discard</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rv-modal-backdrop" id="import-modal" hidden>
+    <div class="rv-card rv-modal" role="dialog" aria-labelledby="import-title">
+      <h2 class="rv-card-title" id="import-title">Import JSON</h2>
+      <p class="rv-subtitle">Paste <code>{ "exercises": [ … ] }</code>. Review the dry-run diff, then apply.</p>
+      <label class="rv-field">
+        <input type="file" id="import-file" accept="application/json,.json">
+      </label>
+      <textarea class="rv-input rv-import-ta" id="import-json" spellcheck="false"></textarea>
+      <label class="rv-field rv-row" style="gap:8px;font-size:14px">
+        <input type="checkbox" id="import-upsert" checked> Upsert existing names
+      </label>
+      <pre class="rv-import-diff" id="import-diff" aria-live="polite"></pre>
+      <div class="rv-row" style="gap:8px;justify-content:flex-end">
+        <button type="button" class="rv-btn rv-btn--secondary" id="import-cancel">Cancel</button>
+        <button type="button" class="rv-btn rv-btn--secondary" id="import-preview">Dry run</button>
+        <button type="button" class="rv-btn rv-btn--primary" id="import-apply" disabled>Apply import</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-training-admin.js"></script>
+</body>
+</html>

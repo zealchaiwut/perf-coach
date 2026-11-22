@@ -1001,6 +1001,9 @@ class WorkoutTemplate(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(200), nullable=False)
     exercises = Column(JSONB, nullable=False)
+    session_type = Column(String(20), nullable=False, server_default=text("'strength'"))
+    tss_estimate = Column(Float, nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
     __table_args__ = (

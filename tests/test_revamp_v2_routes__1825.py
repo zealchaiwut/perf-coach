@@ -24,7 +24,7 @@ def client():
     ],
 )
 def test_v2_routes_404_when_flag_off(client, path, monkeypatch):
-    monkeypatch.delenv("REVAMP_UI", raising=False)
+    monkeypatch.setenv("REVAMP_UI", "0")
     resp = client.get(path, follow_redirects=False)
     assert resp.status_code == 404
 
@@ -41,5 +41,5 @@ def test_v2_training_redirect_when_flag_on(client, monkeypatch):
 def test_revamp_api_reports_flag(monkeypatch, client):
     monkeypatch.setenv("REVAMP_UI", "1")
     assert client.get("/api/revamp-ui").json()["enabled"] is True
-    monkeypatch.delenv("REVAMP_UI", raising=False)
+    monkeypatch.setenv("REVAMP_UI", "0")
     assert client.get("/api/revamp-ui").json()["enabled"] is False

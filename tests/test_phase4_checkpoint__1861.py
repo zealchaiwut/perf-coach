@@ -53,11 +53,13 @@ def test_phase4_performance_page_wires_every_region():
         assert route in js or route in radar, f"page never calls {route}"
 
 
-def test_phase4_home_and_performance_mount_the_same_radar():
-    for page, size in (("v2-home.html", "small"), ("v2-performance.html", "large")):
-        html = Path("frontend/pages") .joinpath(page).read_text(encoding="utf-8")
-        assert "data-perf-radar" in html and "perf-radar.js" in html
-        assert f'data-size="{size}"' in html
+def test_phase4_radar_on_performance_only_p5_moves_off_home():
+    """P5-1: status radar lives on Performance only; Home uses revamp hero instead."""
+    home = Path("frontend/pages/v2-home.html").read_text(encoding="utf-8")
+    perf = Path("frontend/pages/v2-performance.html").read_text(encoding="utf-8")
+    assert "data-perf-radar" not in home
+    assert "v2-home.js" in home
+    assert "data-perf-radar" in perf and 'data-size="large"' in perf
 
 
 def test_phase4_single_snapshot_table_feeds_every_axis():

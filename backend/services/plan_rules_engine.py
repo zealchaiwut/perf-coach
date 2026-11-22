@@ -371,12 +371,17 @@ def evaluate(user_id: uuid.UUID, change: dict[str, Any], session: Session) -> li
     from backend.models import PlannedSession, Race
 
     today = today_bangkok()
+    from backend.models import RevampLoadSettings
+
     prefs = active_dict(session, user_id)
     payload = prefs.get("payload") or {}
     rest_days = list(payload.get("rest_days") or [])
     max_cap = _max_consecutive_training_days(rest_days)
     if max_cap is None:
         max_cap = _MAX_CONSECUTIVE_TRAINING_DAYS
+    ls = session.get(RevampLoadSettings, user_id)
+    if ls is not None and ls.max_consecutive_days is not None:
+        max_cap = int(ls.max_consecutive_days)
 
     target_date = change.get("planned_date")
     if isinstance(target_date, str):

@@ -59,5 +59,26 @@
     }
   });
 
-  window.RevampUI = { openDrawer: openDrawer, closeDrawer: closeDrawer, showToast: showToast };
+  function initAdminTab() {
+    var tab = document.getElementById("rv-admin-tab");
+    if (!tab) return;
+    if (tab.querySelector('[aria-current="page"]')) {
+      tab.hidden = false;
+      return;
+    }
+    fetch("/api/auth/me", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (u) {
+        if (u && u.is_admin) tab.hidden = false;
+      })
+      .catch(function () {});
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initAdminTab);
+  } else {
+    initAdminTab();
+  }
+
+  window.RevampUI = { openDrawer: openDrawer, closeDrawer: closeDrawer, showToast: showToast, initAdminTab: initAdminTab };
 })();

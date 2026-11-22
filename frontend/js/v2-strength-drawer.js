@@ -236,6 +236,7 @@
       '<label>Notes <textarea id="v2-str-notes" rows="2">' + esc(w.remarks || '') + '</textarea></label>' +
       '<footer class="rv-drawer-foot">' +
       '<button type="button" class="rv-btn rv-btn--primary" id="v2-str-save"' + (state.valid ? '' : ' disabled') + '>Save</button>' +
+      '<button type="button" class="rv-btn rv-btn--secondary" id="v2-str-template">Save as template</button>' +
       (w.id ? '<button type="button" class="rv-btn rv-btn--danger" id="v2-str-del">Delete</button>' : '') +
       '</footer>'
     );
@@ -318,8 +319,46 @@
     }
     var save = e.body.querySelector('#v2-str-save');
     if (save) save.onclick = saveWorkout;
+    var tmpl = e.body.querySelector('#v2-str-template');
+    if (tmpl) tmpl.onclick = saveAsTemplate;
     var del = e.body.querySelector('#v2-str-del');
     if (del) del.onclick = deleteWorkout;
+  }
+
+  function saveAsTemplate() {
+    if (!state.valid) return;
+    var w = state.workout || {};
+    var name = window.prompt('Template name', w.name || 'My template');
+    if (!name) return;
+    var exercises;
+    try {
+      exercises = JSON.parse(state.jsonText);
+    } catch (err) {
+      toast('Fix JSON before saving a template');
+      return;
+    }
+    fetch('/api/workout-templates', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name,
+        exercises: exercises,
+        session_type: 'strength',
+        tss_estimate: w.tss != null ? w.tss : null,
+      }),
+    }).then(function (r) {
+      if (!r.ok) throw new Error('fail');
+      return r.json();
+    }).then(function (data) {
+      if (data && data.id) {
+        fetch('/api/workout-templates/' + encodeURIComponent(data.id) + '/touch', {
+          method: 'POST',
+          credentials: 'include',
+        }).catch(function () {});
+      }
+      toast('Template saved');
+    }).catch(function () { toast('Could not save template'); });
   }
 
   function patchBody() {

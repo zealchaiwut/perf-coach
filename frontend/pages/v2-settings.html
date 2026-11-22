@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings (revamp) – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css">
+</head>
+<body class="rv-page">
+  <div class="rv-shell">
+    <header class="rv-shell-head">
+      <div>
+        <h1 class="rv-title">Profile settings</h1>
+        <p class="rv-subtitle">Your rules and connections — not admin library edits.</p>
+      </div>
+      <nav aria-label="Primary">
+        <ul class="rv-tabnav">
+          <li><a class="rv-tab" href="/v2/home">Home</a></li>
+          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
+          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <section class="rv-card rv-stack" id="v2-settings-tss">
+      <h2 class="rv-card-title">TSS default method</h2>
+      <p class="rv-subtitle" id="v2-settings-tss-warn" hidden>Changing this queues a full CTL replay for your run sessions.</p>
+      <label class="rv-field">
+        <span class="rv-label">Method</span>
+        <select class="rv-input" id="v2-settings-tss-method">
+          <option value="power">Power</option>
+          <option value="stryd">Stryd</option>
+        </select>
+      </label>
+      <button type="button" class="rv-btn rv-btn--primary" id="v2-settings-tss-save">Save</button>
+    </section>
+
+    <section class="rv-card rv-stack">
+      <h2 class="rv-card-title">Plan &amp; my rules</h2>
+      <p class="rv-subtitle">Rest days, consecutive-day cap, and block load live in plan settings.</p>
+      <a class="rv-btn rv-btn--secondary" href="/v2/settings/plan">Open plan settings</a>
+    </section>
+
+    <section class="rv-card rv-stack" id="v2-settings-connections">
+      <h2 class="rv-card-title">Connections</h2>
+      <div id="v2-settings-conn-body" class="rv-stack"></div>
+    </section>
+  </div>
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-settings.js"></script>
+</body>
+</html>

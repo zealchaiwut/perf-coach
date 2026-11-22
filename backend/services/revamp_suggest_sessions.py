@@ -118,17 +118,23 @@ def _load_candidates(
     templates = (
         session.query(WorkoutTemplate)
         .filter(WorkoutTemplate.user_id == user_id)
-        .order_by(WorkoutTemplate.name)
+        .order_by(
+            WorkoutTemplate.last_used_at.desc().nullslast(),
+            WorkoutTemplate.created_at.desc(),
+        )
         .all()
     )
     baseline = estimate_historical_pace_and_tss(user_id, session)
     for t in templates:
-        st = "strength"
+        st = (getattr(t, "session_type", None) or "strength").strip().lower()
         ex = t.exercises if isinstance(t.exercises, list) else []
-        if ex and any("plyo" in str(e.get("name", "")).lower() for e in ex if isinstance(e, dict)):
+        if st == "strength" and ex and any("plyo" in str(e.get("name", "")).lower() for e in ex if isinstance(e, dict)):
             st = "plyo"
-        structure = {"exercises": ex, "suggested": True}
-        est = estimate_planned_session_metrics(baseline, st, structure).get("estimated_tss") or 20
+        structure = {"exercises": ex, "suggested": True, "template_id": str(t.id)}
+        if t.tss_estimate is not None:
+            est = float(t.tss_estimate)
+        else:
+            est = estimate_planned_session_metrics(baseline, st, structure).get("estimated_tss") or 20
         safe = st in ("mobility", "stretch") or not ex
         out.append(
             {
