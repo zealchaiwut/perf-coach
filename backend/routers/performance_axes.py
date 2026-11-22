@@ -262,6 +262,15 @@ def get_performance_hero(user: User = Depends(resolve_user)):
         return JSONResponse(build_hero(db, user.id, today_bangkok()))
 
 
+@router.get("/api/performance/a-race-readiness")
+def get_a_race_readiness_checklist(user: User = Depends(resolve_user)):
+    from backend.services.a_race_readiness_checklist import build_checklist
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(build_checklist(db, user.id, today_bangkok()))
+
+
 # ── Endurance and Speed score cards (P4-9) ───────────────────────────────────
 
 @router.get("/api/performance/score-cards")

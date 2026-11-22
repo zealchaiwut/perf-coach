@@ -357,6 +357,8 @@ class Workout(Base):
     # for everything logged before the column existed, and "unknown" must never
     # read as "no". Only consulted for long runs, by the long-run-fuel habit.
     fuelled = Column(Boolean, nullable=True)
+    gel_count = Column(Integer, nullable=True)
+    fluid_level = Column(String(10), nullable=True)
     # Running drills done alongside this session — form drills, strides, skips.
     # A duration only, on purpose: no exercise breakdown and no TSS. Drills ride
     # along with a session rather than being one, so they never claim a skeleton
@@ -1322,6 +1324,8 @@ class Race(Base):
     """Synced run linked as the post-race add-on (revamp P6-4)."""
     tss_if_override = Column(Numeric(4, 3), nullable=True)
     """Optional intensity factor override for race-day TSS (revamp P3-2)."""
+    notes = Column(Text, nullable=True)
+    toilet_plan_done = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     """Timestamp when this record was first created."""
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
