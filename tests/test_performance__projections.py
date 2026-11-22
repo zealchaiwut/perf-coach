@@ -147,6 +147,68 @@ def test_roles_derived_and_explicit():
     assert recalibrates(race_obj(priority="B")) and not recalibrates(race_obj(priority="C"))
 
 
+def test_ensure_calibrations_skips_long_run_and_fun():
+    from backend.services.race_calibration import ensure_calibrations
+
+    pb = SimpleNamespace(
+        id=uuid.uuid4(), status="done", actual_time_seconds=6000, distance_km=21.1,
+        priority="B", race_type="race", role=None,
+    )
+    lr = SimpleNamespace(
+        id=uuid.uuid4(), status="done", actual_time_seconds=5000, distance_km=18.0,
+        priority="B", race_type="checkpoint", role=None,
+    )
+    db = MagicMock()
+    db.query.return_value.filter.return_value.all.side_effect = [
+        [pb, lr],  # done races
+        [],  # existing calibrations
+    ]
+    with patch("backend.services.race_calibration.recalibrate_race", return_value={"race_id": str(pb.id)}) as recal:
+        n = ensure_calibrations(str(UID), db)
+    assert n == 1
+    assert recal.call_count == 1
+    assert recal.call_args[0][1] is pb
+
+
+def test_long_run_result_leaves_blend_unchanged_pb_moves_it():
+    """AC: only pb/a_race calibrations enter the blend (long_run rows are dropped upstream)."""
+    from backend.services.race_calibration import combined_correction, load_calibrations
+
+    def row(prio, rtype="race"):
+        rid = uuid.uuid4()
+        cal = SimpleNamespace(
+            race_id=rid, race_date=date(2026, 10, 4), distance_km=18.0, correction=0.80,
+            predicted_seconds=5000, actual_seconds=4000, created_at=None,
+        )
+        return cal, SimpleNamespace(id=rid, priority=prio, race_type=rtype)
+
+    db = MagicMock()
+    db.query.return_value.join.return_value.filter.return_value.order_by.return_value.all.return_value = [
+        row("B", "checkpoint"),
+    ]
+    assert load_calibrations(str(UID), db) == []
+    assert combined_correction([], 42.195, today=TODAY)["correction"] == 1.0
+
+    pb_cal = [{"race_date": date(2026, 9, 27), "distance_km": 21.1, "correction": 0.917}]
+    moved = combined_correction(pb_cal, 42.195, today=TODAY)
+    assert moved["n"] == 1 and moved["correction"] != 1.0
+
+
+def test_built_from_latest_calibration_and_cp_stale():
+    cal_rows = [{
+        "race_id": str(uuid.uuid4()),
+        "race_date": date(2026, 9, 27),
+        "actual_seconds": 6300,
+    }]
+    session = MagicMock()
+    session.get.return_value = race_obj(name="Chiang Mai", priority="B")
+    cp_status = {"current_cp_w": 280, "stale": True}
+    with patch("backend.services.cp_staleness.get_cp_status", return_value=cp_status):
+        out = pv.build_built_from(session, UID, TODAY, cal_rows)
+    assert out["race_name"] == "Chiang Mai" and out["race_time_sec"] == 6300
+    assert out["cp_w"] == 280 and out["cp_stale"] is True and out["available"]
+
+
 def test_load_calibrations_excludes_long_run_and_fun():
     from backend.services.race_calibration import load_calibrations
 
@@ -224,6 +286,8 @@ def test_build_projection_one_estimate_feeds_chain_chart_and_hero():
     with patch.object(pv, "next_a_race", return_value=a), \
             patch.object(pv, "estimate_race_finish", return_value=EST) as est_call, \
             patch("backend.services.race_calibration.load_calibrations", return_value=[]), \
+            patch("backend.services.race_calibration.record_prediction") as snap, \
+            patch.object(pv, "build_built_from", return_value={"available": False}), \
             patch.object(pv, "_calibration_tiles", return_value=pv.build_tiles(None, [], None, None)), \
             patch.object(pv, "goal_state", return_value=GOAL), \
             patch.object(pv, "_block_start", return_value=START), \
@@ -231,6 +295,7 @@ def test_build_projection_one_estimate_feeds_chain_chart_and_hero():
             patch.object(pv, "_history", return_value=[(TODAY, 14950)]), \
             patch("backend.services.score_reader.get_scores", return_value=scores):
         out = pv.build_projection(db, UID, TODAY)
+    snap.assert_called_once_with(UID, a.id, EST["est_sec"], EST["band_sec"], db)
     assert est_call.call_count == 1
     assert out["invariants"] == {"ok": True, "violations": []}
     assert out["chain"]["final"]["est_sec"] == out["chart"]["projection"]["est_sec"] == EST["est_sec"]
@@ -275,3 +340,4 @@ def test_page_wiring():
     assert "v2-perf-projection" in html
     assert "/api/performance/projection" in js and "data-chain-final" in js
     assert "data-chain-na" in js and "not available" in js
+    assert "data-projection-built-from" in js

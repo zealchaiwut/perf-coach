@@ -493,10 +493,25 @@
     return '<svg viewBox="0 0 1000 250" style="width:100%;height:250px;display:block" role="img" aria-label="' + esc(label) + '" data-projection-chart>' + parts.join("") + '</svg>';
   }
 
+  function renderBuiltFrom(b) {
+    if (!b || !b.available) return "";
+    var parts = [];
+    if (b.race_name && b.race_time_sec != null) {
+      parts.push("Built from " + esc(b.race_name) + " " + esc(fmtHMS(b.race_time_sec)));
+    }
+    if (b.cp_w != null) {
+      parts.push("CP " + esc(b.cp_w) + " W" + (b.cp_stale ? " · stale" : ""));
+    }
+    return parts.length
+      ? '<p class="rv-subtitle" data-projection-built-from>' + parts.join(" · ") + "</p>"
+      : "";
+  }
+
   function renderProjection(host, data) {
     host.innerHTML =
       '<div><span class="rv-label">Races and projections</span>' +
-      '<p class="rv-subtitle">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p></div>' +
+      '<p class="rv-subtitle">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p>' +
+      renderBuiltFrom(data.built_from) + "</div>" +
       renderTiles(data.tiles) +
       (data.chain ? renderChain(data.chain) + renderChart(data.chart) :
         '<p class="rv-subtitle" data-chain-na>No upcoming A race, so there is no projection yet.</p>');

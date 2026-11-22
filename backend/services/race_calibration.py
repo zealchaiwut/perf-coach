@@ -285,9 +285,13 @@ def ensure_calibrations(user_id: str, db) -> int:
         .filter(RaceCalibration.race_id.in_([r.id for r in done]))
         .all()
     }
+    from backend.services.race_roles import recalibrates
+
     created = 0
     for race in done:
         if race.id in have:
+            continue
+        if not recalibrates(race):
             continue
         try:
             if recalibrate_race(user_id, race, db) is not None:
