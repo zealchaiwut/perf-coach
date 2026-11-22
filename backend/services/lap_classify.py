@@ -15,11 +15,11 @@ Band constants (ratio boundaries):
     threshold  ratio at least 1.00 and below 1.06
     hard       ratio at least 1.06
 
-Threshold priority (first available basis wins):
+Threshold priority (first available basis in prefs wins for **all** laps):
     power then pace then hr
 
-A basis is skipped when its threshold key is absent or null in prefs, or
-when the lap object is missing the corresponding metric.
+The basis is chosen once per call; a lap missing that basis metric returns
+``band=None`` and does not fall through to another basis.
 
 Ratio formulas (plain arithmetic, no symbols):
     power: lap average power divided by ftp_w
@@ -99,42 +99,39 @@ def classify_laps(splits, prefs):
         basis = "hr"
     """
     ftp_w = prefs.get("ftp_w")
-    threshold_hr = prefs.get("threshold_hr")
     threshold_pace = prefs.get("threshold_pace_seconds_per_km")
+    threshold_hr = prefs.get("threshold_hr")
 
-    results = []
-    for lap in splits:
-        result = _classify_single_lap(lap, ftp_w, threshold_pace, threshold_hr)
-        results.append(result)
-    return results
-
-
-def _classify_single_lap(lap, ftp_w, threshold_pace, threshold_hr):
-    """Return a single lap classification dict.
-
-    Tries power, then pace, then hr in priority order.
-    Records the reason for each skipped basis in a list joined at return time.
-    """
-    skipped = []
-
-    # Power is the highest-quality basis: lap average power divided by ftp_w
     if ftp_w is not None:
-        avg_power = getattr(lap, "avg_power", None)
-        if avg_power is not None:
-            ratio = round(avg_power / ftp_w, 2)
-            return {
-                "ratio": ratio,
-                "band": _ratio_to_band(ratio),
-                "basis": "power",
-                "reason": None,
-            }
-        skipped.append("avg_power metric absent on lap")
+        basis = "power"
+    elif threshold_pace is not None:
+        basis = "pace"
+    elif threshold_hr is not None:
+        basis = "hr"
     else:
-        skipped.append("ftp_w threshold absent in preferences")
+        basis = "none"
 
-    # Pace basis: threshold_pace_seconds_per_km divided by lap pace in s/km
-    # A faster lap (fewer s/km) produces a ratio above 1.0
-    if threshold_pace is not None:
+    return [
+        _classify_single_lap(lap, basis, ftp_w, threshold_pace, threshold_hr)
+        for lap in splits
+    ]
+
+
+def _classify_single_lap(lap, basis, ftp_w, threshold_pace, threshold_hr):
+    """Apply the pre-selected basis to a single lap."""
+    if basis == "power":
+        avg_power = getattr(lap, "avg_power", None)
+        if avg_power is None:
+            return {
+                "ratio": None,
+                "band": None,
+                "basis": "power",
+                "reason": "avg_power metric absent on lap",
+            }
+        ratio = round(avg_power / ftp_w, 2)
+        return {"ratio": ratio, "band": _ratio_to_band(ratio), "basis": "power", "reason": None}
+
+    if basis == "pace":
         duration = getattr(lap, "duration_seconds", None)
         distance = getattr(lap, "distance_km", None)
         lap_pace = None
@@ -143,40 +140,33 @@ def _classify_single_lap(lap, ftp_w, threshold_pace, threshold_hr):
                 lap_pace = duration / float(distance)
             except (TypeError, ZeroDivisionError):
                 lap_pace = None
-
-        if lap_pace is not None:
-            ratio = round(threshold_pace / lap_pace, 2)
+        if lap_pace is None:
             return {
-                "ratio": ratio,
-                "band": _ratio_to_band(ratio),
+                "ratio": None,
+                "band": None,
                 "basis": "pace",
-                "reason": "; ".join(skipped) if skipped else None,
+                "reason": "pace metric absent on lap (duration or distance missing or zero)",
             }
-        skipped.append("pace metric absent on lap (duration or distance missing)")
-    else:
-        skipped.append("threshold_pace_seconds_per_km threshold absent in preferences")
+        ratio = round(threshold_pace / lap_pace, 2)
+        return {"ratio": ratio, "band": _ratio_to_band(ratio), "basis": "pace", "reason": None}
 
-    # HR is the lowest-priority basis: lap average HR divided by threshold_hr
-    if threshold_hr is not None:
+    if basis == "hr":
         avg_hr = getattr(lap, "avg_hr", None)
-        if avg_hr is not None:
-            ratio = round(avg_hr / threshold_hr, 2)
+        if avg_hr is None:
             return {
-                "ratio": ratio,
-                "band": _ratio_to_band(ratio),
+                "ratio": None,
+                "band": None,
                 "basis": "hr",
-                "reason": "; ".join(skipped) if skipped else None,
+                "reason": "avg_hr metric absent on lap",
             }
-        skipped.append("avg_hr metric absent on lap")
-    else:
-        skipped.append("threshold_hr threshold absent in preferences")
+        ratio = round(avg_hr / threshold_hr, 2)
+        return {"ratio": ratio, "band": _ratio_to_band(ratio), "basis": "hr", "reason": None}
 
-    reason = "; ".join(skipped) if skipped else "no thresholds configured"
     return {
         "ratio": None,
         "band": None,
         "basis": "none",
-        "reason": reason,
+        "reason": "no threshold configured in preferences (ftp_w, threshold_pace_seconds_per_km, and threshold_hr are all absent or null)",
     }
 
 

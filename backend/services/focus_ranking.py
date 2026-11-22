@@ -21,7 +21,7 @@ import uuid
 from datetime import date, timedelta
 from typing import Any, Iterable, Optional
 
-from backend.services.axis_spec import axis_focus_ranking_eligible
+from backend.services.axis_spec import PERFORMANCE_AXES, axis_focus_ranking_eligible
 
 # ---------------------------------------------------------------------------
 # Weights (by A-race distance) — must sum to 1, asserted at import.
@@ -154,25 +154,58 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
     eligible = sorted((s for s in scored if s["eligible"]), key=lambda s: (-s["weighted_gap"], s["axis"]))
     stale = sorted((s for s in scored if not s["eligible"]), key=lambda s: (-s["weighted_gap"], s["axis"]))
     focus = eligible[0] if eligible else None
+    scored_by = {s["axis"]: s for s in scored}
 
-    why_not: list[dict[str, Any]] = []
-    for s in (eligible[1:] + stale)[:3]:
+    def _reason_for(axis_name: str, s: Optional[dict[str, Any]], a: dict[str, Any]) -> str:
+        label = AXIS_LABELS.get(axis_name, axis_name)
+        if a.get("never_measured") or a.get("score") is None:
+            if axis_name == "mobility":
+                return f"{label} — lower, but matters less for a marathon until you log a test."
+            return f"{label} — not measured yet."
+        if s is None:
+            return f"{label} — not ranked."
         if s["stale"]:
-            reason = f"{s['label']} is stale: retest it before it can be ranked."
-        elif focus is not None and s["gap"] >= focus["gap"]:
-            reason = (
-                f"{s['label']} matters less for this distance "
+            return f"{label} {int(round(s['score']))} — not ranked · anchor is stale."
+        if focus is not None and s["gap"] >= focus["gap"]:
+            return (
+                f"{label} {int(round(s['score']))} — lower weighted priority for this distance "
                 f"(weight {round(s['weight'] * 100)}% vs {round(focus['weight'] * 100)}%)."
             )
-        else:
-            reason = (
-                f"{s['label']} has a lower weighted gap "
-                f"({s['weighted_gap']:.1f} vs {focus['weighted_gap']:.1f})."
+        if focus is not None:
+            return (
+                f"{label} {int(round(s['score']))} — weighted gap {s['weighted_gap']:.1f} "
+                f"vs {focus['weighted_gap']:.1f} for {focus['label']}."
             )
+        return f"{label} {int(round(s['score']))} — not ranked."
+
+    why_not: list[dict[str, Any]] = []
+    focus_axis = focus["axis"] if focus else None
+    for name in PERFORMANCE_AXES:
+        if name == focus_axis:
+            continue
+        a = by.get(name) or {}
+        s = scored_by.get(name)
         why_not.append({
-            "axis": s["axis"], "label": s["label"], "score": s["score"],
-            "weighted_gap": round(s["weighted_gap"], 2), "stale": s["stale"], "reason": reason,
+            "axis": name,
+            "label": AXIS_LABELS.get(name, name),
+            "score": None if a.get("never_measured") else a.get("score"),
+            "weighted_gap": round(s["weighted_gap"], 2) if s else None,
+            "stale": bool(s and s["stale"]),
+            "never_measured": bool(a.get("never_measured") or a.get("score") is None),
+            "reason": _reason_for(name, s, a),
         })
+    why_not.sort(
+        key=lambda w: (
+            2 if w.get("never_measured") else (1 if w.get("stale") else 0),
+            -(w["weighted_gap"] or 0),
+            w["axis"],
+        )
+    )
+
+    focus_rationale = None
+    if focus is not None:
+        focus_rationale = f"lowest that's fresh and matters for this distance"
+
     work = WORK_MAP[focus["axis"]] if focus else None
     return {
         "distance_class": klass,
@@ -186,6 +219,7 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
             if focus else None
         ),
         "why_not": why_not,
+        "focus_rationale": focus_rationale,
     }
 
 

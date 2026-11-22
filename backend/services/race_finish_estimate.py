@@ -36,32 +36,6 @@ def _fmt_hms(seconds: int | None) -> str | None:
     return f"{m}:{s:02d}"
 
 
-def _endurance_speed_from_cache(db, user_id) -> tuple[float | None, float | None]:
-    """Best-effort End/Spd from durable performance cache (may be slightly stale)."""
-    try:
-        from backend.models import SummaryCache
-
-        row = (
-            db.query(SummaryCache)
-            .filter(
-                SummaryCache.user_id == user_id,
-                SummaryCache.cache_key == "performance",
-            )
-            .first()
-        )
-        if not row or not isinstance(row.payload, dict):
-            return None, None
-        if row.payload.get("state") != "scored":
-            return None, None
-        end = (row.payload.get("endurance") or {}).get("score")
-        spd = (row.payload.get("speed") or {}).get("score")
-        end_f = float(end) if end is not None else None
-        spd_f = float(spd) if spd is not None else None
-        return end_f, spd_f
-    except Exception:
-        return None, None
-
-
 def _latest_shown_prediction(db, race_id) -> dict | None:
     """Most recent RacePrediction for this race (Performance/Plan shown estimate)."""
     try:
@@ -151,8 +125,14 @@ def _compute_race_day_estimate(
     race_day = max(proj_series.keys())
     day_data = proj_series[race_day]
 
-    # Base score: End/Spd blend (Performance scores) → race-anchor → CTL ceiling
-    end_score, spd_score = _endurance_speed_from_cache(db, user_id)
+    from backend.services.score_reader import get_scores
+
+    overall = get_scores(user_id, as_of=today).get("overall") or {}
+    end_score = (overall.get("endurance") or {}).get("score")
+    spd_score = (overall.get("speed") or {}).get("score")
+    end_score = float(end_score) if end_score is not None else None
+    spd_score = float(spd_score) if spd_score is not None else None
+    # Base score: End/Spd blend (same reader as score cards) → race-anchor → CTL ceiling
     blend_base: float | None = None
     if end_score is not None:
         w_s = speed_weight_for_distance(distance_km) if spd_score is not None else 0.0
@@ -248,12 +228,7 @@ def _compute_race_day_estimate(
     }
 
 
-def estimate_race_finish(
-    user_id,
-    race,
-    today: date | None = None,
-    db=None,
-) -> dict[str, Any]:
+def _estimate_race_finish_uncached(db, user_id, race, today: date) -> dict[str, Any]:
     """Return race-day finish estimate for Coach Dream / projection facts.
 
     Shape::
@@ -267,21 +242,18 @@ def estimate_race_finish(
           "reason": str | None,
         }
     """
-    from sqlalchemy.orm import Session
-    from backend.db import engine
-
-    today = today or today_bangkok()
-    _own = db is None
-    if _own:
-        db = Session(engine)
-
     try:
         shown = _latest_shown_prediction(db, race.id)
-        # Prefer a fresh shown prediction (today or yesterday) — exact SoT.
         if shown and shown.get("as_of"):
             try:
                 as_of = date.fromisoformat(str(shown["as_of"])[:10])
-                if (today - as_of).days <= 7:
+                from backend.services.data_version import get_data_version
+
+                pred_dv = shown.get("data_version")
+                cur_dv = get_data_version(db, user_id)
+                if pred_dv is not None and int(pred_dv) != int(cur_dv):
+                    shown = None
+                elif as_of == today:
                     est = shown["est_sec"]
                     band = shown.get("band_sec")
                     return {
@@ -343,6 +315,36 @@ def estimate_race_finish(
             "source": "error",
             "reason": str(exc),
         }
+
+
+def estimate_race_finish(
+    user_id,
+    race,
+    today: date | None = None,
+    db=None,
+) -> dict[str, Any]:
+    """Return race-day finish estimate for Coach Dream / projection facts."""
+    from sqlalchemy.orm import Session
+    from backend.db import engine
+    from backend.services.derived_cache import get_or_compute
+
+    today = today or today_bangkok()
+    _own = db is None
+    if _own:
+        db = Session(engine)
+
+    try:
+        race_id = getattr(race, "id", None)
+        if race_id is not None and db is not None:
+            key = f"derived:race_estimate:{race_id}"
+            return get_or_compute(
+                db,
+                user_id,
+                key,
+                today,
+                lambda: _estimate_race_finish_uncached(db, user_id, race, today),
+            )
+        return _estimate_race_finish_uncached(db, user_id, race, today)
     finally:
         if _own:
             db.close()

@@ -222,6 +222,58 @@ def _x_frac(d: date, start: date, end: date) -> float:
     return round(max(0.0, min(1.0, (d - start).days / span)), 4)
 
 
+def build_chart_history_window(
+    *,
+    start: date,
+    end: date,
+    today: date,
+    label: str,
+    history: list[tuple[date, int]],
+    goal_sec: Optional[int],
+    recalibrations: list[dict],
+    ticks: list[dict],
+    pending: list[dict],
+) -> dict[str, Any]:
+    """History-only chart when there is no upcoming A race (x runs start→today)."""
+    base: dict[str, Any] = {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "today": today.isoformat(),
+        "now_x": _x_frac(today, start, end),
+        "race_name": label,
+        "history_only": True,
+    }
+    hist = [
+        {"date": d.isoformat(), "x": _x_frac(d, start, end), "est_sec": s}
+        for d, s in history
+        if start <= d <= end
+    ]
+    if not hist:
+        return {**base, "available": False, "reason": NOT_AVAILABLE}
+    ys = [h["est_sec"] for h in hist]
+    if goal_sec is not None:
+        ys.append(goal_sec)
+
+    def _mark(m: dict) -> dict:
+        d = m["date"]
+        return {**m, "date": d.isoformat() if hasattr(d, "isoformat") else d, "x": _x_frac(d, start, end)}
+
+    return {
+        **base,
+        "available": True,
+        "history": hist,
+        "projection": None,
+        "band": None,
+        "goal_sec": goal_sec,
+        "goal_label": _fmt_hms(goal_sec) if goal_sec is not None else None,
+        "recalibrations": [_mark(m) for m in recalibrations],
+        "ticks": [_mark(m) for m in ticks],
+        "pending": [_mark(m) for m in pending],
+        "y_min_sec": min(ys),
+        "y_max_sec": max(ys),
+    }
+
+
 def build_chart(*, start: date, today: date, race, est: dict[str, Any], goal_sec: Optional[int],
                 history: list[tuple[date, int]], recalibrations: list[dict], ticks: list[dict],
                 pending: list[dict]) -> dict[str, Any]:
@@ -303,6 +355,27 @@ def check_invariants(payload: dict[str, Any], hero_est_sec: Optional[int] = None
 
 
 # ── Fetch + assemble ─────────────────────────────────────────────────────────
+
+def _reference_race_for_history(session, user_id: uuid.UUID, cal_rows: list[dict]):
+    """Race whose stored prediction history best represents the trend line."""
+    from backend.models import Race, RacePrediction
+
+    if cal_rows:
+        try:
+            race = session.get(Race, uuid.UUID(cal_rows[0]["race_id"]))
+            if race is not None:
+                return race
+        except (ValueError, TypeError):
+            pass
+    row = (
+        session.query(Race)
+        .join(RacePrediction, RacePrediction.race_id == Race.id)
+        .filter(Race.user_id == user_id)
+        .order_by(RacePrediction.prediction_date.desc())
+        .first()
+    )
+    return row
+
 
 def _history(session, race_id) -> list[tuple[date, int]]:
     from backend.models import RacePrediction
@@ -436,6 +509,43 @@ def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]
         "invariants": {"ok": True, "violations": []},
     }
     if race is None:
+        from backend.models import UserPreferences
+        from backend.services.axis_spec import MARATHON_DISTANCE_KM
+        from backend.services.race_finish_estimator import blended_scores_estimate
+
+        distance = MARATHON_DISTANCE_KM
+        try:
+            overall = get_scores(user_id, as_of=today)["overall"]
+            prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
+            thresholds = {"threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km if prefs else None}
+            basis = blended_scores_estimate(
+                (overall.get("endurance") or {}).get("score"),
+                (overall.get("speed") or {}).get("score"),
+                distance,
+                thresholds,
+            ).get("basis")
+            na_est = {"unavailable": True, "est_sec": None, "band_sec": None}
+            na_goal: dict[str, Any] = {"time_sec": None, "state": "provisional", "editable": True}
+            payload["chain"] = build_chain(na_est, basis, blend, distance, na_goal, "")
+        except Exception:
+            _log.warning("partial projection chain unavailable", exc_info=True)
+        ref = _reference_race_for_history(session, user_id, cal_rows)
+        if ref is not None:
+            start = max(today - timedelta(days=DEFAULT_HISTORY_DAYS), _block_start(session, user_id, ref, today))
+            end = max(today, ref.race_date)
+            recal, ticks, pending = _markers(session, user_id, ref, start, today)
+            goal_sec = int(ref.goal_time_seconds) if ref.goal_time_seconds is not None else None
+            payload["chart"] = build_chart_history_window(
+                start=start,
+                end=end,
+                today=today,
+                label=ref.name,
+                history=_history(session, ref.id),
+                goal_sec=goal_sec,
+                recalibrations=recal,
+                ticks=ticks,
+                pending=pending,
+            )
         return payload
 
     est = estimate_race_finish(user_id, race, today=today, db=session)

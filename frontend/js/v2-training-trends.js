@@ -280,7 +280,7 @@
       return '<span class="rv-trends-key"><span style="width:11px;height:11px;border-radius:3px;background:' + c + '"></span>Z' + (i + 1) + "</span>";
     }).join("");
     return '<section class="rv-card rv-stack" data-trends-zones><div class="rv-row"><span class="rv-label">Time in zone by month</span>' +
-      '<div class="rv-trends-keys">' + keys + "</div></div><div class="rv-stack" style="gap:12px">' + rows + "</div></section>";
+      '<div class="rv-trends-keys">' + keys + '</div></div><div class="rv-stack" style="gap:12px">' + rows + '</div></section>';
   }
 
   function renderRangeButtons() {

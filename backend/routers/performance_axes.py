@@ -169,7 +169,7 @@ def _a_race_distance_km(db, user_id, as_of):
 def get_performance_radar(size: str = "large", user: User = Depends(resolve_user)):
     """One payload (and its rendered inline SVG) for the Home and Performance radars."""
     from backend.services.focus_ranking import rank_axes
-    from backend.services.radar_payload import build_radar
+    from backend.services.radar_cache import get_radar_payload
     from backend.services.radar_svg import render_radar_svg
     from backend.utils.time import today_bangkok
 
@@ -183,7 +183,7 @@ def get_performance_radar(size: str = "large", user: User = Depends(resolve_user
             f = rank_axes(axes, km)["focus"]
             return f["axis"] if f else None
 
-        payload = build_radar(db, user.id, today, focus_ranker=ranker)
+        payload = get_radar_payload(db, user.id, today, focus_ranker=ranker)
     payload["size"] = size
     payload["svg"] = render_radar_svg(payload, size)
     return JSONResponse(payload)
@@ -198,15 +198,18 @@ class _QueueBody(BaseModel):
 @router.get("/api/performance/focus")
 def get_performance_focus(user: User = Depends(resolve_user)):
     from backend.services import focus_ranking as fr
-    from backend.services.radar_payload import build_radar
+    from backend.services.radar_cache import get_radar_payload
     from backend.utils.time import today_bangkok
 
     today = today_bangkok()
     with Session(engine) as db:
         km = _a_race_distance_km(db, user.id, today)
-        axes = build_radar(db, user.id, today)["axes"]
+        axes = get_radar_payload(db, user.id, today)["axes"]
         out = fr.rank_axes(axes, km)
         queued = {r.axis: fr.item_dict(r) for r in fr.queued_items(db, user.id)}
+        phase = fr._phase_lookup(db, user.id, today)
+        ew = fr.earliest_queue_week(phase, today)
+        out["suggested_queue_week"] = ew.isoformat() if ew else None
     out["queue"] = queued
     out["queued_focus"] = bool(out["focus"] and out["focus"]["axis"] in queued)
     out["advice"] = {a: w["advice"] for a, w in fr.WORK_MAP.items()}
@@ -217,7 +220,7 @@ def get_performance_focus(user: User = Depends(resolve_user)):
 def queue_performance_focus(body: _QueueBody, user: User = Depends(resolve_user)):
     """Queue the focus axis' work (or an explicit ``axis``) into the next build/rebuild week."""
     from backend.services import focus_ranking as fr
-    from backend.services.radar_payload import build_radar
+    from backend.services.radar_cache import get_radar_payload
     from backend.utils.time import today_bangkok
 
     today = today_bangkok()
@@ -225,7 +228,7 @@ def queue_performance_focus(body: _QueueBody, user: User = Depends(resolve_user)
         axis = body.axis
         if axis is None:
             km = _a_race_distance_km(db, user.id, today)
-            focus = fr.rank_axes(build_radar(db, user.id, today)["axes"], km)["focus"]
+            focus = fr.rank_axes(get_radar_payload(db, user.id, today)["axes"], km)["focus"]
             if focus is None:
                 raise HTTPException(status_code=409, detail="No fresh, measured axis to focus on yet")
             axis = focus["axis"]
@@ -250,6 +253,50 @@ def cancel_performance_queue_item(item_id: str, user: User = Depends(resolve_use
         if not fr.cancel_item(db, user.id, iid):
             raise HTTPException(status_code=404, detail="queue item not found")
     return Response(status_code=204)
+
+
+# ── Performance bundle (one session, warm cache) ───────────────────────────
+
+@router.get("/api/performance/bundle")
+def get_performance_bundle(user: User = Depends(resolve_user)):
+    """Single round-trip for the v2 Performance page (reduces pool fan-out)."""
+    from backend.services import focus_ranking as fr
+    from backend.services.derived_cache import get_or_compute
+    from backend.services.projection_view import build_projection
+    from backend.services.race_hero import build_hero
+    from backend.services.race_list import build_race_list
+    from backend.services.radar_cache import get_radar_payload
+    from backend.services.radar_svg import render_radar_svg
+    from backend.services.score_cards import build_cards
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        km = _a_race_distance_km(db, user.id, today)
+        radar = get_radar_payload(db, user.id, today)
+        radar["size"] = "large"
+        radar["svg"] = render_radar_svg(radar, "large")
+        focus = fr.rank_axes(radar["axes"], km)
+        hero = get_or_compute(
+            db, user.id, "derived:hero", today,
+            lambda: build_hero(db, user.id, today),
+        )
+        projection = get_or_compute(
+            db, user.id, "derived:projection", today,
+            lambda: build_projection(db, user.id, today),
+        )
+        races = get_or_compute(
+            db, user.id, "derived:race_list", today,
+            lambda: build_race_list(db, user.id, today),
+        )
+    return JSONResponse({
+        "radar": radar,
+        "focus": focus,
+        "hero": hero,
+        "projection": projection,
+        "races": races,
+        "score_cards": build_cards(user.id, as_of=today),
+    })
 
 
 # ── A-race hero + after-the-race card (P4-8) ─────────────────────────────────

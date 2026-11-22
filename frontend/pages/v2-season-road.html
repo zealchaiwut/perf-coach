@@ -9,25 +9,27 @@
 </head>
 <body class="rv-page">
   <div class="rv-shell rv-shell--wide">
-    <header class="rv-shell-head">
-      <div>
-        <h1 class="rv-title">Season road</h1>
-        <p class="rv-subtitle" id="sr-subtitle">PB attempts, long runs, and the projection to your A race.</p>
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Season road</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="sr-subtitle">PB attempts, long runs, and the projection to your A race.</p>
       </div>
       <nav aria-label="Primary">
-        <ul class="rv-tabnav">
+        <ul class="rv-tabnav rv-tabnav--invert">
           <li><a class="rv-tab" href="/v2/home">Home</a></li>
           <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab rv-tab--on" href="/v2/performance">Performance</a></li>
+          <li><a class="rv-tab on" href="/v2/performance" aria-current="page">Performance</a></li>
           <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
         </ul>
       </nav>
     </header>
 
-  <p class="rv-row"><a class="rv-btn rv-btn--secondary" href="/v2/performance">← Performance overview</a></p>
+    <p class="rv-row" style="margin:0">
+      <a class="rv-btn rv-btn--secondary rv-btn--sm" href="/v2/performance" style="background:rgba(255,255,255,0.92)">← Performance overview</a>
+    </p>
 
-    <div id="sr-root" class="rv-stack" aria-live="polite">
-      <p class="rv-subtitle">Loading season road…</p>
+    <div id="sr-root" class="rv-stack rv-sr-page" aria-live="polite">
+      <p class="rv-subtitle rv-subtitle--invert">Loading season road…</p>
     </div>
   </div>
   <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>

@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import PlannedSession, UserPreferences, Workout
-from backend.services.session_tss import session_tss
 from backend.utils.time import today_bangkok, to_bangkok
 
 _RUN_RE = re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", re.IGNORECASE)
@@ -131,9 +130,11 @@ def weekly_rollup(
         duration_seconds = 0.0
 
         for w in in_week:
-            counted = session_tss(w, prefs=prefs, session=session).get("tss")
-            if counted is not None:
-                val = float(counted)
+            if w.tss is not None:
+                val = float(w.tss)
+            else:
+                val = None
+            if val is not None:
                 tss_total += val
                 bucket = _tss_bucket(w.workout_type, distance_km=w.distance_km)
                 if bucket == "run":

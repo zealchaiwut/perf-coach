@@ -36,16 +36,59 @@ def _axis_from_payload_block(block: Optional[dict]) -> dict[str, Any]:
     }
 
 
+def _axis_from_history(score: Optional[float]) -> dict[str, Any]:
+    if score is None:
+        return {
+            "score": None,
+            "delta_28d": None,
+            "anchor_date": None,
+            "anchor_title": None,
+            "stale": False,
+        }
+    return {
+        "score": score,
+        "delta_28d": None,
+        "anchor_date": None,
+        "anchor_title": None,
+        "stale": False,
+    }
+
+
 def get_scores(user_id: uuid.UUID, as_of: Optional[date] = None) -> dict[str, Any]:
     """Return overall endurance/speed scores for the athlete."""
-    del as_of  # live compute path uses today; as-of callers use history via consult
-    payload = _performance_scores.get_performance_payload(user_id)
-    state = payload.get("state")
-    overall = {
-        "endurance": _axis_from_payload_block(payload.get("endurance")),
-        "speed": _axis_from_payload_block(payload.get("speed")),
-    }
-    return {"state": state, "overall": overall, "generated_at": payload.get("generated_at")}
+    from backend.db import engine
+    from backend.services import axis_snapshot
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    if as_of is None or as_of >= today:
+        payload = _performance_scores.get_performance_payload(user_id)
+        state = payload.get("state")
+        overall = {
+            "endurance": _axis_from_payload_block(payload.get("endurance")),
+            "speed": _axis_from_payload_block(payload.get("speed")),
+        }
+        return {"state": state, "overall": overall, "generated_at": payload.get("generated_at")}
+
+    with Session(engine) as session:
+        row = axis_snapshot.snapshot_row_on_or_before(session, user_id, as_of)
+        if row is None or (row.endurance is None and row.speed is None):
+            empty = _axis_from_history(None)
+            return {
+                "state": "unavailable",
+                "overall": {"endurance": empty, "speed": dict(empty)},
+                "generated_at": None,
+                "reason": "no snapshot on or before as_of",
+            }
+        state = "scored" if row.endurance is not None or row.speed is not None else "unavailable"
+        return {
+            "state": state,
+            "overall": {
+                "endurance": _axis_from_history(row.endurance),
+                "speed": _axis_from_history(row.speed),
+            },
+            "generated_at": row.score_date.isoformat() if row.score_date else None,
+        }
 
 
 def get_axis_scores(session: Session, user_id: uuid.UUID, as_of: Optional[date] = None) -> dict[str, Any]:
@@ -77,10 +120,15 @@ def get_race_scores(
     as_of: Optional[date] = None,
 ) -> dict[str, Any]:
     """Race-distance-specific scores (anchor metadata from the target race)."""
-    overall = get_scores(user_id, as_of=as_of)["overall"]
+    scores = get_scores(user_id, as_of=as_of)
+    if scores.get("state") == "unavailable":
+        return {"race_specific": None, "overall": scores.get("overall")}
+    overall = scores["overall"]
+    speed_overall = (overall.get("speed") or {}).get("score")
     race_specific = {
         "endurance": dict(overall["endurance"]),
         "speed": dict(overall["speed"]),
+        "speed_overall": speed_overall,
     }
     race_date = getattr(race, "race_date", None)
     if race_date is not None:
@@ -89,10 +137,12 @@ def get_race_scores(
         race_specific["speed"]["anchor_date"] = d
     anchor = _latest_race_perf(session, user_id, as_of=as_of)
     if anchor and anchor.get("perf") is not None:
-        # Race-context speed reflects the VDOT band point when it differs from overall.
         race_specific["speed"] = dict(race_specific["speed"])
         race_specific["speed"]["score"] = round(float(anchor["perf"]), 1)
-    return {"race_specific": race_specific}
+        race_specific["speed_race_specific"] = round(float(anchor["perf"]), 1)
+    else:
+        race_specific["speed_race_specific"] = race_specific["speed"].get("score")
+    return {"race_specific": race_specific, "overall": overall}
 
 
 def session_signal(workout) -> dict[str, Any]:

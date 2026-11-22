@@ -35,7 +35,9 @@
   }
 
   function sectionLoading(el, msg) {
-    el.innerHTML = '<p class="rv-section-state" role="status">' + esc(msg || 'Loading…') + '</p>';
+    el.innerHTML = '<div class="rv-skeleton-stack" role="status" aria-busy="true"><span class="rv-skeleton rv-skeleton--bar"></span>' +
+      '<span class="rv-skeleton rv-skeleton--line"></span><span class="rv-skeleton rv-skeleton--line short"></span>' +
+      '<span class="rv-subtitle">' + esc(msg || 'Loading…') + '</span></div>';
   }
 
   function sectionError(el, msg) {
@@ -236,6 +238,13 @@
       parts.push('<polyline points="' + linePts.join(' ') + '" fill="none" stroke="#d97706" stroke-width="2.5"/>');
     }
     parts.push('</svg>');
+    parts.push(
+      '<div class="rv-log-chart-legend">' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#bfd3f8"></i>Run TSS</span>' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#c9b6f2"></i>Lift TSS</span>' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#d97706;height:3px;border-radius:0"></i>Distance</span>' +
+      '<span class="rv-key"><i class="rv-swatch" style="background:#fff;border:2px dashed #6d93e8"></i>Planned</span></div>'
+    );
     el.innerHTML = parts.join('');
     el.querySelectorAll('[data-week]').forEach(function (node) {
       function jump() {
@@ -259,10 +268,15 @@
     var startDate = new Date(end);
     startDate.setDate(startDate.getDate() - 7 * 8);
     var fromW = startDate.toISOString().slice(0, 10);
-    fetch('/api/weekly-rollup?from=' + encodeURIComponent(fromW) + '&to=' + encodeURIComponent(end))
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 25000);
+    fetch('/api/weekly-rollup?from=' + encodeURIComponent(fromW) + '&to=' + encodeURIComponent(end), { signal: ctrl.signal })
       .then(function (r) { if (!r.ok) throw new Error('chart'); return r.json(); })
-      .then(function (data) { drawChart((data && data.weeks) || []); })
-      .catch(function () { sectionError(el, 'Could not load weekly volume.'); });
+      .then(function (data) { clearTimeout(timer); drawChart((data && data.weeks) || []); })
+      .catch(function (e) {
+        clearTimeout(timer);
+        sectionError(el, e && e.name === 'AbortError' ? 'Chart timed out — try again.' : 'Could not load weekly volume.');
+      });
   }
 
   function listRange() {
@@ -285,13 +299,30 @@
     return true;
   }
 
-  function badges(entry) {
-    var b = [];
-    if (entry.is_stryd_synced || entry.has_stryd) b.push('STRYD');
-    if (entry.plan_match) b.push('Matched coach plan');
-    else if (entry.row_kind !== 'missed_plan' && entry.id && String(entry.id).indexOf('plan:') !== 0) b.push('Unplanned');
-    if (entry.speed_signal != null) b.push('Hard effort');
-    return b;
+  function dotClassForType(tpe) {
+    var t = (tpe || '').toLowerCase();
+    if (t.indexOf('strength') >= 0 || t.indexOf('plyo') >= 0 || t.indexOf('mobility') >= 0) return 'rv-sync-dot--purple';
+    if (t.indexOf('race') >= 0) return 'rv-sync-dot--amber';
+    return 'rv-sync-dot--blue';
+  }
+
+  function badgeChips(entry) {
+    var chips = [];
+    if (entry.is_stryd_synced || entry.has_stryd) {
+      chips.push('<span class="rv-chip rv-chip--dark">STRYD</span>');
+    }
+    if (entry.plan_match) {
+      chips.push('<span class="rv-chip rv-chip--good">Matched coach plan</span>');
+    } else if (entry.row_kind !== 'missed_plan' && entry.id && String(entry.id).indexOf('plan:') !== 0) {
+      chips.push('<span class="rv-chip">Unplanned</span>');
+    }
+    if (entry.speed_signal != null) {
+      chips.push('<span class="rv-chip rv-chip--warn">Hard effort · speed signal</span>');
+    }
+    if (entry.row_kind === 'missed_plan') {
+      chips.push('<span class="rv-chip rv-chip--warn">Planned, not done</span>');
+    }
+    return chips.join(' ');
   }
 
   function renderList(data) {
@@ -337,10 +368,10 @@
           if (entry.avg_hr) meta.push(entry.avg_hr + ' bpm');
           html.push('<div class="' + rowCls + '"' + ((run || str) ? ' data-run-id="' + esc(entry.id) + '" data-workout-type="' + esc(entry.type || '') + '" tabindex="0" role="button"' : '') + '>');
           html.push('<span class="rv-subtitle" style="margin:0">' + esc(entry.date.slice(-2)) + '</span>');
-          html.push('<span class="rv-sync-dot rv-sync-dot--green" aria-hidden="true"></span>');
+          html.push('<span class="rv-sync-dot ' + dotClassForType(entry.type) + '" aria-hidden="true"></span>');
           html.push('<div><strong>' + esc(entry.title || 'Session') + '</strong>' +
             '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' + esc(meta.join(' · ')) + '</div>' +
-            '<p style="margin:4px 0 0;font-size:12px">' + esc(badges(entry).join(' · ')) + '</p></div>');
+            '<div class="rv-row" style="gap:6px;flex-wrap:wrap;margin-top:4px">' + badgeChips(entry) + '</div></div>');
           html.push(
             '<div class="rv-session-side">' +
             '<span class="rv-mono">' + (entry.tss != null ? Math.round(entry.tss) : '—') + ' TSS</span>' +

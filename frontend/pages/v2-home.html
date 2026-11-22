@@ -9,19 +9,22 @@
 </head>
 <body class="rv-page">
   <div class="rv-shell rv-shell--wide">
-    <header class="rv-shell-head rv-shell-head--home">
+    <header class="rv-shell-head rv-shell-head--home rv-home-top">
       <div class="rv-shell-head-text">
         <h1 class="rv-title rv-title--invert" id="rv-home-greet">Home</h1>
         <p class="rv-subtitle rv-subtitle--invert" id="rv-home-date">Loading…</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav rv-tabnav--invert">
-          <li><a class="rv-tab on" href="/v2/home" aria-current="page">Home</a></li>
-          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
-        </ul>
-      </nav>
+      <div class="rv-home-top-actions">
+        <span class="rv-home-race-pill rv-mono" id="rv-home-race-pill" hidden></span>
+        <nav aria-label="Primary">
+          <ul class="rv-tabnav rv-tabnav--invert">
+            <li><a class="rv-tab on" href="/v2/home" aria-current="page">Home</a></li>
+            <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
+            <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
+            <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
+          </ul>
+        </nav>
+      </div>
     </header>
 
     <div id="rv-home-alerts" class="rv-home-alerts" hidden></div>
@@ -30,20 +33,19 @@
       <p class="rv-subtitle">Loading today…</p>
     </section>
 
-    <section class="rv-card rv-home-weight" id="rv-home-weight" aria-labelledby="rv-weight-h" hidden></section>
-
     <div class="rv-home-cols">
       <div class="rv-home-col">
         <section class="rv-card" id="rv-home-week" aria-labelledby="rv-week-h">
           <p class="rv-subtitle">Loading week…</p>
         </section>
-        <section class="rv-card" id="rv-home-ladder" aria-labelledby="rv-ladder-h" hidden></section>
         <section class="rv-card rv-card--soft" id="rv-home-recent" aria-labelledby="rv-recent-h"></section>
+        <section class="rv-card rv-home-daily-card" id="rv-home-daily-basics" hidden aria-label="Daily basics"></section>
+        <section class="rv-card rv-home-weight" id="rv-home-weight" aria-labelledby="rv-weight-h" hidden></section>
+        <section class="rv-card" id="rv-home-ladder" aria-labelledby="rv-ladder-h" hidden></section>
       </div>
       <div class="rv-home-col">
         <section class="rv-card" id="rv-home-next-race"></section>
-        <section class="rv-card" id="rv-home-focus"></section>
-        <section class="rv-card" id="rv-home-coach"></section>
+        <section class="rv-card" id="rv-home-status" aria-labelledby="rv-status-h"></section>
       </div>
     </div>
 
@@ -54,6 +56,7 @@
   </div>
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/lib/perf-radar.js"></script>
   <script src="/js/v2-home.js"></script>
 </body>
 </html>

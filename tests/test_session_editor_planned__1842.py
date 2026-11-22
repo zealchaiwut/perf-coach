@@ -47,3 +47,9 @@ def test_blocked_plyo_session_near_race_is_rule_block():
 def test_context_route_registered():
     src = open("backend/main.py", encoding="utf-8").read()
     assert "/api/plan/revamp-planned-editor/context" in src
+
+
+def test_planned_editor_imports_week_target_from_load_plan():
+    src = open("backend/services/revamp_planned_editor.py", encoding="utf-8").read()
+    assert "from backend.services.revamp_load_plan import week_target_and_phase" in src
+    assert "week_target_and_phase" not in src.split("weekly_rollup import", 1)[-1].split("\n")[0]

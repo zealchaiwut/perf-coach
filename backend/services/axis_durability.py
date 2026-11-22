@@ -8,11 +8,9 @@ Rules (docs/revamp/SPEC.md, appendix «Performance axes»):
   is all there is). Fewer than 2 qualifying runs -> never-measured.
 - Score = clamp(100 - (median - 3) x 8, 0, 100), rounded to an integer.
 
-Zone 1+2 share: the per-run field ``workouts.zone2_minutes`` over
-``duration_seconds``. (The lap-based intensity-distribution endpoint needs a
-per-session split query; the stored per-run minutes keep this reader a single
-indexed query and match what the Z2 habit autofill already trusts.) A run with
-no ``zone2_minutes`` cannot be shown to be easy and does not qualify.
+Zone 1+2 share: ``workouts.easy_minutes`` (HR at or below the Z2 ceiling) over
+``duration_seconds``, falling back to ``zone2_minutes`` when ``easy_minutes`` is
+unset. A run with neither field cannot be shown to be easy and does not qualify.
 
 Pure helpers + one thin DB fetch; no HTTP, no LLM.
 """
@@ -41,12 +39,14 @@ def _get(run: Any, key: str):
 
 
 def easy_fraction(run: Any) -> Optional[float]:
-    """Share of the run spent in zones 1-2 (zone2_minutes / duration), or None."""
+    """Share of the run spent in Z1+Z2 (easy_minutes, else zone2_minutes) / duration."""
     dur = _get(run, "duration_seconds")
-    z2 = _get(run, "zone2_minutes")
-    if not dur or z2 is None:
+    easy = _get(run, "easy_minutes")
+    if easy is None:
+        easy = _get(run, "zone2_minutes")
+    if not dur or easy is None:
         return None
-    return (float(z2) * 60.0) / float(dur)
+    return (float(easy) * 60.0) / float(dur)
 
 
 def is_qualifying_run(run: Any) -> bool:

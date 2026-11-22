@@ -424,12 +424,17 @@ def build_this_week(
         logged = float(wl.get("logged_tss") or 0)
         planned = float(wl.get("planned_tss") or 0)
         base = target if target > 0 else 1.0
+        logged_pct = round(100 * logged / base, 1)
+        planned_pct = round(100 * planned / base, 1)
+        remaining_pct = round(max(0.0, 100.0 - logged_pct - planned_pct), 1)
         load_bar = {
-            "logged_pct": round(100 * logged / base, 1),
-            "planned_pct": round(100 * planned / base, 1),
+            "logged_pct": logged_pct,
+            "planned_pct": planned_pct,
+            "remaining_pct": remaining_pct,
             "target_tss": wl.get("target_tss"),
             "logged_tss": wl.get("logged_tss"),
             "planned_tss": wl.get("planned_tss"),
+            "tss_label": f"{logged + planned:.0f} / {target:.0f}",
         }
         phase = (wl.get("phase") or "build").replace("_", " ")
         subtitle = f"{phase.title()} · {logged + planned:.0f} / {target:.0f} TSS"
@@ -622,10 +627,19 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
     ladder = long_run_ladder_payload(session, user_id, today=today)
     fetch_from = today - timedelta(days=120)
     wrows = _weight_rows(session, user_id, fetch_from, today)
+    next_race = build_next_race_card(session, user_id, today)
+    header_race_pill = None
+    if next_race.get("available") and next_race.get("race"):
+        nr = next_race["race"]
+        dtr = nr.get("days_to_race")
+        if dtr is not None:
+            unit = "day" if dtr == 1 else "days"
+            header_race_pill = f"{nr.get('name', 'Race')} · {dtr} {unit}"
 
     return {
         "as_of": today.isoformat(),
         "greeting_name": name,
+        "header_race_pill": header_race_pill,
         "long_run_ladder": ladder,
         "hero": hero,
         "show_race_plan": show_race_plan,
@@ -637,7 +651,7 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
         },
         "race_week": show_race_plan,
         "this_week": build_this_week(session, user_id, today, board),
-        "next_race": build_next_race_card(session, user_id, today),
+        "next_race": next_race,
         "focus": build_focus_teaser(session, user_id, today),
         "recent_sessions": build_recent_sessions(session, user_id, today),
         "coach": build_coach_card(session, user_id, today),

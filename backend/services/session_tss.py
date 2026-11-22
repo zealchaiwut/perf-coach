@@ -128,11 +128,17 @@ def apply_counted_tss_to_workout(
 ) -> dict[str, Any]:
     """Write dual-method columns and sync workouts.tss from session_tss (unless manual)."""
     result = session_tss(workout, prefs=prefs, stryd_tss=stryd_tss)
-    if workout.tss_source != "manual" and result.get("tss") is not None:
+    if workout.tss_source == "manual":
+        return result
+    if result.get("tss") is not None:
         workout.tss = int(round(result["tss"]))
         if result.get("method") and result["method"] != "manual":
             workout.tss_method = result["method"]
             workout.tss_source = "calculated"
+    else:
+        workout.tss = None
+        if result.get("method"):
+            workout.tss_method = result["method"]
     return result
 
 

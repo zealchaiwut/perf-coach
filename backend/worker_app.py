@@ -503,7 +503,7 @@ _h_weekly_coach = _h_daily_coach
 
 def _h_precompute(p: dict) -> None:
     from backend.services import precompute
-    precompute.precompute_user(p["user_id"], dates=p.get("dates"))
+    precompute.precompute_user(p["user_id"], dates=p.get("dates"), v2=True)
 
 
 def _h_garmin_sync(p: dict) -> None:

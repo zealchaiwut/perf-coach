@@ -129,6 +129,52 @@
       if (window.RevampUI && window.RevampUI.showToast) window.RevampUI.showToast(msg);
     }
 
+    function renderRail(ws, warnings) {
+      var rail = document.getElementById('v2-plan-rail');
+      if (!rail) return;
+      rail.innerHTML = '<p class="rv-subtitle">Loading sidebar…</p>';
+      fetch('/api/plan/week-bundle?week_start=' + encodeURIComponent(ws))
+        .then(function (r) { return r.ok ? r.json() : {}; })
+        .then(function (bundle) {
+          var nextHtml = '<p class="rv-subtitle">No upcoming session in the next few days.</p>';
+          var days = (bundle.next_up && bundle.next_up.days) || [];
+          for (var i = 0; i < days.length; i++) {
+            var items = days[i].items || days[i].sessions || [];
+            if (items.length) {
+              var it = items[0];
+              nextHtml = '<strong>' + esc(it.name || it.title || 'Session') + '</strong>' +
+                '<p class="rv-subtitle" style="margin:4px 0 0">' + esc(days[i].date || '') + '</p>';
+              break;
+            }
+          }
+          var rules = '<p class="rv-subtitle">All clear this week.</p>';
+          if (warnings && (warnings.clashes || []).length) {
+            rules = (warnings.clashes || []).map(function (c) {
+              return '<p class="rv-subtitle" style="margin:0 0 8px">' + esc(c.message) + '</p>';
+            }).join('');
+          } else if (warnings && warnings.race_week_note) {
+            rules = '<p class="rv-subtitle">' + esc(warnings.race_week_note) + '</p>';
+          }
+          return fetch('/api/performance/focus', { credentials: 'include' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (focus) {
+              var perf = focus && focus.focus
+                ? '<p class="rv-subtitle" style="margin:0">' + esc(focus.focus.label) + ' — queue mobility work from Performance.</p>'
+                : '<p class="rv-subtitle">Open Performance for focus recommendations.</p>';
+              rail.innerHTML =
+                '<section class="rv-card rv-stack"><span class="rv-label">Next up</span>' + nextHtml + '</section>' +
+                '<section class="rv-card rv-stack"><span class="rv-label">Coach week</span>' +
+                '<p class="rv-subtitle">Import or re-import from the week board toolbar.</p></section>' +
+                '<section class="rv-card rv-stack"><span class="rv-label">From Performance</span>' + perf +
+                ' <a href="/v2/performance" style="font-size:13px;font-weight:600">Open Performance</a></section>' +
+                '<section class="rv-card rv-stack"><span class="rv-label">Rules in play</span>' + rules + '</section>';
+            });
+        })
+        .catch(function () {
+          rail.innerHTML = '<section class="rv-card"><p class="rv-subtitle">Sidebar unavailable.</p></section>';
+        });
+    }
+
     Promise.all([
       fetch('/api/plan/revamp-road-chart', { credentials: 'include' }),
       fetch('/api/plan/revamp-week-load?week_start=' + encodeURIComponent(ws), { credentials: 'include' }),
@@ -148,6 +194,7 @@
         if (pair[1]) renderWeekLoad(week, pair[1]);
       }
       if (pair[2]) renderWarnings(pair[2]);
+      renderRail(ws, pair[2]);
       if (board && window.V2PlanWeekBoard) {
         window.V2PlanWeekBoard.mount(board, {
           weekStart: ws,

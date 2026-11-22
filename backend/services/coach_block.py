@@ -150,9 +150,12 @@ def checkin_state(
     start, end = week_bounds(today)
     done = False
     if session is not None and user_id is not None:
-        from backend.services.weekly_checkin import is_week_checkin_done, target_checkin_week_start
+        try:
+            from backend.services.weekly_checkin import is_week_checkin_done, target_checkin_week_start
 
-        done = is_week_checkin_done(session, user_id, target_checkin_week_start(today))
+            done = is_week_checkin_done(session, user_id, target_checkin_week_start(today))
+        except Exception:
+            done = False
     if not done:
         done = any(start <= d.decided_on <= end for d in decisions)
     return {

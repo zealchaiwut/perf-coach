@@ -12,7 +12,8 @@ from backend.services.plan_pattern_fill import _load_exercise_pool
 from backend.services.plan_rules_engine import evaluate, summarize
 from backend.services.revamp_load_plan import revamp_week_load
 from backend.services.strength_tss import from_effort_time
-from backend.services.weekly_rollup import normalize_week_start, week_target_and_phase
+from backend.services.revamp_load_plan import week_target_and_phase
+from backend.services.weekly_rollup import normalize_week_start
 from backend.utils.time import today_bangkok
 
 RACE_WEEK_SAFE_GROUPS = frozenset(
