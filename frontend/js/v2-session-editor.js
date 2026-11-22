@@ -111,13 +111,24 @@
       '?planned_date=' + encodeURIComponent(partial.planned_date) +
       '&week_start=' + encodeURIComponent(partial.week_start);
     if (partial.session_id) q += '&session_id=' + encodeURIComponent(partial.session_id);
-    fetch('/api/plan/revamp-planned-editor/context' + q, { credentials: 'include' })
-      .then(function (r) { return r.json(); })
+    var fetchFn = window.AppCommon && window.AppCommon.fetchWithCsrf
+      ? window.AppCommon.fetchWithCsrf
+      : function (u, o) { return fetch(u, Object.assign({ credentials: 'include' }, o || {})); };
+    fetchFn('/api/plan/revamp-planned-editor/context' + q, { credentials: 'include' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Could not load editor (' + r.status + ')');
+        return r.json();
+      })
       .then(function (ctx) {
         ctx.structure = partial.structure || ctx.structure;
         ctx.name = partial.name || ctx.name;
         state.ctx = ctx;
         render(ctx);
+      })
+      .catch(function (e) {
+        if (window.RevampUI && window.RevampUI.showToast) {
+          window.RevampUI.showToast(e.message || 'Could not load session editor');
+        }
       });
   }
 
@@ -161,8 +172,14 @@
       '?planned_date=' + encodeURIComponent(opts.plannedDate) +
       '&week_start=' + encodeURIComponent(opts.weekStart || opts.plannedDate);
     if (opts.sessionId) q += '&session_id=' + encodeURIComponent(opts.sessionId);
-    fetch('/api/plan/revamp-planned-editor/context' + q, { credentials: 'include' })
-      .then(function (r) { return r.json(); })
+    var fetchFn = window.AppCommon && window.AppCommon.fetchWithCsrf
+      ? window.AppCommon.fetchWithCsrf
+      : function (u, o) { return fetch(u, Object.assign({ credentials: 'include' }, o || {})); };
+    fetchFn('/api/plan/revamp-planned-editor/context' + q, { credentials: 'include' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Could not open editor (' + r.status + ')');
+        return r.json();
+      })
       .then(function (ctx) {
         state.ctx = ctx;
         var e = els();
@@ -170,6 +187,11 @@
         if (e.drawer) { e.drawer.hidden = false; e.drawer.classList.add('is-open'); }
         document.addEventListener('keydown', onKey);
         render(ctx);
+      })
+      .catch(function (e) {
+        if (window.RevampUI && window.RevampUI.showToast) {
+          window.RevampUI.showToast(e.message || 'Could not open session editor');
+        }
       });
   }
 

@@ -75,6 +75,12 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
             f'fill="{"#f7f9fd" if edge else "none"}" stroke="{"#dfe5f1" if edge else "#e6ebf5"}" '
             f'stroke-width="{"1.5" if edge else "1"}"/>'
         )
+        if ring in (25, 50, 75):
+            tx, ty = _pt(0, n, R * ring / 100.0)
+            out.append(
+                f'<text class="perf-radar-ring-label" x="{_fmt(tx - 14)}" y="{_fmt(ty + 5)}" '
+                f'font-family="JetBrains Mono, monospace" font-size="12" fill="{COLOR_MUTED}">{ring}</text>'
+            )
     # spokes
     for i in range(n):
         x, y = _pt(i, n, R)
@@ -92,6 +98,11 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
             f'<polyline class="perf-radar-past" points="{_points(past)}" fill="none" stroke="#8792a8" '
             f'stroke-width="2" stroke-dasharray="6 5"/>'
         )
+    for x, y in past:
+        out.append(
+            f'<circle class="perf-radar-past-point" cx="{_fmt(x)}" cy="{_fmt(y)}" r="4" '
+            f'fill="#ffffff" stroke="#8792a8" stroke-width="2" stroke-dasharray="3 2"/>'
+        )
 
     # now polygon (measured axes only)
     now = _polygon(axes, "score")
@@ -106,9 +117,14 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
             f'stroke="{COLOR_BLUE}" stroke-width="3"/>'
         )
 
-    # points
+    # points (including explicit markers for never-measured axes at the centre spoke)
     for i, a in enumerate(axes):
         if a["never_measured"]:
+            x, y = _pt(i, n, 0)
+            out.append(
+                f'<circle class="perf-radar-point perf-radar-point--missing" data-axis="{a["axis"]}" '
+                f'cx="{_fmt(x)}" cy="{_fmt(y)}" r="5" fill="#eef1f7" stroke="#94a3b8" stroke-width="2"/>'
+            )
             continue
         x, y = _pt(i, n, R * max(0.0, min(100.0, float(a["score"]))) / 100.0)
         if a["focus"]:
@@ -137,24 +153,24 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
         focus = a["focus"]
         color = COLOR_AMBER_INK if focus else COLOR_INK
         weight = "800" if focus else "700"
+        sub = ""
         if a["never_measured"]:
-            score_txt = ""
             color = COLOR_MUTED
+            sub = "—"
         else:
-            score_txt = (
-                f' <tspan font-family="JetBrains Mono, monospace" font-weight="600" '
-                f'fill="{COLOR_AMBER_INK if focus else COLOR_MUTED}">{fmt_score(a["score"])}</tspan>'
-            )
+            bits = [fmt_score(a["score"])]
+            if a.get("status"):
+                bits.append(escape(str(a["status"])))
+            sub = " · ".join(bits)
         out.append(
             f'<text class="perf-radar-label" data-axis="{a["axis"]}" x="{_fmt(lx)}" y="{_fmt(ly)}" '
-            f'font-size="21" font-weight="{weight}" fill="{color}" text-anchor="{anchor}">{label}{score_txt}</text>'
+            f'font-size="21" font-weight="{weight}" fill="{color}" text-anchor="{anchor}">{label}</text>'
         )
-        if a["status"] and not a["never_measured"]:
-            out.append(
-                f'<text class="perf-radar-status" data-axis="{a["axis"]}" x="{_fmt(lx)}" y="{_fmt(ly + 20)}" '
-                f'font-size="16" fill="{COLOR_AMBER_INK if focus else COLOR_MUTED}" text-anchor="{anchor}">'
-                f'{escape(a["status"])}</text>'
-            )
+        out.append(
+            f'<text class="perf-radar-status" data-axis="{a["axis"]}" x="{_fmt(lx)}" y="{_fmt(ly + 20)}" '
+            f'font-size="16" font-family="JetBrains Mono, monospace" font-weight="600" '
+            f'fill="{COLOR_AMBER_INK if focus else COLOR_MUTED}" text-anchor="{anchor}">{sub}</text>'
+        )
     out.append("</svg>")
 
     missing = payload.get("not_yet_measured") or []

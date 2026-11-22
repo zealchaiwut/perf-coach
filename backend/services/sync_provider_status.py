@@ -109,9 +109,9 @@ def build_providers(
     strava_connected = (
         session.query(StravaToken).filter(StravaToken.user_id == uid).first() is not None
     )
-    stryd_connected = (
-        session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).first() is not None
-    )
+    stryd_cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == uid).first()
+    stryd_connected = stryd_cred is not None
+    stryd_needs_reauth = stryd_cred is not None and stryd_cred.auth_failed_at is not None
     global_running = False
     if job_snapshot is not None:
         st = (job_snapshot.get("status") or "").lower()
@@ -124,13 +124,16 @@ def build_providers(
             connected=strava_connected,
             global_running=global_running,
         ),
-        "stryd": _one_provider(
-            session,
-            uid,
-            "stryd",
-            connected=stryd_connected,
-            global_running=global_running,
-        ),
+        "stryd": {
+            **_one_provider(
+                session,
+                uid,
+                "stryd",
+                connected=stryd_connected,
+                global_running=global_running,
+            ),
+            "needs_reauth": stryd_needs_reauth,
+        },
     }
 
 
@@ -139,7 +142,12 @@ def dot_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> st
     now = now or _utc_now()
     if not provider.get("connected"):
         return "red"
+    if provider.get("needs_reauth"):
+        return "amber"
     if provider.get("last_error"):
+        err = (provider.get("last_error") or "").lower()
+        if "temporarily unavailable" in err:
+            return "amber"
         return "red"
     ts = provider.get("last_success_at")
     if not ts:

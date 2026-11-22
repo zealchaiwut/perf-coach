@@ -61,7 +61,7 @@
     var lastIdleSynced = null;
 
     function toast(msg) {
-      var el = document.getElementById('v2-toast');
+      var el = document.getElementById('v2-toast') || document.getElementById('rv-toast');
       if (!el) return;
       el.textContent = msg;
       el.classList.add('is-visible');
@@ -88,9 +88,12 @@
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-sync-now" ' +
         (running ? 'disabled aria-busy="true"' : '') + '>' + btnLabel + '</button>'
       );
-      lines.push(
-        '<button type="button" class="rv-btn rv-btn--primary" id="v2-log-strength">Log strength session</button>'
-      );
+      var onLog = typeof window !== 'undefined' && window.location && window.location.pathname.indexOf('/v2/training/log') >= 0;
+      if (onLog) {
+        lines.push(
+          '<button type="button" class="rv-btn rv-btn--primary" id="v2-log-strength">Log strength session</button>'
+        );
+      }
       container.innerHTML = lines.join('');
       var btn = document.getElementById('v2-sync-now');
       if (btn) {

@@ -6050,6 +6050,7 @@ class WorkoutPatch(BaseModel):
     # dropped it, so per-exercise edits (e.g. RPE) never saved. None = leave
     # exercises untouched.
     exercises: Optional[list[ExerciseIn]] = None
+    reset_synced_name: Optional[bool] = None
     exercises_json: Optional[list] = None
     session_effort: Optional[int] = None
     strength_tss_method: Optional[str] = None
@@ -7584,13 +7585,18 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             raise HTTPException(status_code=404, detail="Workout not found")
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
+        from backend.services.workout_overrides import clear_override, set_override
+
         _old_workout_date = workout.workout_date
         _old_workout_type = workout.workout_type
+        if body.reset_synced_name:
+            clear_override(workout, "name")
         if body.name is not None:
             name = body.name.strip()
             if not name:
                 raise HTTPException(status_code=422, detail="Workout name is required")
             workout.name = name
+            set_override(workout, "name", name)
         if body.workout_date is not None:
             try:
                 d = _date.fromisoformat(body.workout_date)
@@ -7632,14 +7638,26 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             if body.distance_km is not None and body.distance_km < 0:
                 raise HTTPException(status_code=422, detail="distance_km must be >= 0")
             workout.distance_km = body.distance_km
+            if body.distance_km is not None:
+                set_override(workout, "distance_km", float(body.distance_km))
+            else:
+                clear_override(workout, "distance_km")
         if 'duration_seconds' in body.model_fields_set:
             if body.duration_seconds is not None and body.duration_seconds < 0:
                 raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
             workout.duration_seconds = body.duration_seconds
+            if body.duration_seconds is not None:
+                set_override(workout, "duration_seconds", int(body.duration_seconds))
+            else:
+                clear_override(workout, "duration_seconds")
         if 'avg_hr' in body.model_fields_set:
             if body.avg_hr is not None and not (20 <= body.avg_hr <= 250):
                 raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
             workout.avg_hr = body.avg_hr
+            if body.avg_hr is not None:
+                set_override(workout, "avg_hr", int(body.avg_hr))
+            else:
+                clear_override(workout, "avg_hr")
         if 'max_hr' in body.model_fields_set:
             if body.max_hr is not None and not (20 <= body.max_hr <= 250):
                 raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
@@ -7799,6 +7817,9 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
         # includes MAX(updated_at), so a type edit busts the cache and the
         # Performance Speed feed refreshes without waiting for a new sync.
         workout.updated_at = _datetime.now(_timezone.utc)
+        from backend.services.data_version import bump_data_version
+
+        bump_data_version(session, user.id)
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -11543,10 +11564,16 @@ def strava_callback(
 
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
-from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
+from backend.services.stryd import (  # noqa: E402
+    StrydAuthError,
+    StrydUnavailable,
+    _call_stryd_signin as _stryd_signin,
+    _expiry_from_signin,
+    mark_stryd_auth_failed,
+    refresh_stryd_session_if_needed,
+)
 from backend.services.crypto import encrypt_value as _encrypt_value, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
-from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
 
 class _StrydConnectIn(BaseModel):
@@ -11573,6 +11600,7 @@ def _upsert_stryd_credentials(
                 session_token=session_token,
                 session_token_expires_at=session_token_expires_at,
                 athlete_id=athlete_id,
+                auth_failed_at=None,
             )
             .on_conflict_do_update(
                 index_elements=["user_id"],
@@ -11582,6 +11610,7 @@ def _upsert_stryd_credentials(
                     "session_token": session_token,
                     "session_token_expires_at": session_token_expires_at,
                     "athlete_id": athlete_id,
+                    "auth_failed_at": None,
                     "updated_at": now,
                 },
             )
@@ -11593,15 +11622,20 @@ def _upsert_stryd_credentials(
 @app.post("/api/stryd/connect")
 def stryd_connect(body: _StrydConnectIn, user: User = Depends(resolve_user)):
     """Authenticate against Stryd, encrypt and store credentials, return connection status."""
-    resp = _stryd_signin(body.email, body.password)
+    try:
+        resp = _stryd_signin(body.email, body.password)
+    except StrydAuthError as exc:
+        raise HTTPException(status_code=401, detail=exc.detail)
+    except StrydUnavailable as exc:
+        raise HTTPException(status_code=502, detail=exc.detail)
 
     password_encrypted = _encrypt_value(body.password)
     now = _datetime.now(tz=_timezone.utc)
-    session_token_expires_at = now + _timedelta(days=25)
+    session_token = str(resp.get("token") or resp.get("session_token") or "")
+    session_token_expires_at = _expiry_from_signin(resp, session_token, now)
     # Stryd athlete id is a UUID string (not numeric) — store as-is, no int cast.
     athlete_id = resp.get("id") or resp.get("athlete_id") or None
     athlete_id = str(athlete_id) if athlete_id is not None else None
-    session_token = str(resp.get("token") or resp.get("session_token") or "")
     user_id = str(user.id)
 
     _upsert_stryd_credentials(
@@ -11711,8 +11745,15 @@ def strava_disconnect(user: User = Depends(resolve_user)):
 
 @app.get("/api/stryd/status")
 def stryd_status(user: User = Depends(resolve_user)):
-    """Return Stryd connection status; refresh session if near expiry. Deletes broken credentials."""
-    _null_response = {"connected": False, "athlete_id": None, "stryd_email": None, "session_expires_at": None}
+    """Return Stryd connection status; refresh session if near expiry (never deletes credentials)."""
+    _null_response = {
+        "connected": False,
+        "status": None,
+        "athlete_id": None,
+        "stryd_email": None,
+        "session_expires_at": None,
+        "auth_failed_at": None,
+    }
     user_id = str(user.id)
 
     with Session(engine) as session:
@@ -11722,28 +11763,45 @@ def stryd_status(user: User = Depends(resolve_user)):
         athlete_id = cred.athlete_id
         stryd_email = cred.stryd_email
         session_expires_at = cred.session_token_expires_at
+        auth_failed_at = cred.auth_failed_at
 
-    try:
-        refresh_stryd_session_if_needed(user_id)
-    except Exception:
+    status = "ok"
+    if auth_failed_at is not None:
+        status = "reauth_required"
+    else:
+        try:
+            refresh_stryd_session_if_needed(user_id)
+        except StrydAuthError:
+            mark_stryd_auth_failed(user_id)
+            status = "reauth_required"
+            with Session(engine) as session:
+                cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+                if cred is not None:
+                    auth_failed_at = cred.auth_failed_at
+        except StrydUnavailable:
+            status = "unreachable"
+        except Exception:
+            status = "unreachable"
+
+    if status == "reauth_required":
         with Session(engine) as session:
             cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
             if cred is not None:
-                session.delete(cred)
-                session.commit()
-        return JSONResponse(_null_response)
-
-    with Session(engine) as session:
-        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
-        if cred is None:
-            return JSONResponse(_null_response)
-        session_expires_at = cred.session_token_expires_at
+                auth_failed_at = cred.auth_failed_at
+    elif status == "ok":
+        with Session(engine) as session:
+            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+            if cred is not None:
+                session_expires_at = cred.session_token_expires_at
+                auth_failed_at = None
 
     return JSONResponse({
         "connected": True,
+        "status": status,
         "athlete_id": athlete_id,
         "stryd_email": stryd_email,
         "session_expires_at": session_expires_at.isoformat() if session_expires_at else None,
+        "auth_failed_at": auth_failed_at.isoformat() if auth_failed_at else None,
     })
 
 

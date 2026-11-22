@@ -1,6 +1,10 @@
 """
 Forward CTL/ATL/TSB projection module.
 
+v2 surfaces: race-day finish and pace blend are owned by
+``race_finish_estimate.estimate_race_finish`` and ``projection_view``; this module
+remains for v1 routes and internal ``project_fitness`` math only.
+
 Rolls Chronic Training Load (CTL), Acute Training Load (ATL), and Training
 Stress Balance (TSB) forward from a known fitness state using a sequence of
 planned daily loads.  This is a pure function module — no database access, no

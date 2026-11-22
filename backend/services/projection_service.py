@@ -1,5 +1,8 @@
 """projection_service — DB operations for the projection router (issue #1100).
 
+v2 Performance projection UI reads ``projection_view`` +
+``race_finish_estimate``; keep using this module only for v1 ``/api/plans/*``.
+
 Renamed from ``plan_service`` (feature/performance-tab-rework); function names,
 route paths, the ``training_plans`` table, and the ``TrainingPlan`` model are
 UNCHANGED. All DB interaction for /plans/{plan_id}/races and nested checkpoints

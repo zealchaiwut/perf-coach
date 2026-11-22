@@ -20,6 +20,42 @@
     });
   }
 
+  function fetchJSONWithRetry(url, tries) {
+    tries = tries || 2;
+    function attempt(n) {
+      return getJSON(url).catch(function (err) {
+        if (n < tries) return attempt(n + 1);
+        throw err;
+      });
+    }
+    return attempt(1);
+  }
+
+  function setRegionLoading(host, label) {
+    if (!host) return;
+    host.setAttribute("aria-busy", "true");
+    host.innerHTML = '<p class="rv-subtitle rv-region-loading">' + esc(label) + "…</p>";
+  }
+
+  var AFTER_RACE_COPY =
+    "Once you record a race result, it replaces your current anchors: Endurance, Speed " +
+    "and the projection re-anchor on that effort. Record it on the race list to recalibrate.";
+
+  function renderAfterRaceFallback(afterEl, copy) {
+    if (!afterEl) return;
+    afterEl.innerHTML =
+      '<span class="rv-label">After the race</span>' +
+      '<p class="rv-subtitle" style="margin:0;line-height:1.55">' + esc(copy || AFTER_RACE_COPY) + "</p>";
+  }
+
+  function initPerfHeader() {
+    var el = document.getElementById("v2-perf-subtitle");
+    if (!el) return;
+    var d = new Date();
+    var day = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    el.textContent = day + " \u00b7 where you stand, and what work moves it";
+  }
+
   // Revamp pages do not load nav.js (which patches fetch with the CSRF header),
   // so mutating calls attach the double-submit token themselves.
   function csrfToken() {
@@ -192,12 +228,28 @@
   function loadMobility() {
     var host = document.getElementById("v2-perf-mobility");
     if (!host) return;
-    getJSON("/api/performance/mobility-tests")
-      .then(function (data) { renderMobility(host, data); })
-      .catch(function () { host.innerHTML = '<span class="rv-label">Mobility</span><p>Not available.</p>'; });
+    setRegionLoading(host, "Loading mobility");
+    fetchJSONWithRetry("/api/performance/mobility-tests", 2)
+      .then(function (data) {
+        host.removeAttribute("aria-busy");
+        renderMobility(host, data);
+      })
+      .catch(function () {
+        host.removeAttribute("aria-busy");
+        renderMobility(host, { axis: { never_measured: true, score: null, test_due: false, raw: {} } });
+      });
   }
 
   // ── Focus card, why-not card and the queue into Plan (P4-7) ───────────────
+
+  function focusChipLabel(tag) {
+    var map = {
+      plyo: "Plyo \u00b7 2\u00d7 week",
+      heavy_calf_raise: "Heavy calf raise \u00b7 1\u00d7 week",
+      drills: "Drills before easy runs",
+    };
+    return map[tag] || tag.replace(/_/g, " ");
+  }
 
   function renderFocus(host, data) {
     var focus = data.focus;
@@ -208,24 +260,45 @@
     }
     var work = focus.work || {};
     var queuedItem = (data.queue || {})[focus.axis];
+    var weekLbl = "Queue this work";
+    if (data.suggested_queue_week) {
+      try {
+        var wd = new Date(data.suggested_queue_week + "T12:00:00");
+        weekLbl = "Queue for week of " + wd.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+      } catch (e) { weekLbl = "Queue for week of " + esc(data.suggested_queue_week); }
+    }
+    var chips = (work.template_tags || []).map(function (t) {
+      return '<span class="rv-focus-work-chip">' + esc(focusChipLabel(t)) + "</span>";
+    }).join("");
+    var tss = work.tss_estimate != null ? '<span class="rv-subtitle" style="color:#a8b6d6">+' +
+      esc(Math.round(work.tss_estimate)) + " TSS a week</span>" : "";
     var action;
     if (!work.queueable) {
-      action = '<p class="rv-subtitle" style="color:#d5def3">' + esc(work.advice) + ' (advice only, not queued)</p>';
+      action = '<p class="rv-subtitle" style="color:#d5def3">' + esc(work.advice) + " (advice only, not queued)</p>";
     } else if (queuedItem) {
-      action = '<span class="rv-chip" data-testid="focus-queued">Queued for week of ' + esc(queuedItem.earliest_week) + '</span>';
+      action = '<span class="rv-chip" data-testid="focus-queued">Queued for week of ' + esc(queuedItem.earliest_week) + "</span>";
     } else {
-      action = '<button type="button" class="rv-btn rv-btn--primary" id="v2-focus-queue">Queue this work</button>';
+      action = '<div class="rv-row" style="flex-wrap:wrap;align-items:center;gap:10px">' +
+        '<button type="button" class="rv-btn rv-btn--accent" id="v2-focus-queue">' + weekLbl + "</button>" + tss + "</div>";
     }
+    var whyTitle = "Why " + focus.label + " and not the others";
     var whyNot = (data.why_not || []).map(function (w) {
-      return '<li><strong>' + esc(w.label) + '</strong> ' + esc(w.score) + ': ' + esc(w.reason) + '</li>';
+      var cls = w.stale ? " rv-why-stale" : "";
+      var sc = w.score != null ? String(Math.round(w.score)) : "—";
+      return '<div class="rv-row' + cls + '" style="padding:4px 0"><span style="font-size:13.5px">' + esc(w.label) +
+        " " + esc(sc) + "</span><span class=\"rv-subtitle\">" + esc(w.reason) + "</span></div>";
     }).join("");
+    var pickLine = '<div class="rv-row" style="padding:4px 0;font-weight:600;color:#7a3a10"><span style="font-size:13.5px">' +
+      esc(focus.label) + " " + esc(Math.round(focus.score)) + '</span><span style="font-size:13px;color:#7a3a10">' +
+      esc(data.focus_rationale || "lowest fresh gap that matters for this distance") + "</span></div>";
     host.innerHTML =
       '<div class="rv-card rv-stack" style="background:#0b1530;color:#fff">' +
       '<span class="rv-label" style="color:#e4ff52">Most room to grow</span>' +
-      '<h2 style="margin:0">' + esc(focus.label) + ' <span style="font-family:var(--rv-mono)">' + esc(Math.round(focus.score)) + '</span></h2>' +
-      '<p style="margin:0">' + esc(work.advice) + '</p>' + action + '</div>' +
-      '<div class="rv-card rv-card--soft rv-stack"><span class="rv-label">Why not these</span>' +
-      (whyNot ? '<ul>' + whyNot + '</ul>' : '<p class="rv-subtitle">No other measured axes.</p>') + '</div>';
+      '<h2 style="margin:0">' + esc(focus.label) + ' <span style="font-family:var(--rv-mono)">' + esc(Math.round(focus.score)) + "</span></h2>" +
+      '<div class="rv-focus-work-chips">' + chips + "</div>" +
+      action + "</div>" +
+      '<div class="rv-card rv-card--soft rv-stack"><span class="rv-label" style="text-transform:none;letter-spacing:0">' +
+      esc(whyTitle) + "</span>" + whyNot + pickLine + "</div>";
     var btn = host.querySelector("#v2-focus-queue");
     if (btn) {
       btn.addEventListener("click", function () {
@@ -243,9 +316,9 @@
   function loadFocus() {
     var host = document.getElementById("v2-perf-focus");
     if (!host) return;
-    getJSON("/api/performance/focus")
+    fetchJSONWithRetry("/api/performance/focus", 2)
       .then(function (data) { renderFocus(host, data); })
-      .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Focus</span><p>Not available.</p></div>'; });
+      .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Focus</span><p class="rv-subtitle">Not available.</p></div>'; });
   }
 
   // ── A-race hero and the after-the-race card (P4-8) ────────────────────────
@@ -266,43 +339,68 @@
     return (sec > 0 ? "\u2212" : "+") + fmtHMS(sec);
   }
 
-  function tile(label, value, sub, extra) {
-    return '<div class="rv-metric"' + (extra || "") + '><span class="rv-label">' + esc(label) + '</span><br>' +
-      '<strong>' + value + '</strong>' + (sub ? '<br><span class="rv-subtitle">' + sub + '</span>' : "") + '</div>';
+  function heroTile(label, value, sub, opts) {
+    opts = opts || {};
+    return '<div class="rv-perf-hero-tile' + (opts.mod ? " rv-perf-hero-tile--" + opts.mod : "") + '"' + (opts.attr || "") + ">" +
+      '<span class="rv-perf-hero-tile-lbl' + (opts.lblGood ? " rv-perf-hero-tile-lbl--good" : "") + '">' + esc(label) + '</span>' +
+      '<span class="rv-perf-hero-tile-val' + (opts.valGood ? " rv-perf-hero-tile-val--good" : "") + ' rv-mono">' + value + '</span>' +
+      (sub ? '<span class="rv-mono rv-subtitle">' + sub + '</span>' : "") + '</div>';
+  }
+
+  function prBadge(r) {
+    var isCp = r.role === "long_run" || r.race_type === "checkpoint";
+    var text = isCp ? "CP" : (r.priority || "?");
+    var mod = isCp ? "cp" : String(r.priority || "c").toLowerCase();
+    return '<span class="rv-race-pr rv-race-pr--' + esc(mod) + '">' + esc(text) + '</span>';
   }
 
   function renderHero(host, afterHost, data) {
     var r = data.race;
     if (!r) {
-      host.innerHTML = '<span class="rv-label">A race</span><p class="rv-subtitle">No upcoming A race. Add one on the race list.</p>';
+      host.innerHTML = '<span class="rv-label">A race</span><p class="rv-subtitle">No upcoming A race. Add one on the race list below.</p>' +
+        '<button type="button" class="rv-btn rv-btn--primary rv-btn--sm" data-scroll-races>Add a race</button>';
+      var scrollBtn = host.querySelector("[data-scroll-races]");
+      if (scrollBtn) {
+        scrollBtn.addEventListener("click", function () {
+          var list = document.getElementById("v2-perf-races");
+          if (list && list.scrollIntoView) list.scrollIntoView({ behavior: "smooth" });
+          openRaceDrawer(null);
+        });
+      }
     } else {
       var est = data.estimate || {};
       var goal = data.goal || {};
       var gap = data.gap || {};
       var estTile = est.available
-        ? tile("Estimate", esc(fmtHMS(est.est_sec)), esc(fmtPace(est.pace_seconds_per_km)), ' data-hero="estimate"')
-        : tile("Estimate", "—", esc(est.reason || "not available"), ' data-hero="estimate"');
+        ? heroTile("Estimate", esc(fmtHMS(est.est_sec)), esc(fmtPace(est.pace_seconds_per_km)), { mod: "est", lblGood: true, valGood: true, attr: ' data-hero="estimate"' })
+        : heroTile("Estimate", "—", esc(est.reason || "not available"), { mod: "est", attr: ' data-hero="estimate"' });
       var rangeTile = est.available && est.range_low_sec != null
-        ? tile("Range" + (est.uncertainty_min ? " · ±" + esc(est.uncertainty_min) + " min" : ""),
-            esc(fmtHMS(est.range_low_sec)) + " –<br>" + esc(fmtHMS(est.range_high_sec)), "", ' data-hero="range"')
-        : tile("Range", "—", "not available", ' data-hero="range"');
+        ? heroTile("Range" + (est.uncertainty_min ? " · ±" + esc(est.uncertainty_min) + " min" : ""),
+            esc(fmtHMS(est.range_low_sec)) + " –<br>" + esc(fmtHMS(est.range_high_sec)), "", { attr: ' data-hero="range"' })
+        : heroTile("Range", "—", "not available", { attr: ' data-hero="range"' });
+      var gapVal = esc(signedGap(gap.goal_minus_estimate_sec));
+      var gapGood = gap.goal_minus_estimate_sec != null && gap.goal_minus_estimate_sec > 0;
       var rs = data.race_specific || {};
       host.innerHTML =
-        '<div class="rv-row"><div><span class="rv-chip">' + esc(r.priority) + '</span> ' +
-        '<h2 style="display:inline;margin:0 8px">' + esc(r.name) + '</h2>' +
-        '<span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") + '</span></div>' +
-        '<div class="rv-row"><span class="rv-chip" data-hero="countdown"><strong>' + esc(r.days_to_race) + '</strong>&nbsp;days</span>' +
+        '<div class="rv-perf-hero-head">' +
+        '<div class="rv-race-row__head">' + prBadge(r) +
+        '<div><h2 class="rv-perf-hero-title">' + esc(r.name) + '</h2>' +
+        '<span class="rv-perf-hero-meta rv-mono">' + esc(r.race_date) + (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") +
+        ' · ' + esc(r.role_label || "A race") + '</span></div></div>' +
+        '<div class="rv-row">' +
+        '<div class="rv-perf-countdown" data-hero="countdown"><div class="rv-perf-countdown-val rv-mono">' + esc(r.days_to_race) + '</div>' +
+        '<div class="rv-perf-countdown-lbl">DAYS</div></div>' +
         (data.readiness_checklist ? '<span class="rv-chip" data-hero="readiness" title="A-race readiness">' +
           esc(data.readiness_checklist.count_label || "—") + ' ready</span>' : "") +
-        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-hero-change-race">Change race</button></div></div>' +
-        '<div class="rv-row" style="align-items:stretch;flex-wrap:wrap">' +
-        tile("Goal", esc(fmtHMS(goal.time_sec)), esc(fmtPace(goal.pace_seconds_per_km)), ' data-hero="goal"') +
+        '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-hero-change-race">Change race</button></div></div>' +
+        '<div class="rv-perf-hero-tiles">' +
+        heroTile("Goal", esc(fmtHMS(goal.time_sec)), esc(fmtPace(goal.pace_seconds_per_km)), { attr: ' data-hero="goal"' }) +
         estTile + rangeTile +
-        tile("Gap to goal", esc(signedGap(gap.goal_minus_estimate_sec)), esc(gap.reading || ""), ' data-hero="gap"') +
+        heroTile("Gap to goal", gapVal, esc(gap.reading || ""), { valGood: gapGood, attr: ' data-hero="gap"' }) +
         '</div>' +
-        '<div class="rv-row" style="justify-content:flex-start;flex-wrap:wrap"><span class="rv-label">Race-specific</span>' +
-        '<span class="rv-chip" data-hero="race-endurance">End ' + esc(rs.endurance == null ? "—" : Math.round(rs.endurance)) + '</span>' +
-        '<span class="rv-chip" data-hero="race-speed">Spd ' + esc(rs.speed == null ? "—" : Math.round(rs.speed)) + '</span>' +
+        '<div class="rv-perf-race-pills"><span class="rv-label">Race-specific</span>' +
+        '<span class="rv-perf-race-pill" data-hero="race-endurance">End ' + esc(rs.endurance == null ? "—" : Math.round(rs.endurance)) + '</span>' +
+        '<span class="rv-perf-race-pill" data-hero="race-speed">Spd ' + esc(rs.speed == null ? "—" : Math.round(rs.speed)) + '</span>' +
         '<span class="rv-subtitle">' + esc(rs.explanation || "") + '</span></div>';
       var change = host.querySelector("#v2-hero-change-race");
       if (change) {
@@ -318,20 +416,47 @@
     var cpHtml = "";
     if (cp) {
       var ce = cp.estimate || {};
-      cpHtml = '<div class="rv-row" data-after="checkpoint"><span><strong>' + esc(cp.label) + '</strong> · ' + esc(cp.target_date) +
+      cpHtml = '<div class="rv-perf-checkpoint" data-after="checkpoint">' +
+        '<span class="rv-subtitle" style="font-size:12px;font-weight:700">' + esc(cp.label) + ' · ' + esc(cp.target_date) +
         (cp.distance_km ? " · " + esc(cp.distance_km) + " km" : "") + '</span>' +
-        '<span>' + (ce.available ? "Estimate " + esc(fmtHMS(ce.est_sec)) : "Estimate not available") + '</span></div>';
+        '<span class="rv-mono" style="font-size:1.35rem;font-weight:600">' +
+        (ce.available ? esc(fmtHMS(ce.est_sec)) : "Estimate not available") + '</span>' +
+        (ce.available && cp.goal_sec ? '<span class="rv-mono rv-subtitle">goal ' + esc(fmtHMS(cp.goal_sec)) +
+          (ce.band_sec != null ? " · ±" + esc(fmtHMS(ce.band_sec)).replace(/^0:/, "") : "") + '</span>' : "") +
+        '</div>';
     }
-    afterHost.innerHTML = '<span class="rv-label">After the race</span><p>' + esc(after.copy || "") + '</p>' + cpHtml;
+    afterHost.innerHTML = '<span class="rv-label">After the race</span>' +
+      '<p class="rv-subtitle" style="margin:0;line-height:1.55">' + esc(after.copy || "") + '</p>' + cpHtml;
   }
 
   function loadHero() {
     var host = document.getElementById("v2-perf-hero");
     var after = document.getElementById("v2-perf-after-race");
     if (!host || !after) return;
-    getJSON("/api/performance/hero")
-      .then(function (data) { renderHero(host, after, data); })
-      .catch(function () { host.innerHTML = '<span class="rv-label">A race</span><p>Not available.</p>'; });
+    setRegionLoading(host, "Loading A race");
+    setRegionLoading(after, "Loading");
+    fetchJSONWithRetry("/api/performance/hero", 2)
+      .then(function (data) {
+        host.removeAttribute("aria-busy");
+        after.removeAttribute("aria-busy");
+        renderHero(host, after, data);
+      })
+      .catch(function () {
+        host.removeAttribute("aria-busy");
+        after.removeAttribute("aria-busy");
+        host.innerHTML =
+          '<span class="rv-label">A race</span><p class="rv-subtitle">No upcoming A race. Add one on the race list.</p>' +
+          '<button type="button" class="rv-btn rv-btn--primary rv-btn--sm" data-scroll-races>Add a race</button>';
+        renderAfterRaceFallback(after, AFTER_RACE_COPY);
+        var btn = host.querySelector("[data-scroll-races]");
+        if (btn) {
+          btn.addEventListener("click", function () {
+            openRaceDrawer(null);
+            var list = document.getElementById("v2-perf-races");
+            if (list && list.scrollIntoView) list.scrollIntoView({ behavior: "smooth" });
+          });
+        }
+      });
   }
 
   function stateChip(state) {
@@ -379,22 +504,27 @@
   function loadReadiness() {
     var host = document.getElementById("v2-perf-readiness");
     if (!host) return;
-    getJSON("/api/performance/a-race-readiness")
+    fetchJSONWithRetry("/api/performance/a-race-readiness", 2)
       .then(function (data) { renderReadiness(host, data); })
-      .catch(function () { host.hidden = true; });
+      .catch(function () { host.hidden = true; host.innerHTML = ""; });
   }
 
   // ── Endurance and Speed cards (P4-9) ──────────────────────────────────────
 
-  function sparkline(spark) {
+  function sparkline(spark, axis) {
     if (!spark || !spark.values || spark.values.length < 2) return "";
     var v = spark.values, lo = Math.min.apply(null, v), hi = Math.max.apply(null, v);
     var span = hi - lo || 1, w = 200, h = 44;
-    var pts = v.map(function (y, i) {
+    var stroke = axis === "speed" ? "#b45309" : "#1f3b8a";
+    var fill = axis === "speed" ? "#fdeedd" : "#e3eaf8";
+    var ptList = v.map(function (y, i) {
       return (i * w / (v.length - 1)).toFixed(1) + "," + (h - 4 - (y - lo) / span * (h - 8)).toFixed(1);
-    }).join(" ");
+    });
+    var pts = ptList.join(" ");
+    var area = "M0," + h + " L" + ptList.join(" L") + " L" + w + "," + h + " Z";
     return '<svg viewBox="0 0 200 44" style="width:100%;height:44px" aria-hidden="true" data-sparkline>' +
-      '<polyline points="' + pts + '" fill="none" stroke="#1f3b8a" stroke-width="2"/></svg>';
+      '<path d="' + area + '" fill="' + fill + '"/>' +
+      '<polyline points="' + pts + '" fill="none" stroke="' + stroke + '" stroke-width="2"/></svg>';
   }
 
   function num(v) { return v == null ? "—" : (Math.round(v * 10) / 10).toString(); }
@@ -408,24 +538,33 @@
     var chip = c.delta_28d == null ? "" :
       '<span class="rv-chip" data-card-delta>' + esc(signed(c.delta_28d)) + ' in 28 days</span>';
     var d = c.decomposition;
-    var line = d ? '<p class="rv-subtitle" data-card-decomposition>' +
-      esc(num(d.score_then)) + ' then · ' + esc(num(d.decay)) + ' decay · ' + esc(num(d.efforts)) +
-      ' efforts · ' + esc(num(d.consistency)) + ' consistency · ' + esc(num(d.score_now)) + ' now</p>' : "";
+    var formula = c.formula_line
+      ? '<p class="rv-mono rv-subtitle" data-card-formula style="font-size:12.5px">' + esc(c.formula_line) + "</p>"
+      : (d ? '<p class="rv-subtitle" data-card-decomposition>' +
+        esc(num(d.score_then)) + ' then · ' + esc(num(d.decay)) + ' decay · ' + esc(num(d.efforts)) +
+        ' efforts · ' + esc(num(d.consistency)) + ' consistency · ' + esc(num(d.score_now)) + ' now</p>' : "");
     var split = c.split && (c.split.decay || c.split.gains) ?
       '<div class="rv-zone-bar" role="img" aria-label="Decay ' + esc(num(c.split.decay)) + ' points versus gains ' + esc(num(c.split.gains)) + ' points" data-card-split>' +
       '<span class="rv-zone-seg" style="width:' + (c.split.decay_share * 100).toFixed(1) + '%;background:#f0b27a"></span>' +
-      '<span class="rv-zone-seg" style="width:' + (c.split.gains_share * 100).toFixed(1) + '%;background:#1f3b8a"></span></div>' : "";
+      '<span class="rv-zone-seg" style="width:' + (c.split.gains_share * 100).toFixed(1) + '%;background:#1f3b8a"></span></div>' +
+      '<div class="rv-split-legend"><span class="rv-k"><span class="rv-k-swatch" style="background:#f0b27a"></span>decay</span>' +
+      '<span class="rv-k"><span class="rv-k-swatch" style="background:#1f3b8a"></span>consistency</span></div>' : "";
+    var axisMod = c.axis === "speed" ? " rv-score-card--speed" : "";
+    var scoreCls = c.axis === "speed" ? " rv-score-num--speed" : " rv-score-num--endurance";
+    var callout = c.to_reach
+      ? '<div class="rv-to-reach' + (c.axis === "speed" ? " rv-to-reach--speed" : "") + '" data-card-to-reach>' +
+        esc(c.to_reach) + "</div>"
+      : "";
     var reason = c.reason ? '<p data-card-reason>' + esc(c.reason) + '</p>' : "";
-    var toReach = c.to_reach ? '<p data-card-to-reach>' + esc(c.to_reach) + '</p>' : "";
     var anchors = (c.anchors || []).map(function (a) {
       return '<li>' + esc(a.date) + ' · raw ' + esc(num(a.raw_score)) + ' · ' + esc(num(a.age_weeks)) + ' wk' +
         (a.is_stale ? ' · <strong>stale</strong>' : '') + '</li>';
     }).join("");
-    return '<div class="rv-card rv-stack" data-score-card="' + esc(c.axis) + '">' +
+    return '<div class="rv-card rv-stack' + axisMod + '" data-score-card="' + esc(c.axis) + '">' +
       '<div class="rv-row"><span class="rv-label">' + esc(c.label) + '</span>' + chip + '</div>' +
-      '<strong style="font-size:1.8rem">' + esc(c.score == null ? "—" : Math.round(c.score)) + '</strong>' +
-      sparkline(c.sparkline) + line + split + reason + toReach +
-      (anchors ? '<details><summary>Anchors</summary><ul>' + anchors + '</ul></details>' : "") + '</div>';
+      '<strong class="rv-score-num' + scoreCls + '">' + esc(c.score == null ? "—" : Math.round(c.score)) + '</strong>' +
+      sparkline(c.sparkline, c.axis) + formula + split + reason + callout +
+      (anchors ? '<details><summary>Anchor efforts and other runs</summary><ul>' + anchors + '</ul></details>' : "") + '</div>';
   }
 
   function loadScoreCards() {
@@ -444,54 +583,67 @@
 
   function projTile(label, tileData, render) {
     var body = tileData && tileData.available ? render(tileData) : '<span class="rv-subtitle">' + NA + '</span>';
-    return '<div class="rv-metric" data-tile="' + esc(label.toLowerCase().replace(/\s+/g, "-")) + '"><span class="rv-label">' +
-      esc(label) + '</span><br><strong>' + body + '</strong></div>';
+    return '<div class="rv-perf-tile" data-tile="' + esc(label.toLowerCase().replace(/\s+/g, "-")) + '"><span class="rv-subtitle" style="font-size:12px;font-weight:700">' +
+      esc(label) + '</span><span class="rv-perf-tile-val">' + body + '</span></div>';
+  }
+
+  function goodChip(val) {
+    var low = String(val || "").toLowerCase();
+    var good = low === "sufficient" || low === "high";
+    return '<span class="rv-chip' + (good ? " rv-chip--good" : "") + '">' + esc(val) + '</span>';
   }
 
   function renderTiles(t) {
     t = t || {};
-    return '<div class="rv-row" style="align-items:stretch;flex-wrap:wrap">' +
+    return '<div class="rv-perf-proj-tiles">' +
       projTile("Last recalibrated", t.last_recalibrated, function (d) {
         return esc(d.date) + (d.race_name ? ' · ' + esc(d.race_name) : "");
       }) +
-      projTile("Data", t.data_sufficiency, function (d) { return '<span class="rv-chip">' + esc(d.value) + '</span>'; }) +
-      projTile("Band confidence", t.band_confidence, function (d) { return '<span class="rv-chip">' + esc(d.value) + '</span>'; }) +
+      projTile("Data", t.data_sufficiency, function (d) { return goodChip(d.value); }) +
+      projTile("Band confidence", t.band_confidence, function (d) { return goodChip(d.value); }) +
       projTile("Model correction", t.model_correction, function (d) {
-        return esc((d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "") + Math.abs(d.pct)) + '%' +
-          ' <span class="rv-subtitle">' + esc(d.reading || "") + ' \u00b7 ' + esc(d.n_races) + ' race' + (d.n_races === 1 ? "" : "s") + '</span>';
+        var sign = d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "";
+        return esc(sign + Math.abs(d.pct)) + '% <span class="rv-subtitle" style="font-weight:500">' +
+          esc(d.reading || "") + ' \u00b7 ' + esc(d.n_races) + ' race' + (d.n_races === 1 ? "" : "s") + '</span>';
       }) + '</div>';
   }
 
-  function stage(label, key, inner) {
-    return '<div class="rv-metric" data-chain="' + key + '"><span class="rv-label">' + esc(label) + '</span><br>' + inner + '</div>';
-  }
-
   function paceOrNA(st) {
-    return st && st.available ? '<strong>' + esc(fmtPace(st.pace_seconds_per_km)) + '</strong>' : '<span class="rv-subtitle">' + NA + '</span>';
+    return st && st.available ? '<span class="rv-mono" style="font-size:18px;font-weight:600">' + esc(fmtPace(st.pace_seconds_per_km)) + '</span>' :
+      '<span class="rv-subtitle">' + NA + '</span>';
   }
 
   function renderChain(chain) {
     if (!chain) return "";
     var e = chain.endurance || {}, sp = chain.speed || {}, b = chain.blended || {}, c = chain.correction || {}, f = chain.final || {};
-    var arrow = '<span class="rv-subtitle" aria-hidden="true">\u2192</span>';
+    var arrow = '<span class="rv-proj-chain__arrow" aria-hidden="true">\u2192</span>';
     var scoreLine = function (name, st) {
-      return '<div><span class="rv-subtitle">' + name + (st.score != null ? ' <b>' + esc(Math.round(st.score)) + '</b>' : "") + '</span><br>' + paceOrNA(st) + '</div>';
+      return '<div><span class="rv-subtitle" style="font-size:12px">' + name + (st.score != null ? ' <b style="color:var(--rv-ink)">' + esc(Math.round(st.score)) + '</b>' : "") + '</span>' + paceOrNA(st) + '</div>';
     };
-    var corrNote = c.available
-      ? '<br><span class="rv-subtitle">' + esc((c.pct > 0 ? "+" : c.pct < 0 ? "\u2212" : "") + Math.abs(c.pct)) + '% \u00b7 ' + esc(c.n_races) + ' race' + (c.n_races === 1 ? "" : "s") + '</span>'
-      : '<br><span class="rv-subtitle">' + NA + '</span>';
     var goal = f.goal || {};
+    var finalSide = f.available
+      ? '<div class="rv-mono rv-subtitle" style="font-size:12.5px;line-height:1.8;text-align:right">' +
+        '<div><span class="rv-subtitle">pace</span> ' + esc(fmtPace(f.pace_seconds_per_km)) + '</div>' +
+        '<div><span class="rv-subtitle">band</span> ' + (f.band_sec != null ? '\u00b1' + esc(fmtHMS(f.band_sec)) : NA) + '</div>' +
+        '<div><span class="rv-subtitle">goal</span> ' + esc(fmtHMS(goal.time_sec)) + '</div></div>'
+      : "";
     var finalHtml = f.available
-      ? '<span class="rv-label">Projected finish \u00b7 ' + esc(f.race_name) + '</span><br><strong data-chain-final style="font-size:1.6em">' + esc(fmtHMS(f.est_sec)) + '</strong>' +
-        '<br><span class="rv-subtitle">pace ' + esc(fmtPace(f.pace_seconds_per_km)) + ' \u00b7 band ' +
-        (f.band_sec != null ? '\u00b1' + esc(fmtHMS(f.band_sec)) : NA) + ' \u00b7 goal ' + esc(fmtHMS(goal.time_sec)) +
-        (goal.state ? ' <span class="rv-chip" data-goal-state>' + esc(goal.state) + '</span>' : "") + '</span>'
-      : '<span class="rv-label">Projected finish</span><br><span class="rv-subtitle">' + NA + '</span>';
-    return '<div class="rv-row" data-chain-row style="flex-wrap:wrap;align-items:stretch;gap:8px">' +
-      stage("Endurance and Speed", "scores", scoreLine("Endurance", e) + scoreLine("Speed", sp)) + arrow +
-      stage("Blended" + (b.available ? " \u00b7 " + esc(b.speed_weight_pct) + "% speed" : ""), "blended", paceOrNA(b)) + arrow +
-      stage("Model correction", "correction", (c.available ? '<strong>' + esc(c.factor) + '\u00d7</strong>' : '<span class="rv-subtitle">' + NA + '</span>') + corrNote) + arrow +
-      '<div class="rv-metric" data-chain="final">' + finalHtml + '</div></div>';
+      ? '<div class="rv-proj-final" data-chain="final"><div><span style="font-size:12px;font-weight:700;color:var(--rv-good-ink)">Projected finish \u00b7 ' + esc(f.race_name) + '</span>' +
+        '<div class="rv-proj-final-val" data-chain-final>' + esc(fmtHMS(f.est_sec)) + '</div></div>' + finalSide + '</div>'
+      : '<div class="rv-proj-final" data-chain="final"><span class="rv-subtitle">' + NA + '</span></div>';
+  var blendLabel = b.available ? "Blended \u00b7 " + esc(b.speed_weight_pct) + "% speed" : "Blended";
+    var corrInner = c.available
+      ? '<span class="rv-subtitle" style="font-size:12px;font-weight:700;color:var(--rv-secondary)">Model correction</span>' +
+        '<span class="rv-mono" style="font-size:20px;font-weight:600">' + esc(c.factor) + '\u00d7</span>'
+      : '<span class="rv-subtitle">' + NA + '</span>';
+    var blendInner = b.available
+      ? '<span style="font-size:12px;font-weight:700;color:var(--rv-primary)">' + blendLabel + '</span>' + paceOrNA(b)
+      : '<span class="rv-subtitle">' + NA + '</span>';
+    return '<div class="rv-proj-chain" data-chain-row>' +
+      '<div class="rv-proj-stage rv-proj-stage--scores" data-chain="scores">' + scoreLine("Endurance", e) + scoreLine("Speed", sp) + '</div>' +
+      arrow + '<div class="rv-proj-stage rv-proj-stage--blend" data-chain="blended">' + blendInner + '</div>' +
+      arrow + '<div class="rv-proj-stage rv-proj-stage--corr" data-chain="correction">' + corrInner + '</div>' +
+      arrow + finalHtml + '</div>';
   }
 
   function renderChart(ch) {
@@ -521,27 +673,34 @@
         '<text x="' + (X(m.x) + 6) + '" y="52" font-size="11" fill="#7a3a10">' + esc(m.name) + ' \u00b7 not recorded</text>');
     });
     var nowX = X(ch.now_x), p = ch.projection, band = ch.band;
-    if (band) {
+    if (band && p) {
       parts.push('<polygon data-chart="band" points="' + nowX + ',' + Y(p.est_sec) + ' ' + W + ',' + Y(band.high_sec) + ' ' + W + ',' + Y(band.low_sec) + '" fill="#c9d9f6"/>');
     }
     var pts = (ch.history || []).map(function (h) { return X(h.x) + "," + Y(h.est_sec); });
     if (pts.length >= 2) {
       parts.push('<polyline data-chart="history" points="' + pts.join(" ") + '" fill="none" stroke="#1f3b8a" stroke-width="3" stroke-linejoin="round"/>');
+    } else if (pts.length === 1) {
+      parts.push('<circle data-chart="history" cx="' + pts[0].split(",")[0] + '" cy="' + pts[0].split(",")[1] + '" r="4" fill="#1f3b8a"/>');
     }
-    var fromY = (ch.history && ch.history.length) ? Y(ch.history[ch.history.length - 1].est_sec) : Y(p.est_sec);
-    parts.push('<line data-chart="projection" x1="' + nowX + '" y1="' + fromY + '" x2="' + W + '" y2="' + Y(p.est_sec) + '" stroke="#1f3b8a" stroke-width="3" stroke-dasharray="6 5"/>');
+    if (p) {
+      var fromY = (ch.history && ch.history.length) ? Y(ch.history[ch.history.length - 1].est_sec) : Y(p.est_sec);
+      parts.push('<line data-chart="projection" x1="' + nowX + '" y1="' + fromY + '" x2="' + W + '" y2="' + Y(p.est_sec) + '" stroke="#1f3b8a" stroke-width="3" stroke-dasharray="6 5"/>');
+    }
     parts.push('<line x1="' + nowX + '" y1="10" x2="' + nowX + '" y2="' + bottom + '" stroke="#0b1530" stroke-width="1.5"/>' +
       '<text x="' + (nowX - 6) + '" y="22" font-size="11" font-weight="700" fill="#0b1530" text-anchor="end">Now</text>');
     var mono = ' font-size="11.5" text-anchor="end" font-family="JetBrains Mono, monospace"';
-    if (band) {
+    if (band && p) {
       parts.push('<text data-band-label="high" x="' + (W - 4) + '" y="' + (Y(band.high_sec) - 4) + '" fill="#56627f"' + mono + '>' + esc(band.high_label) + '</text>');
       parts.push('<text data-band-label="low" x="' + (W - 4) + '" y="' + (Y(band.low_sec) + 14) + '" fill="#56627f"' + mono + '>' + esc(band.low_label) + '</text>');
+      parts.push('<text data-band-label="estimate" x="' + (W - 4) + '" y="' + (Y(p.est_sec) - 4) + '" fill="#0b1530" font-weight="700"' + mono + '>' + esc(p.est_label) + '</text>');
     }
-    parts.push('<text data-band-label="estimate" x="' + (W - 4) + '" y="' + (Y(p.est_sec) - 4) + '" fill="#0b1530" font-weight="700"' + mono + '>' + esc(p.est_label) + '</text>');
+    var endLabel = ch.history_only ? esc(ch.end) : "Race " + esc(ch.end);
     parts.push('<text x="0" y="242" font-size="11.5" fill="#56627f">' + esc(ch.start) + '</text>' +
-      '<text x="' + W + '" y="242" font-size="11.5" fill="#56627f" text-anchor="end">Race ' + esc(ch.end) + '</text>');
-    var label = "Projected " + ch.race_name + " time from " + ch.start + " to race day " + ch.end + ", ending at " + p.est_label +
-      (band ? " with a band from " + band.low_label + " to " + band.high_label : "") + (ch.goal_label ? ". Goal " + ch.goal_label : "") + ".";
+      '<text x="' + W + '" y="242" font-size="11.5" fill="#56627f" text-anchor="end">' + endLabel + '</text>');
+    var label = ch.history_only
+      ? ("Finish estimate trend for " + ch.race_name + " from " + ch.start + " to " + ch.end + ".")
+      : ("Projected " + ch.race_name + " time from " + ch.start + " to race day " + ch.end + ", ending at " + p.est_label +
+        (band ? " with a band from " + band.low_label + " to " + band.high_label : "") + (ch.goal_label ? ". Goal " + ch.goal_label : "") + ".");
     return '<svg viewBox="0 0 1000 250" style="width:100%;height:250px;display:block" role="img" aria-label="' + esc(label) + '" data-projection-chart>' + parts.join("") + '</svg>';
   }
 
@@ -561,12 +720,26 @@
 
   function renderProjection(host, data) {
     host.innerHTML =
-      '<div><span class="rv-label">Races and projections</span>' +
-      '<p class="rv-subtitle">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p>' +
-      renderBuiltFrom(data.built_from) + "</div>" +
+      '<div class="rv-perf-proj-head">' +
+      '<div><h2 class="rv-perf-proj-title">Races and projections</h2>' +
+      '<p class="rv-subtitle" style="margin:4px 0 0">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p>' +
+      renderBuiltFrom(data.built_from) + '</div>' +
+      '<div class="rv-row rv-perf-proj-actions">' +
+      '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-proj-recalibrate">Recalibrate</button>' +
+      '<button type="button" class="rv-btn rv-btn--primary rv-btn--sm" id="v2-race-add">Add a race</button></div></div>' +
       renderTiles(data.tiles) +
-      (data.chain ? renderChain(data.chain) + renderChart(data.chart) :
-        '<p class="rv-subtitle" data-chain-na>No upcoming A race, so there is no projection yet.</p>');
+      (data.chain ? renderChain(data.chain) : '<p class="rv-subtitle" data-chain-na>Pace blend is ' + NA + ' until an upcoming A race is set.</p>') +
+      ((data.chart && data.chart.available) ? renderChart(data.chart) : "");
+    var recal = host.querySelector("#v2-proj-recalibrate");
+    if (recal) {
+      recal.addEventListener("click", function () {
+        var row = document.querySelector("[data-needs-result]");
+        if (row && row.scrollIntoView) row.scrollIntoView({ behavior: "smooth" });
+        else toast("Record a race result in Needs a result to recalibrate");
+      });
+    }
+    var addBtn = host.querySelector("#v2-race-add");
+    if (addBtn) addBtn.addEventListener("click", function () { openRaceDrawer(null); });
   }
 
   function loadProjection() {
@@ -599,29 +772,29 @@
     loadProjection();
     loadRaces();
     loadCoach();
-    loadRaces();
   }
 
-  function roleChips(r) {
-    return '<span class="rv-chip" data-race-priority>' + esc(r.priority) + '</span> ' +
-      '<span class="rv-chip" data-race-role="' + esc(r.role) + '">' + esc(r.role_label) + '</span>';
-  }
-
-  function raceHead(r, extra) {
-    return '<div>' + roleChips(r) + ' <strong>' + esc(r.name) + '</strong>' + (extra || "") +
-      '<br><span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " \u00b7 " + esc(r.distance_km) + " km" : "") +
-      ' \u00b7 ' + esc(r.role_target) + '</span></div>';
+  function raceNameCell(r, extra) {
+    var target = r.is_target ? '<span class="rv-race-target-chip">TARGET</span>' : "";
+    var recal = r.recalibrates_here ? ' · <span class="rv-race-recal">recalibrates here</span>' : "";
+    return '<div class="rv-race-row__name"><div class="rv-race-row__head">' + prBadge(r) +
+      '<div><span class="rv-race-row__title">' + esc(r.name) + target + (extra || "") + '</span>' +
+      '<span class="rv-mono rv-subtitle rv-race-row__meta">' + esc(r.race_date) +
+      (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") + recal + '</span></div></div></div>';
   }
 
   function goalCell(r) {
-    return '<div><span class="rv-label">Goal</span><br><strong>' + esc(fmtHMS(r.goal_sec)) + '</strong>' +
-      (r.goal_pace_seconds_per_km ? ' <span class="rv-subtitle">' + esc(fmtPace(r.goal_pace_seconds_per_km)) + '</span>' : "") + '</div>';
+    var pace = r.goal_pace_seconds_per_km ? fmtPace(r.goal_pace_seconds_per_km).replace(" /km", "") : "";
+    return '<div class="rv-race-row__goal"><span class="rv-race-col-lbl">Goal</span>' +
+      '<span class="rv-mono rv-race-time">' + esc(fmtHMS(r.goal_sec)) + '</span>' +
+      (pace ? ' <span class="rv-subtitle rv-mono">' + esc(pace) + '</span>' : "") + '</div>';
   }
 
-  function deltaChip(label, c) {
-    if (!c || c.score == null) return '<span class="rv-chip">' + label + ' \u2014</span>';
-    var d = c.delta_28d == null ? "" : " " + (c.delta_28d > 0 ? "+" : c.delta_28d < 0 ? "\u2212" : "") + Math.abs(Math.round(c.delta_28d));
-    return '<span class="rv-chip">' + label + " " + esc(Math.round(c.score)) + esc(d) + '</span>';
+  function scorePill(label, c) {
+    if (!c || c.score == null) return '<span class="rv-race-pill">' + label + ' \u2014</span>';
+    var d = c.delta_28d == null ? "" : " " + signed(c.delta_28d);
+    var cls = "rv-race-pill" + (c.delta_28d != null && c.delta_28d > 0 ? " rv-race-pill--up" : "");
+    return '<span class="' + cls + '">' + label + " " + esc(Math.round(c.score)) + esc(d) + '</span>';
   }
 
   function debriefChip(r) {
@@ -633,42 +806,46 @@
 
   function renderNeedsResult(r) {
     var sug = r.suggested_actual;
+    var rs = r.race_specific || {};
     var actual = sug
-      ? '<strong data-suggested-actual>' + esc(fmtHMS(sug.moving_seconds)) + '</strong> <span class="rv-subtitle">suggested \u00b7 ' +
-        esc(sug.date) + ' \u00b7 ' + esc(sug.distance_km) + ' km</span>'
+      ? '<span class="rv-mono rv-race-time" data-suggested-actual>' + esc(fmtHMS(sug.moving_seconds)) + '</span>' +
+        ' <span class="rv-subtitle">suggested \u00b7 ' + esc(sug.date) + ' \u00b7 ' + esc(sug.distance_km) + ' km</span>'
       : '<span class="rv-subtitle" data-no-match>' + esc(r.suggestion_reason || "No synced run matched") + '</span>';
-    return '<div class="rv-row rv-card--soft" data-needs-result="' + esc(r.id) + '" style="flex-wrap:wrap;padding:10px">' +
-      raceHead(r, debriefChip(r)) + goalCell(r) +
-      '<div><span class="rv-label">Actual</span><br>' + actual + '</div>' +
-      '<div class="rv-row"><label class="rv-label">Time <input type="text" inputmode="numeric" placeholder="h:mm:ss" size="8" data-actual-input value="' +
+    return '<div class="rv-race-row rv-race-row--needs" data-needs-result="' + esc(r.id) + '">' +
+      raceNameCell(r, debriefChip(r)) + goalCell(r) +
+      '<div class="rv-race-row__actual"><span class="rv-race-col-lbl">Actual</span>' + actual + '</div>' +
+      '<div class="rv-race-row__scores">' + scorePill("End", rs.endurance) + scorePill("Spd", rs.speed) + '</div>' +
+      '<div class="rv-race-row__actions"><div class="rv-race-record">' +
+      '<label class="rv-race-col-lbl">Time<input type="text" inputmode="numeric" placeholder="h:mm:ss" data-actual-input value="' +
       esc(sug ? fmtHMS(sug.moving_seconds) : "") + '"></label>' +
-      '<button type="button" class="rv-btn rv-btn--primary" data-record="' + esc(r.id) + '">Record and recalibrate</button></div></div>';
+      '<button type="button" class="rv-btn rv-btn--accent rv-btn--sm" data-record="' + esc(r.id) + '">Record and recalibrate</button></div></div></div>';
   }
 
   function renderUpcoming(r) {
     var est = r.estimate || {};
     var estHtml = est.available
-      ? '<strong data-race-estimate>' + esc(fmtHMS(est.est_sec)) + '</strong>' +
-        (est.band_sec != null ? ' <span class="rv-subtitle">\u00b1' + esc(fmtHMS(est.band_sec)) + '</span>' : "")
+      ? '<span class="rv-mono rv-race-time rv-race-time--good" data-race-estimate>' + esc(fmtHMS(est.est_sec)) + '</span>' +
+        (est.band_sec != null ? ' <span class="rv-subtitle rv-mono">\u00b1' + esc(fmtHMS(est.band_sec)).replace(/^0:/, "") + '</span>' : "")
       : '<span class="rv-subtitle">not available</span>';
     var rs = r.race_specific || {};
-    var extra = (r.is_target ? ' <span class="rv-chip" data-race-target>Target</span>' : "") +
-      (r.recalibrates_here ? ' <span class="rv-subtitle" data-recalibrates-here>recalibrates here</span>' : "");
-    return '<div class="rv-row" data-upcoming="' + esc(r.id) + '" style="flex-wrap:wrap;padding:8px 0">' +
-      raceHead(r, extra) + goalCell(r) +
-      '<div><span class="rv-label">Estimate</span><br>' + estHtml + '</div>' +
-      '<div class="rv-row">' + deltaChip("End", rs.endurance) + deltaChip("Spd", rs.speed) + '</div>' +
-      '<button type="button" class="rv-btn rv-btn--secondary" data-edit-race="' + esc(r.id) + '">Edit</button></div>';
+    var rowCls = "rv-race-row" + (r.is_target || r.priority === "A" ? " rv-race-row--upcoming-a" : "");
+    return '<div class="' + rowCls + '" data-upcoming="' + esc(r.id) + '">' +
+      raceNameCell(r) + goalCell(r) +
+      '<div class="rv-race-row__est"><span class="rv-race-col-lbl">Estimate</span>' + estHtml + '</div>' +
+      '<div class="rv-race-row__scores">' + scorePill("End", rs.endurance) + scorePill("Spd", rs.speed) + '</div>' +
+      '<div class="rv-race-row__actions"><button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-edit-race="' + esc(r.id) + '">Edit</button></div></div>';
   }
 
   function renderCompleted(r) {
     var g = r.goal_minus_actual_sec;
-    var vs = g == null ? "" : g >= 0 ? "beat goal by " + fmtHMS(g) : "missed goal by " + fmtHMS(g);
-    return '<div class="rv-metric" data-completed="' + esc(r.id) + '">' + roleChips(r) + ' <strong>' + esc(r.name) + '</strong>' + debriefChip(r) + '<br>' +
-      '<span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " \u00b7 " + esc(r.distance_km) + " km" : "") + '</span><br>' +
-      '<span class="rv-label">Chip</span> <strong data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + '</strong>' +
-      (r.moving_time_sec != null ? ' <span class="rv-subtitle" data-moving-time>moving ' + esc(fmtHMS(r.moving_time_sec)) + '</span>' : "") +
-      '<br><span class="rv-subtitle">goal ' + esc(fmtHMS(r.goal_sec)) + (vs ? " \u00b7 " + esc(vs) : "") + '</span></div>';
+    var vs = g == null ? "no goal set" : g >= 0 ? "beat goal by " + fmtHMS(g) : "missed goal by " + fmtHMS(Math.abs(g));
+    return '<div class="rv-completed-card" data-completed="' + esc(r.id) + '">' +
+      '<div class="rv-completed-card__head">' + prBadge(r) + '<span style="font-size:14px;font-weight:700">' + esc(r.name) + '</span>' + debriefChip(r) + '</div>' +
+      '<span class="rv-mono rv-subtitle" style="font-size:12px">' + esc(r.race_date) + (r.distance_km ? " \u00b7 " + esc(r.distance_km) + " km" : "") + '</span>' +
+      '<div class="rv-row" style="gap:8px;flex-wrap:wrap">' +
+      '<span class="rv-mono" style="font-size:16px;font-weight:600" data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + '</span>' +
+      (r.moving_time_sec != null ? '<span class="rv-mono rv-subtitle" style="font-size:12px" data-moving-time>moving ' + esc(fmtHMS(r.moving_time_sec)) + '</span>' : "") +
+      '</div><span class="rv-mono rv-subtitle" style="font-size:12px">goal ' + esc(fmtHMS(r.goal_sec)) + " \u00b7 " + esc(vs) + '</span></div>';
   }
 
   function renderRaces(host, data) {
@@ -677,14 +854,12 @@
     needs.concat(up, done).forEach(function (r) { raceIndex[r.id] = r; });
     var more = data.total_upcoming > up.length ? '<span class="rv-subtitle">Showing ' + up.length + ' of ' + esc(data.total_upcoming) + ' upcoming races</span>' : "";
     host.innerHTML =
-      '<div class="rv-row"><span class="rv-label">Races</span>' +
-      '<div class="rv-row"><a class="rv-btn rv-btn--secondary" href="/v2/performance/season-road" data-season-road-link>Season road</a>' +
-      '<button type="button" class="rv-btn rv-btn--primary" id="v2-race-add">Add a race</button></div></div>' +
-      (needs.length ? '<div class="rv-stack" data-section="needs-result"><span class="rv-label">Needs a result</span>' + needs.map(renderNeedsResult).join("") + '</div>' : "") +
-      '<div class="rv-stack" data-section="upcoming"><span class="rv-label">Upcoming</span>' +
-      (up.length ? up.map(renderUpcoming).join("") + more : '<p class="rv-subtitle">No upcoming races.</p>') + '</div>' +
-      (done.length ? '<div class="rv-stack" data-section="completed"><span class="rv-label">Completed</span><div class="rv-row" style="flex-wrap:wrap;align-items:stretch">' + done.map(renderCompleted).join("") + '</div></div>' : "");
-    host.querySelector("#v2-race-add").addEventListener("click", function () { openRaceDrawer(null); });
+      (needs.length ? '<span class="rv-race-sec">Needs a result</span>' + needs.map(renderNeedsResult).join("") : "") +
+      '<div class="rv-row rv-race-sec-row"><span class="rv-race-sec">Upcoming</span>' +
+      '<a href="/v2/performance/season-road" data-season-road-link style="font-size:13px;font-weight:700">Season road</a></div>' +
+      (up.length ? '<div class="rv-stack" style="gap:8px" data-section="upcoming">' + up.map(renderUpcoming).join("") + more + '</div>' :
+        '<p class="rv-subtitle">No upcoming races.</p>') +
+      (done.length ? '<span class="rv-race-sec">Completed</span><div class="rv-completed-grid" data-section="completed">' + done.map(renderCompleted).join("") + '</div>' : "");
     Array.prototype.forEach.call(host.querySelectorAll("[data-edit-race]"), function (b) {
       b.addEventListener("click", function () { openRaceDrawer(raceIndex[b.getAttribute("data-edit-race")]); });
     });
@@ -782,9 +957,9 @@
   function loadRaces() {
     var host = document.getElementById("v2-perf-races");
     if (!host) return;
-    getJSON("/api/performance/races")
+    fetchJSONWithRetry("/api/performance/races", 2)
       .then(function (data) { renderRaces(host, data); })
-      .catch(function () { host.innerHTML = '<span class="rv-label">Races</span><p>Not available.</p>'; });
+      .catch(function () { host.innerHTML = '<span class="rv-race-sec">Races</span><p class="rv-subtitle">Could not load races. Refresh to retry.</p>'; });
   }
 
   document.addEventListener("perf:edit-race", function (ev) {
@@ -849,27 +1024,62 @@
       '<a href="' + esc(pasteLink || "/coach#paste") + '" data-paste-link>Paste a change list</a></div>' + list + '</div>';
   }
 
+  var STATUS_OPEN = "open";
+  var STATUS_KEPT = "kept";
+
+  function statusChipClass(status) {
+    if (status === STATUS_OPEN || status === "open") return "rv-chip--due";
+    if (status === "kept" || status === STATUS_KEPT) return "rv-chip--good";
+    return "rv-chip--muted";
+  }
+
   function renderCoach(host, data) {
     var ck = data.checkin || {};
-    var state = ck.state === "done" ? "Check-in done this week" : "Check-in due this week";
+    var review = data.review_due;
+    var reviewCard = "";
+    if (review) {
+      var dueChip = '<span class="rv-chip rv-chip--due">DUE ' + esc((review.review_on || "").slice(5)) + "</span>";
+      reviewCard =
+        '<div class="rv-card rv-stack" style="background:#fff;border-radius:12px;padding:14px">' +
+        '<div class="rv-row"><span style="font-size:14px;font-weight:700">Review due \u00b7 decided ' + esc(review.decided_on) + "</span>" + dueChip + "</div>" +
+        ((review.review_lines || []).map(function (l) { return "<p class=\"rv-subtitle\">" + esc(l) + "</p>"; }).join("") || "") +
+        '<label class="rv-label">Outcome<textarea data-outcome-text rows="3" maxlength="1000" style="width:100%" placeholder="What actually happened"></textarea></label>' +
+        '<div class="rv-row"><button type="button" class="rv-btn rv-btn--accent" data-save-outcome>Save outcome</button>' +
+        '<button type="button" class="rv-btn rv-btn--secondary" data-not-applied>Didn\u2019t apply it</button></div></div>';
+    }
+    var hist = (data.history || []).map(function (h) {
+      return '<div class="rv-coach-hist-row" data-history="' + esc(h.id) + '">' +
+        '<span class="rv-mono rv-subtitle">' + esc(h.decided_on) + "</span>" +
+        '<div><strong style="font-size:14px">' + esc(h.summary || "\u2014") + "</strong>" +
+        (h.outcome_note ? '<span class="rv-subtitle" style="display:block;font-size:12.5px">' + esc(h.outcome_note) + "</span>" : "") + "</div>" +
+        '<span class="rv-chip ' + statusChipClass(h.status) + '">' + esc(h.status_label) + "</span></div>";
+    }).join("");
     host.innerHTML =
-      '<div class="rv-row"><div><span class="rv-label">Coach</span> ' +
-      '<span class="rv-chip" data-checkin-state="' + esc(ck.state || "due") + '">' + esc(state) + '</span> ' +
-      '<a href="' + esc(ck.link || "/coach") + '" data-checkin-link>Open check-in</a></div>' +
-      '<button type="button" class="rv-btn rv-btn--primary" id="v2-copy-checkin">Copy check-in</button></div>' +
-      renderReviewDue(data.review_due) + renderHistory(data.history, data.paste_link);
+      '<div class="rv-perf-coach-grid">' +
+      '<div class="rv-card rv-card--soft rv-stack">' +
+      '<span class="rv-label">Check-in with Claude</span>' +
+      '<p class="rv-subtitle">Copy your last 90 days out, talk it through, paste the change list back here.</p>' +
+      '<button type="button" class="rv-btn rv-btn--primary" id="v2-copy-checkin">Copy check-in</button>' +
+      reviewCard + "</div>" +
+      '<div class="rv-card rv-stack">' +
+      '<div class="rv-row"><span class="rv-label">Decision history</span>' +
+      '<a href="' + esc(data.paste_link || "/coach#paste") + '" data-paste-link>Paste a change list</a></div>' +
+      (hist || '<p class="rv-subtitle">No decisions yet.</p>') + "</div></div>";
     host.querySelector("#v2-copy-checkin").addEventListener("click", function (ev) { copyCheckin(ev.currentTarget); });
     var due = data.review_due;
     if (!due) return;
-    var card = host.querySelector("[data-review-due]");
-    card.querySelector("[data-save-outcome]").addEventListener("click", function () {
-      var note = card.querySelector("[data-outcome-text]").value.trim();
+    var saveBtn = host.querySelector("[data-save-outcome]");
+    var skipBtn = host.querySelector("[data-not-applied]");
+    if (!saveBtn || !skipBtn) return;
+    saveBtn.addEventListener("click", function () {
+      var noteEl = host.querySelector("[data-outcome-text]");
+      var note = noteEl ? noteEl.value.trim() : "";
       if (!note) { toast("Write what happened first"); return; }
       sendJSON("PATCH", "/api/decisions/" + encodeURIComponent(due.id), { outcome_note: note })
         .then(function () { toast("Outcome saved"); loadCoach(); })
         .catch(function (e) { toast("Could not save: " + e.message); });
     });
-    card.querySelector("[data-not-applied]").addEventListener("click", function () {
+    skipBtn.addEventListener("click", function () {
       sendJSON("PATCH", "/api/decisions/" + encodeURIComponent(due.id), { applied: false })
         .then(function () { toast("Marked as not applied"); loadCoach(); })
         .catch(function (e) { toast("Could not update: " + e.message); });
@@ -879,18 +1089,33 @@
   function loadCoach() {
     var host = document.getElementById("v2-perf-coach");
     if (!host) return;
-    getJSON("/api/performance/coach-block")
-      .then(function (data) { renderCoach(host, data); })
-      .catch(function () { host.innerHTML = '<span class="rv-label">Coach</span><p>Not available.</p>'; });
+    setRegionLoading(host, "Loading coach");
+    fetchJSONWithRetry("/api/performance/coach-block", 2)
+      .then(function (data) {
+        host.removeAttribute("aria-busy");
+        try { renderCoach(host, data); } catch (e) {
+          host.innerHTML = '<span class="rv-label">Coach</span><p class="rv-subtitle">Could not render coach block.</p>';
+        }
+      })
+      .catch(function () {
+        host.removeAttribute("aria-busy");
+        host.innerHTML =
+          '<div class="rv-perf-coach-grid"><div class="rv-card rv-card--soft"><span class="rv-label">Check-in with Claude</span>' +
+          '<p class="rv-subtitle">Could not load coach data. <button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-coach-retry">Retry</button></p></div></div>';
+        var retry = host.querySelector("#v2-coach-retry");
+        if (retry) retry.addEventListener("click", loadCoach);
+      });
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    initPerfHeader();
     loadScoreCards();
     loadHero();
     loadReadiness();
     loadProjection();
     loadRaces();
     loadFocus();
+    loadCoach();
     loadMobility();
     loadAnchors();
   });

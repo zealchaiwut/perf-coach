@@ -8,31 +8,47 @@
   <link rel="stylesheet" href="/css/revamp.css">
 </head>
 <body class="rv-page">
-  <div class="rv-shell">
-    <header class="rv-shell-head">
-      <div><h1 class="rv-title">Performance</h1><p class="rv-subtitle">Where you stand, and what work moves it.</p></div>
+  <div class="rv-shell rv-shell--wide">
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Performance</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="v2-perf-subtitle">Loading…</p>
+      </div>
       <nav aria-label="Primary">
-        <ul class="rv-tabnav">
+        <ul class="rv-tabnav rv-tabnav--invert">
           <li><a class="rv-tab" href="/v2/home">Home</a></li>
           <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance" aria-current="page">Performance</a></li>
+          <li><a class="rv-tab on" href="/v2/performance" aria-current="page">Performance</a></li>
           <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
         </ul>
       </nav>
     </header>
 
-    <div id="v2-perf-shell" class="rv-stack">
-      <section class="rv-card rv-stack" id="v2-perf-hero" aria-label="A race"></section>
+    <div id="v2-perf-shell" class="rv-stack rv-perf-page">
+      <div class="rv-perf-hero-grid">
+        <section class="rv-card rv-stack rv-perf-hero-card" id="v2-perf-hero" aria-label="A race"></section>
+        <section class="rv-card rv-card--soft rv-stack rv-perf-after-card" id="v2-perf-after-race" aria-label="After the race"></section>
+      </div>
       <section class="rv-card rv-stack" id="v2-perf-readiness" aria-label="A-race readiness" hidden></section>
-      <section class="rv-card rv-card--soft rv-stack" id="v2-perf-after-race" aria-label="After the race"></section>
-      <section class="rv-card rv-stack" id="v2-perf-projection" aria-label="Races and projections"></section>
-      <section class="rv-card rv-stack" id="v2-perf-races" aria-label="Races"></section>
-      <section class="rv-card rv-stack" id="v2-perf-radar" aria-label="Performance radar">
-        <span class="rv-label">Status</span>
-        <div data-perf-radar data-size="large" id="v2-perf-radar-chart"></div>
+
+      <div class="rv-perf-mid-grid">
+        <section class="rv-card rv-stack" id="v2-perf-radar" aria-label="Performance radar">
+          <div class="rv-row">
+            <span class="rv-label">Status</span>
+            <span class="rv-subtitle">0–100 against your marathon profile</span>
+          </div>
+          <div data-perf-radar data-size="large" id="v2-perf-radar-chart"></div>
+        </section>
+        <div id="v2-perf-focus" class="rv-perf-focus-col" aria-label="Focus"></div>
+      </div>
+
+      <section class="rv-perf-score-grid" id="v2-perf-score-cards" aria-label="Endurance and Speed"></section>
+
+      <section class="rv-card rv-stack rv-perf-proj-card" id="v2-perf-projection-wrap" aria-label="Races and projections">
+        <div id="v2-perf-projection"></div>
+        <div id="v2-perf-races" class="rv-perf-races-block" aria-label="Races"></div>
       </section>
-      <section class="rv-stack" id="v2-perf-focus" aria-label="Focus"></section>
-      <section class="rv-stack" id="v2-perf-score-cards" aria-label="Endurance and Speed"></section>
+
       <section class="rv-card rv-stack" id="v2-perf-coach" aria-label="Coach"></section>
       <section class="rv-card rv-stack" id="v2-perf-mobility" aria-label="Mobility self-test"></section>
       <section class="rv-card rv-stack" id="v2-perf-strength-anchors" aria-label="Strength anchor lifts"></section>

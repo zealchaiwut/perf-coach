@@ -461,13 +461,13 @@
         state.workout = w;
         state.jsonText = w.exercises_json
           ? JSON.stringify(w.exercises_json, null, 2)
-          : (w.exercises && w.exercises.length ? '[]' : '[{"name":"Goblet squat","sets":3,"reps":10,"kg":24}]');
+          : (w.exercises && w.exercises.length ? '[]' : '[{"name":"Goblet squat","sets":[{"kg":24,"reps":10},{"kg":24,"reps":10},{"kg":24,"reps":10}]}]');
         state.savedJson = state.jsonText;
         return runValidate();
       })
       : Promise.resolve().then(function () {
         state.workout = defaults || { name: 'Strength session', workout_date: global.AppCommon.todayISO(), session_effort: 7, duration_seconds: 52 * 60 };
-        state.jsonText = '[{"name":"Goblet squat","sets":3,"reps":10,"kg":24}]';
+        state.jsonText = '[{"name":"Goblet squat","sets":[{"kg":24,"reps":10},{"kg":24,"reps":10},{"kg":24,"reps":10}]}]';
         return runValidate();
       });
     chain.then(function () {

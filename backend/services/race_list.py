@@ -166,9 +166,12 @@ def completed_row(race, workouts: list) -> dict[str, Any]:
 
 def upcoming_row(session, user_id, race, today: date, target_id) -> dict[str, Any]:
     row = _base(race)
-    row["estimate"] = build_estimate_block(
-        estimate_race_finish(user_id, race, today=today, db=session), row["distance_km"]
-    )
+    try:
+        est = estimate_race_finish(user_id, race, today=today, db=session)
+        row["estimate"] = build_estimate_block(est, row["distance_km"])
+    except Exception:
+        _log.warning("race finish estimate failed for race %s", race.id, exc_info=True)
+        row["estimate"] = {"available": False, "reason": "unavailable"}
     row["race_specific"] = _race_specific(session, user_id, race, today)
     row["is_target"] = target_id is not None and race.id == target_id
     row["recalibrates_here"] = recalibrates(race)

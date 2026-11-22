@@ -53,12 +53,14 @@ def test_phase4_performance_page_wires_every_region():
         assert route in js or route in radar, f"page never calls {route}"
 
 
-def test_phase4_radar_on_performance_only_p5_moves_off_home():
-    """P5-1: status radar lives on Performance only; Home uses revamp hero instead."""
+def test_phase4_radar_on_performance_and_small_on_home():
+    """Home mock (P6): small radar on Home; large on Performance — same endpoint."""
     home = Path("frontend/pages/v2-home.html").read_text(encoding="utf-8")
     perf = Path("frontend/pages/v2-performance.html").read_text(encoding="utf-8")
-    assert "data-perf-radar" not in home
+    assert "perf-radar.js" in home
     assert "v2-home.js" in home
+    home_js = Path("frontend/js/v2-home.js").read_text(encoding="utf-8")
+    assert 'data-size="small"' in home_js
     assert "data-perf-radar" in perf and 'data-size="large"' in perf
 
 

@@ -141,70 +141,112 @@
     }).join("");
   }
 
+  function syncAgeLabel(syncSummary) {
+    syncSummary = syncSummary || {};
+    var states = [syncSummary.strava, syncSummary.stryd].filter(Boolean);
+    var best = null;
+    states.forEach(function (s) {
+      if (!s || !s.last_success_at) return;
+      var t = Date.parse(s.last_success_at);
+      if (!isNaN(t) && (best == null || t > best)) best = t;
+    });
+    if (best == null) return "";
+    var hrs = Math.round((Date.now() - best) / 3600000);
+    if (hrs < 1) return " · last sync just now";
+    return " · last sync " + hrs + " h ago";
+  }
+
+  function renderHeaderPill(pillText) {
+    var el = document.getElementById("rv-home-race-pill");
+    if (!el) return;
+    if (!pillText) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    el.hidden = false;
+    el.textContent = pillText;
+  }
+
+  function renderDailyBasicsCard(host, basics, reload) {
+    if (!host) return;
+    host.hidden = false;
+    host.innerHTML = dailyBasicsHtml(basics || {});
+    bindDailyBasics(host, reload || load);
+  }
+
   function renderHero(host, data, reload) {
     var hero = data.hero || {};
     var session = hero.session;
     var racePlan = data.show_race_plan && data.race_plan;
-    var basics = data.daily_basics;
     var inner = "";
-    var rightPanel = dailyBasicsHtml(basics);
+    var gridCls = "rv-home-hero-grid";
+    var rightPanel = "";
 
     if (hero.state === "rest") {
       inner =
-        '<div class="rv-home-hero-grid"><div class="rv-home-hero-main">' +
+        '<div class="' + gridCls + '"><div class="rv-home-hero-main">' +
         '<p class="rv-title" style="font-size:1.35rem">Rest day</p><p class="rv-subtitle">Recovery is on the plan.</p></div>' +
-        rightPanel + "</div>";
+        (racePlan ? "" : "</div>");
     } else if (hero.state === "empty") {
       inner =
-        '<div class="rv-home-hero-grid"><div class="rv-home-hero-main">' +
+        '<div class="' + gridCls + (racePlan ? "" : " rv-home-hero-grid--single") + '">' +
+        '<div class="rv-home-hero-main">' +
         '<p class="rv-subtitle">' + esc(hero.empty_copy || "Nothing planned today.") +
-        ' <a href="' + esc(hero.plan_link) + '">Open plan</a></p></div>' + rightPanel + "</div>";
+        ' <a href="' + esc(hero.plan_link) + '">Open plan</a></p></div>';
     } else if (session) {
       var tiles = session.tiles || {};
       var tss = tiles.target_tss != null ? Math.round(tiles.target_tss) + " TSS" : "—";
       var dur = tiles.duration_min != null ? tiles.duration_min + " min" : "—";
       var done = session.status === "done";
+      var syncNote = session.run_auto_complete_note
+        ? esc(session.run_auto_complete_note) + syncAgeLabel(data.sync_summary)
+        : (done ? "Done" : "");
       inner =
-        '<div class="rv-home-hero-grid">' +
+        '<div class="' + gridCls + '">' +
         '<div class="rv-home-hero-main">' +
         '<div class="rv-row" style="align-items:flex-start;gap:14px">' +
         '<span class="rv-home-bar" aria-hidden="true"></span>' +
-        '<div><h2 class="rv-title" style="font-size:1.35rem;margin:0' + (done ? ";text-decoration:line-through;color:var(--rv-secondary)" : "") + '">' +
+        '<div><h2 class="rv-title rv-home-session-title' + (done ? " is-done" : "") + '">' +
         esc(session.name) + "</h2>" +
         '<p class="rv-subtitle">' + esc(session.source_subtitle) +
         (session.notes ? " · " + esc(session.notes) : "") + "</p></div></div>" +
         supportBlocksHtml(session.support_blocks) +
         '<div class="rv-home-tiles">' + tile("Target", tss) + tile("Duration", dur) + tile("Effort", tiles.effort || "—") + "</div>" +
         '<div class="rv-row" style="border-top:1px solid var(--rv-hairline);padding-top:12px">' +
-        '<span class="rv-subtitle">' +
-        (session.run_auto_complete_note ? esc(session.run_auto_complete_note) : (done ? "Done" : "")) +
-        "</span>" +
+        '<span class="rv-subtitle">' + syncNote + "</span>" +
         (session.mark_done_allowed
           ? '<button type="button" class="rv-btn rv-btn--accent" data-mark-done="' + esc(session.id) + '">Mark done</button>'
           : "") +
         "</div></div>";
+    }
 
-      if (racePlan) {
-        rightPanel =
-          '<aside class="rv-home-race-plan" aria-labelledby="rv-race-plan-h">' +
-          '<span id="rv-race-plan-h" class="rv-label">Race plan</span>' +
-          '<div class="rv-row rv-home-race-row"><span style="font-weight:600">Fuel</span><span class="rv-mono rv-subtitle">' +
-          esc(racePlan.fuel_timing) + "</span></div>" +
-          '<div class="rv-row rv-home-race-row"><span style="font-weight:600">Target pace</span><span class="rv-mono rv-subtitle">' +
-          esc(racePlan.target_pace_label || fmtPace(racePlan.target_pace_seconds_per_km)) + "</span></div>" +
-          '<div class="rv-row rv-home-race-row"><span style="font-weight:600">First 10 km, no faster than</span><span class="rv-mono rv-subtitle">' +
-          esc(racePlan.first_10k_cap_label || fmtPace(racePlan.first_10k_cap_seconds_per_km)) + "</span></div>" +
-          '<p class="rv-warn-box">' + esc(racePlan.reminder_copy) + "</p></aside>";
-      } else {
-        rightPanel = dailyBasicsHtml(basics);
+    if (racePlan) {
+      var fuelMeta = racePlan.fuel_rehearsal_count != null
+        ? "rehearsed " + racePlan.fuel_rehearsal_count + "×"
+        : "";
+      rightPanel =
+        '<aside class="rv-home-race-plan" aria-labelledby="rv-race-plan-h">' +
+        '<span id="rv-race-plan-h" class="rv-label">Race plan</span>' +
+        '<div class="rv-row rv-home-race-row"><span style="font-weight:600">' +
+        esc(racePlan.fuel_timing || "Fuel") + '</span><span class="rv-mono rv-subtitle">' +
+        esc(fuelMeta) + "</span></div>" +
+        '<div class="rv-row rv-home-race-row"><span style="font-weight:600">Target pace</span><span class="rv-mono rv-subtitle">' +
+        esc(racePlan.target_pace_label || fmtPace(racePlan.target_pace_seconds_per_km)) + "</span></div>" +
+        '<div class="rv-row rv-home-race-row"><span style="font-weight:600">First 10 km, no faster than</span><span class="rv-mono rv-subtitle">' +
+        esc(racePlan.first_10k_cap_label || fmtPace(racePlan.first_10k_cap_seconds_per_km)) + "</span></div>" +
+        '<p class="rv-warn-box">' + esc(racePlan.reminder_copy) + "</p></aside>";
+      if (inner) inner += rightPanel + "</div>";
+      else {
+        inner = '<div class="' + gridCls + '"><div class="rv-home-hero-main"></div>' + rightPanel + "</div>";
       }
-      inner += rightPanel + "</div>";
+    } else if (inner) {
+      inner += "</div>";
     }
 
     host.innerHTML =
       '<div class="rv-row"><span class="rv-label">Today</span><a href="' + esc(hero.plan_link || "/v2/training/plan") + '">Open in Training</a></div>' +
       inner;
-    bindDailyBasics(host, reload || load);
   }
 
   function rateChipLabel(chip) {
@@ -224,6 +266,11 @@
 
   function renderWeightCard(host, card) {
     if (!host || !card) return;
+    if (card.seven_day_avg_kg == null && !(card.sparkline_6w || []).some(function (p) { return p.value != null; })) {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
     host.hidden = false;
     var avg = card.seven_day_avg_kg;
     var rate = card.weekly_rate_kg;
@@ -306,9 +353,12 @@
     var barHtml = "";
     if (bar) {
       barHtml =
+        '<div class="rv-row rv-week-load-row"><span class="rv-subtitle">' + esc(week.subtitle || "") + '</span>' +
+        '<span class="rv-mono rv-week-tss">' + esc(bar.tss_label || "") + "</span></div>" +
         '<div class="rv-week-bar" role="presentation">' +
         '<span style="width:' + Math.min(bar.logged_pct, 100) + '%"></span>' +
-        '<span style="width:' + Math.min(bar.planned_pct, 100) + '%"></span></div>';
+        '<span style="width:' + Math.min(bar.planned_pct, 100) + '%"></span>' +
+        '<span style="width:' + Math.min(bar.remaining_pct || 0, 100) + '%"></span></div>';
     }
     var rows = (week.days || []).map(function (day) {
       var primary = (day.items && day.items[0]) || { name: "—", kind: "rest" };
@@ -319,22 +369,22 @@
       if (done) chips += '<span class="rv-chip rv-chip--done">DONE</span>';
       if (primary.race_priority === "A") chips += '<span class="rv-chip rv-chip--race">A RACE</span>';
       var tss = primary.estimated_tss != null ? String(Math.round(primary.estimated_tss)) : "—";
+      var note = primary.notes ? '<span class="rv-subtitle rv-week-day-note">' + esc(primary.notes) + "</span>" : "";
       var cls = "rv-week-day";
       if (day.is_today) cls += " is-today";
       if (day.is_race_day) cls += " is-race-day";
       return '<div class="' + cls + '">' +
-        '<div class="rv-week-day-label"><span class="rv-weekday">' + esc(day.weekday) + '</span>' +
+        '<div class="rv-week-day-label"><span class="rv-weekday' + (day.is_today ? " rv-weekday--today" : "") + '">' + esc(day.weekday) + '</span>' +
         '<span class="rv-mono rv-day-num">' + esc(day.day_of_month) + "</span></div>" +
         '<div class="rv-week-day-body">' +
         '<span class="rv-kind-dot" style="background:' + kindDot(primary.kind) + '"></span>' +
         '<span class="rv-week-day-title' + (done ? " is-done" : "") + '">' + esc(primary.name) + "</span>" +
-        chips + "</div>" +
+        note + chips + "</div>" +
         '<span class="rv-mono rv-subtitle">' + esc(tss) + "</span></div>";
     }).join("");
     host.innerHTML =
       '<div class="rv-row"><h2 id="rv-week-h" class="rv-label">This week</h2>' +
       '<a href="' + esc(week.plan_href) + '">Edit the week</a></div>' +
-      (week.subtitle ? '<div class="rv-row"><span class="rv-subtitle">' + esc(week.subtitle) + "</span></div>" : "") +
       barHtml + '<div class="rv-week-days">' + rows + "</div>";
   }
 
@@ -347,36 +397,44 @@
     }
     host.hidden = false;
     var r = card.race || {};
+    var raceLine = esc(r.name) + " · " + esc(r.race_date_label || r.race_date || "");
+    var sub = r.subtitle || (r.priority === "A" ? "A race" : "Upcoming race");
     host.innerHTML =
       '<div class="rv-row"><span class="rv-label">Next race</span><a href="' + esc(card.href) + '">All races</a></div>' +
-      '<div class="rv-row" style="align-items:flex-end">' +
-      '<div><p class="rv-title" style="font-size:1.1rem;margin:0">' + esc(r.name) + " · " + esc(r.race_date) + '</p>' +
-      '<p class="rv-subtitle">A race</p></div>' +
-      '<span class="rv-mono rv-countdown">' + esc(card.days_to_race) + '<span class="rv-subtitle"> d</span></span></div>' +
-      '<div class="rv-home-tiles">' +
+      '<div class="rv-row rv-next-race-hero">' +
+      '<div><p class="rv-next-race-title">' + raceLine + '</p>' +
+      '<p class="rv-subtitle">' + esc(sub) + "</p></div>" +
+      '<span class="rv-mono rv-countdown">' + esc(card.days_to_race) +
+      '<span class="rv-countdown-suffix"> d</span></span></div>' +
+      '<div class="rv-home-tiles rv-next-race-tiles">' +
       tile("Goal", card.goal_time_label || "—") +
-      tile("Estimate", card.estimate_time_label || "—") +
+      '<div class="rv-tile rv-tile--estimate"><span class="rv-subtitle" style="font-size:12px;font-weight:700">Estimate</span>' +
+      '<span class="rv-mono" style="font-size:15px;font-weight:600;color:#15803d">' + esc(card.estimate_time_label || "—") + "</span></div>" +
       tile("Range", card.range_label || "—") +
       "</div>";
   }
 
-  function renderFocus(host, focus) {
+  function renderStatus(host, focus) {
     if (!host) return;
-    if (!focus || !focus.axis) {
-      host.innerHTML =
-        '<div class="rv-row"><span class="rv-label">Status</span><a href="/v2/performance">Performance</a></div>' +
-        '<p class="rv-subtitle">No fresh focus axis yet — see Performance for the full radar.</p>';
-      return;
-    }
+    var axisLabel = focus && focus.axis ? esc(focus.axis.replace(/_/g, " ")) : "—";
+    var advice = focus && focus.advice ? esc(focus.advice) : "See Performance for your full status.";
     host.innerHTML =
-      '<div class="rv-row"><span class="rv-label">Most room to grow</span><a href="' + esc(focus.href) + '">Performance</a></div>' +
+      '<div class="rv-row"><h2 id="rv-status-h" class="rv-label">Status · same as Performance</h2>' +
+      '<a href="' + esc((focus && focus.href) || "/v2/performance") + '">Performance</a></div>' +
       '<div class="rv-focus-banner">' +
-      '<span class="rv-label" style="color:#e4ff52">Most room to grow</span>' +
-      '<p class="rv-title" style="color:#fff;margin:4px 0">' + esc(focus.axis.replace(/_/g, " ")) +
-      (focus.score != null ? ' <span class="rv-mono" style="font-size:1rem">' + esc(focus.score) + "/100</span>" : "") +
-      "</p>" +
-      '<p class="rv-subtitle" style="color:#d5def3">' + esc(focus.advice || "") + "</p></div>" +
-      '<p class="rv-subtitle">Full status radar lives on Performance (not duplicated here).</p>';
+      '<span class="rv-label rv-focus-eyebrow">Most room to grow</span>' +
+      '<p class="rv-title rv-focus-axis">' + axisLabel + "</p>" +
+      '<p class="rv-subtitle rv-focus-advice">' + advice + "</p></div>" +
+      '<div data-perf-radar data-size="small" class="rv-home-radar" aria-busy="true"></div>' +
+      '<div class="rv-radar-legend">' +
+      '<span><i class="rv-legend-swatch rv-legend-now"></i>Now</span>' +
+      '<span><i class="rv-legend-swatch rv-legend-prior"></i>4 wk ago</span>' +
+      '<span><i class="rv-legend-swatch rv-legend-stale"></i>Stale</span>' +
+      '<span><i class="rv-legend-swatch rv-legend-focus"></i>Focus</span></div>';
+    var radar = host.querySelector("[data-perf-radar]");
+    if (radar && window.PerfRadar) {
+      window.PerfRadar.mount(radar, { size: "small" });
+    }
   }
 
   function renderRecent(host, sessions) {
@@ -454,8 +512,10 @@
         if (dateEl) dateEl.textContent = weekdayLong(data.as_of);
         var greet = document.getElementById("rv-home-greet");
         if (greet && data.greeting_name) greet.textContent = "Good morning, " + data.greeting_name;
+        renderHeaderPill(data.header_race_pill);
         renderAlerts(alertsHost, data.alerts);
         renderHero(heroHost, data, load);
+        renderDailyBasicsCard(document.getElementById("rv-home-daily-basics"), data.daily_basics, load);
         var weightHost = document.getElementById("rv-home-weight");
         if (data.weight_card) {
           renderWeightCard(weightHost, data.weight_card);
@@ -467,8 +527,7 @@
         renderLadder(document.getElementById("rv-home-ladder"), data.long_run_ladder);
         renderRecent(document.getElementById("rv-home-recent"), data.recent_sessions);
         renderNextRace(document.getElementById("rv-home-next-race"), data.next_race);
-        renderFocus(document.getElementById("rv-home-focus"), data.focus);
-        renderCoach(document.getElementById("rv-home-coach"), data.coach);
+        renderStatus(document.getElementById("rv-home-status"), data.focus);
       })
       .catch(function (err) {
         if (heroHost) heroHost.innerHTML = '<p class="rv-subtitle">Could not load home — ' + esc(err.message) + "</p>";
