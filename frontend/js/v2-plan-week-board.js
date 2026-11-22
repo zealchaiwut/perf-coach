@@ -19,7 +19,7 @@
     var locked = item.locked || item.plan_source === 'coach';
     var cls = 'rv-session ' + cardClass(item) + (locked ? ' rv-session--locked' : '');
     var drag = locked ? '' : ' draggable="true"';
-    var coach = locked ? '<span class="rv-coach-label">Coach</span>' : '';
+    var coach = locked ? '<span class="rv-coach-label">Coach · locked</span>' : '';
     return (
       '<article class="' + cls + '"' + drag +
       ' data-id="' + esc(item.id) + '" data-date="' + esc(item.planned_date) + '"' +

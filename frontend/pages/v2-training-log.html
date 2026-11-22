@@ -6,6 +6,7 @@
   <title>Training log (revamp) – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/revamp.css">
+  <link rel="stylesheet" href="/css/run-detail-v4.css">
 </head>
 <body class="rv-page">
   <div class="rv-shell rv-shell--wide rv-training-page">
@@ -14,14 +15,7 @@
         <h1 class="rv-title rv-title--invert">Training</h1>
         <p class="rv-subtitle rv-subtitle--invert">Session log</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav rv-tabnav--invert">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab on" href="/v2/training/plan" aria-current="page">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
 
     <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
@@ -47,7 +41,7 @@
 
     <section class="rv-card rv-stack" id="v2-list-section" aria-labelledby="v2-list-h">
       <h2 id="v2-list-h" class="rv-label">Sessions</h2>
-      <div id="v2-list-filters" class="rv-row"></div>
+      <div id="v2-list-filters" class="rv-list-filters"></div>
       <div id="v2-list-body"></div>
     </section>
   </div>
@@ -64,9 +58,12 @@
   <script src="/js/lib/sync-poller.js"></script>
   <script src="/js/lib/v2-sync-toolbar.js"></script>
   <script src="/js/lib/v2-feel-buttons.js"></script>
+  <script src="/js/lib/run-detail-view.js"></script>
   <script src="/js/v2-run-drawer.js"></script>
   <script src="/js/v2-strength-drawer.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js"></script>
   <script src="/js/v2-training-log.js"></script>
 </body>
 </html>

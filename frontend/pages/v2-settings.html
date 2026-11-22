@@ -3,53 +3,449 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Settings (revamp) – perf-coach</title>
+  <title>Settings – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/revamp.css">
+  <link rel="stylesheet" href="/css/v2-settings.css">
 </head>
-<body class="rv-page">
-  <div class="rv-shell">
-    <header class="rv-shell-head">
-      <div>
-        <h1 class="rv-title">Profile settings</h1>
-        <p class="rv-subtitle">Your rules and connections — not admin library edits.</p>
+<body class="rv-page rv-settings-page">
+  <div class="rv-shell rv-shell--wide rv-settings-shell">
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Settings</h1>
+        <p class="rv-subtitle rv-subtitle--invert">Profile, thresholds, integrations, and background jobs.</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
 
-    <section class="rv-card rv-stack" id="v2-settings-tss">
-      <h2 class="rv-card-title">TSS default method</h2>
-      <p class="rv-subtitle" id="v2-settings-tss-warn" hidden>Changing this queues a full CTL replay for your run sessions.</p>
-      <label class="rv-field">
-        <span class="rv-label">Method</span>
-        <select class="rv-input" id="v2-settings-tss-method">
-          <option value="power">Power</option>
-          <option value="stryd">Stryd</option>
-        </select>
-      </label>
-      <button type="button" class="rv-btn rv-btn--primary" id="v2-settings-tss-save">Save</button>
-    </section>
+    <section class="rv-card rv-settings-workspace" aria-label="Settings">
+      <aside class="settings-sidebar rv-settings-rail">
+        <nav role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+          <button type="button" class="settings-nav-item" role="tab" id="tab-profile" aria-controls="section-profile" data-section="profile">Profile</button>
+          <button type="button" class="settings-nav-item" role="tab" id="tab-thresholds" aria-controls="section-thresholds" data-section="thresholds">Thresholds</button>
+          <button type="button" class="settings-nav-item" role="tab" id="tab-training-rules" aria-controls="section-training-rules" data-section="training-rules">Training rules</button>
+          <button type="button" class="settings-nav-item" role="tab" id="tab-integrations" aria-controls="section-integrations" data-section="integrations">Integrations</button>
+          <button type="button" class="settings-nav-item" role="tab" id="tab-queue" aria-controls="section-queue" data-section="queue">Queue</button>
+          <button type="button" class="settings-nav-item" role="tab" id="tab-about" aria-controls="section-about" data-section="about">About</button>
+        </nav>
+      </aside>
+      <div class="settings-content rv-settings-main">
+<div id="section-profile" class="settings-section" role="tabpanel" aria-labelledby="tab-profile" tabindex="0">
+        <h2 class="rv-settings-section-title">Profile</h2>
+        <!-- Avatar upload deferred to future sprint. -->
+        <div class="avatar-row">
+          <div class="settings-avatar-circle" id="settings-avatar-circle" aria-label="Your avatar">
+            <span id="settings-avatar-initials">U</span>
+          </div>
+        </div>
 
-    <section class="rv-card rv-stack">
-      <h2 class="rv-card-title">Plan &amp; my rules</h2>
-      <p class="rv-subtitle">Rest days, consecutive-day cap, and block load live in plan settings.</p>
-      <a class="rv-btn rv-btn--secondary" href="/v2/settings/plan">Open plan settings</a>
-    </section>
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-user-id">User ID</label>
+          <div class="profile-id-row">
+            <input type="text" id="profile-user-id" class="profile-input" style="font-family:'JetBrains Mono',monospace;font-size:13px" readonly aria-readonly="true" autocomplete="off">
+            <button type="button" class="profile-id-copy" id="profile-user-id-copy" aria-label="Copy user ID" title="Copy user ID">Copy</button>
+          </div>
+        </div>
 
-    <section class="rv-card rv-stack" id="v2-settings-connections">
-      <h2 class="rv-card-title">Connections</h2>
-      <div id="v2-settings-conn-body" class="rv-stack"></div>
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-display-name">Display name</label>
+          <input type="text" id="profile-display-name" class="profile-input" placeholder="Loading…" autocomplete="name" maxlength="100">
+          <div class="profile-field-error" id="profile-display-name-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-email">Email</label>
+          <input type="email" id="profile-email" class="profile-input" readonly>
+          <div class="profile-field-error" id="profile-email-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-timezone">Timezone</label>
+          <select id="profile-timezone" class="profile-select">
+            <option value="Asia/Bangkok">Asia/Bangkok</option>
+            <option value="Asia/Singapore">Asia/Singapore</option>
+            <option value="Asia/Tokyo">Asia/Tokyo</option>
+            <option value="UTC">UTC</option>
+            <option value="America/Los_Angeles">America/Los_Angeles</option>
+            <option value="America/New_York">America/New_York</option>
+            <option value="Europe/London">Europe/London</option>
+            <option value="Europe/Berlin">Europe/Berlin</option>
+            <option value="Australia/Sydney">Australia/Sydney</option>
+          </select>
+          <div class="profile-field-error" id="profile-timezone-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-week-start">Week starts on</label>
+          <select id="profile-week-start" class="profile-select">
+            <option value="1">Monday</option>
+            <option value="7">Sunday</option>
+          </select>
+          <div class="profile-field-error" id="profile-week-start-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-birth-date">Date of birth</label>
+          <input type="date" id="profile-birth-date" class="profile-input">
+          <div class="profile-hint">Used for your age in the coach export.</div>
+          <div class="profile-field-error" id="profile-birth-date-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-height-cm">Height (cm)</label>
+          <input type="number" id="profile-height-cm" class="profile-input" min="80" max="250" step="0.1" inputmode="decimal">
+          <div class="profile-field-error" id="profile-height-cm-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-athlete-context">Athlete context</label>
+          <textarea id="profile-athlete-context" class="profile-input" rows="3" maxlength="200"
+            placeholder="e.g. 6 years running, returning from a calf strain, 5–7 h/week, hates track work"></textarea>
+          <div class="profile-hint">
+            Who you are as an athlete — history, constraints, what you're actually
+            training for. Sent with the coach export so a fresh chat doesn't have to ask.
+            Scheduling instructions belong in Plan → Preferences instead.
+            <span id="profile-athlete-context-count">0/200</span>
+          </div>
+          <div class="profile-field-error" id="profile-athlete-context-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-actions-row">
+          <button class="rv-btn rv-btn--primary settings-save-btn" id="profile-save-btn" type="button" disabled>Save</button>
+          <div class="settings-feedback" id="profile-feedback" aria-live="polite"></div>
+        </div>
+      </div>
+
+      
+<div id="section-thresholds" class="settings-section" role="tabpanel" aria-labelledby="tab-thresholds" tabindex="0">
+        <h2 class="rv-settings-section-title">Performance thresholds</h2>
+
+        <!-- FTP -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-ftp">FTP (Functional Threshold Power)</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-ftp" class="profile-input thresholds-input"
+              min="50" max="600" placeholder="(default: 280W)">
+            <span class="thresholds-unit-label">W</span>
+            <button type="button" class="thresholds-default-btn" data-field="ftp">Use default</button>
+          </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-ftp-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-ftp-last-set"></p>
+          <div class="thresholds-suggestion-banner" id="cp-staleness-banner" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="cp-history-line"></p>
+          <p class="thresholds-desc">Your maximum sustainable power output for ~1 hour (watts). Used to compute cycling TSS. Estimate via a 20-minute all-out effort × 0.95.</p>
+          <div class="profile-field-error" id="thresholds-ftp-error"></div>
+        </div>
+
+        <!-- Threshold HR -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-hr">Threshold Heart Rate</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-hr" class="profile-input thresholds-input"
+              min="100" max="220" placeholder="(default: 170 bpm)">
+            <span class="thresholds-unit-label">bpm</span>
+            <button type="button" class="thresholds-default-btn" data-field="hr">Use default</button>
+          </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-hr-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-hr-last-set"></p>
+          <p class="thresholds-desc">Heart rate at lactate threshold (bpm). Used when power data is unavailable. Estimate as ~88–92% of max HR, or from a race/hard effort.</p>
+          <div class="profile-field-error" id="thresholds-hr-error"></div>
+        </div>
+
+        <!-- Max HR -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-max-hr">Max Heart Rate</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-max-hr" class="profile-input thresholds-input"
+              min="120" max="230" placeholder="(default: 190)">
+            <span class="thresholds-unit-label">bpm</span>
+            <button type="button" class="thresholds-default-btn" data-field="max-hr">Use default</button>
+          </div>
+          <p class="thresholds-desc">Your maximum heart rate (bpm). Used to define training zones. Estimate as 220 − age, or from a maximal-effort test.</p>
+          <div class="profile-field-error" id="thresholds-max-hr-error"></div>
+        </div>
+
+        <!-- Threshold Pace -->
+        <div class="profile-form-group">
+          <label class="profile-label" for="thresholds-pace">Threshold Pace</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="thresholds-pace" class="profile-input thresholds-input"
+              min="180" max="540" placeholder="sec/km (e.g. 240)">
+            <span class="thresholds-unit-label">sec/km</span>
+            <button type="button" class="thresholds-default-btn" data-field="pace">Use default</button>
+          </div>
+          <div class="thresholds-suggestion-banner" id="thresholds-pace-suggestion" aria-live="polite"></div>
+          <p class="thresholds-last-set" id="thresholds-pace-last-set"></p>
+          <p class="thresholds-desc">Running pace you can sustain for ~1 hour, in seconds per kilometre (e.g. 240 = 4:00/km, 270 = 4:30/km). Used to compute running TSS.</p>
+          <div class="profile-field-error" id="thresholds-pace-error"></div>
+        </div>
+
+        <!-- Zone 2 HR band -->
+        <div class="profile-form-group">
+          <label class="profile-label">Zone 2 HR</label>
+          <div class="thresholds-input-row thresholds-zone2-band-row">
+            <input type="number" id="thresholds-zone2-hr-min" class="profile-input thresholds-input"
+              min="60" max="200" placeholder="min">
+            <span class="thresholds-unit-label" style="padding:0 2px;" aria-hidden="true">–</span>
+            <input type="number" id="thresholds-zone2-hr-max" class="profile-input thresholds-input"
+              min="60" max="210" placeholder="max">
+            <span class="thresholds-unit-label">bpm</span>
+          </div>
+          <p class="thresholds-desc">Heart-rate band for Zone 2 aerobic work. Used to calculate Zone 2 minutes per workout.</p>
+          <div class="profile-field-error" id="thresholds-zone2-hr-error" aria-live="polite"></div>
+        </div>
+
+        <div class="profile-actions-row">
+          <button type="button" id="thresholds-save-btn" class="rv-btn rv-btn--primary settings-save-btn">Save</button>
+          <span id="thresholds-feedback" class="settings-feedback" aria-live="polite"></span>
+        </div>
+
+        <div class="thresholds-info-card">
+          Changing these will recompute TSS for new workouts only. Past workouts keep their original TSS values (no retro recompute in this sprint).
+          Zone 2 weekly minutes are tracked as a habit — edit the target on Habits.
+        </div>
+      </div>
+
+      <!-- Device Zones: read-only power zones sourced from a connected device (e.g. Stryd) -->
+      <div id="section-device-zones" class="settings-section thresholds-device-zones" role="tabpanel" aria-labelledby="tab-device-zones" tabindex="0">
+        <h2 class="rv-settings-section-title">Zones</h2>
+        <p class="u-muted-13" style="margin:0 0 16px;">Power zones reported by your connected device. These values are read-only and update when you sync.</p>
+        <div id="device-zones-content">
+          <p id="device-zones-empty" class="u-muted-13">No device-sourced zones available. Connect Stryd and sync to see power zones here.</p>
+          <div id="device-zones-table" style="display:none;">
+            <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px;">
+              <span class="u-strong-13">Critical Power (FTP):</span>
+              <span id="device-ftp-value" class="u-accent-value"></span>
+              <span class="u-muted-12">W — from Stryd</span>
+            </div>
+            <div id="device-zones-list" style="display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;color:var(--text);"></div>
+            <p id="device-zones-date" class="u-muted-12" style="margin-top:8px;"></p>
+          </div>
+        </div>
+      </div>
+
+      
+
+      <div id="section-training-rules" class="settings-section" role="tabpanel" aria-labelledby="tab-training-rules" tabindex="0">
+        <h2 class="rv-settings-section-title">Training rules</h2>
+        <div class="rv-card rv-stack" style="margin-top:0;border:none;padding:0;box-shadow:none" id="v2-settings-tss">
+          <h2 class="rv-card-title" style="font-size:18px">TSS default method</h2>
+          <p class="rv-subtitle" id="v2-settings-tss-warn" hidden>Changing this queues a full CTL replay for your run sessions.</p>
+          <label class="profile-form-group">
+            <span class="profile-label">Method</span>
+            <select class="profile-select" id="v2-settings-tss-method">
+              <option value="power">Power</option>
+              <option value="stryd">Stryd</option>
+            </select>
+          </label>
+          <button type="button" class="rv-btn rv-btn--primary settings-save-btn" id="v2-settings-tss-save">Save</button>
+        </div>
+        <div class="rv-card rv-stack" style="margin-top:20px;border:none;padding:0;box-shadow:none">
+          <h2 class="rv-card-title" style="font-size:18px">Plan &amp; my rules</h2>
+          <p class="queue-intro">Rest days, consecutive-day cap, and block load live in plan settings.</p>
+          <a class="integration-btn integration-btn--secondary" href="/v2/settings/plan">Open plan settings</a>
+        </div>
+      </div>
+
+<div id="section-integrations" class="settings-section" role="tabpanel" aria-labelledby="tab-integrations" tabindex="0">
+        <h2 class="rv-settings-section-title">Integrations</h2>
+        <p class="queue-intro">Connect Strava or Stryd, then Sync now. Last-synced time is on each card.</p>
+
+        <!-- Shared sync/debug log — collapsed so Connect/Sync lead -->
+        <details class="integration-log" id="integration-log">
+          <summary class="integration-log-title">Sync log</summary>
+          <div class="integration-log-header">
+            <button type="button" class="integration-log-clear" id="integration-log-clear">Clear</button>
+          </div>
+          <div class="integration-log-body" id="integration-log-body" aria-live="polite">
+            <div class="integration-log-empty">No activity yet. Connect or sync to see data here.</div>
+          </div>
+        </details>
+
+        <!-- Strava -->
+        <div class="integration-card" id="strava-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon strava-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#FC4C02"/>
+                  <path d="M10.5 17.5L8 12.5H11L13.5 7L16 12.5H19L13.5 22L10.5 17.5Z" fill="white"/>
+                </svg>
+              </span>
+              <span class="integration-name">Strava</span>
+            </div>
+            <span class="integration-badge integration-badge--disconnected" id="strava-badge">Loading…</span>
+          </div>
+          <div class="integration-meta" id="strava-meta"></div>
+          <div class="integration-identity" id="strava-identity" style="display:none"></div>
+          <div class="integration-last-synced" id="strava-last-synced"></div>
+          <div class="integration-actions" id="strava-actions"></div>
+          <div id="strava-sync-panel"></div>
+
+          <!-- Sync history (AC B) -->
+          <button class="strava-history-toggle" id="strava-history-toggle" type="button" aria-expanded="false">
+            <span class="toggle-arrow">&#9654;</span> Sync history
+          </button>
+          <div id="strava-history-panel" role="region" aria-label="Sync history"></div>
+
+          <!-- Data quality panel -->
+          <div class="strava-data-quality" id="strava-data-quality" style="display:none">
+            <div class="strava-data-quality-header">
+              <span class="strava-data-quality-title">Data quality</span>
+            </div>
+            <div class="strava-data-quality-grid" id="strava-data-quality-grid">
+              <div class="strava-data-quality-row">
+                <span>Strava activities</span>
+                <span class="strava-data-quality-val" id="dq-strava-activities">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Workouts (Strava source)</span>
+                <span class="strava-data-quality-val" id="dq-workouts-strava">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Workouts (no source)</span>
+                <span class="strava-data-quality-val" id="dq-workouts-no-source">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Stryd-matched</span>
+                <span class="strava-data-quality-val" id="dq-stryd-synced">—</span>
+              </div>
+              <div class="strava-data-quality-row">
+                <span>Potential duplicates</span>
+                <span class="strava-data-quality-val" id="dq-potential-dupes">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="integration-feedback" id="strava-feedback" aria-live="polite"></div>
+        </div>
+
+        <!-- Stryd -->
+        <div class="integration-card" id="stryd-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon stryd-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#1A1A2E"/>
+                  <path d="M13 4L7 13H12L11 20L17 11H12L13 4Z" fill="#00D4AA"/>
+                </svg>
+              </span>
+              <span class="integration-name">Stryd</span>
+            </div>
+            <span class="integration-badge integration-badge--disconnected" id="stryd-badge">Loading…</span>
+          </div>
+          <div class="integration-meta" id="stryd-meta"></div>
+          <div id="stryd-form-wrap"></div>
+          <div class="integration-last-synced" id="stryd-last-synced"></div>
+          <div class="integration-actions" id="stryd-actions"></div>
+
+          <button class="strava-history-toggle" id="stryd-history-toggle" type="button" aria-expanded="false" style="display:none">
+            <span class="toggle-arrow">&#8250;</span> Sync history
+          </button>
+          <div id="stryd-history-panel" role="region" aria-label="Stryd sync history"></div>
+
+          <div class="strava-data-quality" id="stryd-data-quality" style="display:none">
+            <div class="strava-data-quality-header">
+              <span class="strava-data-quality-title">Data quality</span>
+            </div>
+            <div class="strava-data-quality-grid">
+              <div class="strava-data-quality-row"><span>Stryd activities</span><span class="strava-data-quality-val" id="dq-stryd-activities">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ Stryd</span><span class="strava-data-quality-val" id="dq-workouts-stryd">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ Strava</span><span class="strava-data-quality-val" id="dq-workouts-strava2">—</span></div>
+              <div class="strava-data-quality-row"><span>Merged (both)</span><span class="strava-data-quality-val" id="dq-workouts-both">—</span></div>
+              <div class="strava-data-quality-row"><span>Workouts w/ TSS</span><span class="strava-data-quality-val" id="dq-workouts-tss">—</span></div>
+            </div>
+          </div>
+
+          <div class="integration-feedback" id="stryd-feedback" aria-live="polite"></div>
+        </div>
+
+        <!-- Google Drive Sleep -->
+        <div class="integration-card" id="drive-sleep-card">
+          <div class="integration-header">
+            <div class="integration-name-wrap">
+              <span class="integration-icon" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect width="24" height="24" rx="5" fill="#f8f9fc"/>
+                  <path d="M4 17l3.5-6h9L20 17H4z" fill="#4285F4" opacity=".85"/>
+                  <path d="M8.5 7h7L20 17h-4.5L8.5 7z" fill="#34A853" opacity=".85"/>
+                  <path d="M4 17l4.5-10H13l-4.5 10H4z" fill="#FBBC05" opacity=".85"/>
+                </svg>
+              </span>
+              <span class="integration-name">Google Drive (Sleep)</span>
+            </div>
+            <span class="integration-badge integration-badge--disconnected" id="drive-sleep-badge">Loading…</span>
+          </div>
+          <div class="integration-meta" id="drive-sleep-meta">
+            <span class="u-muted-13">Read-only access to the Drive folder where Health Sync exports sleep CSVs.</span>
+          </div>
+          <div class="integration-actions" id="drive-sleep-actions"></div>
+          <div id="drive-sleep-folder-wrap" style="display:none;margin-top:12px;">
+            <label class="u-strong-13" style="display:block;margin-bottom:4px;" for="drive-sleep-folder-input">Sleep CSV folder ID or URL</label>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="text" id="drive-sleep-folder-input" class="profile-input" placeholder="Paste folder ID or Drive URL…" style="flex:1;min-width:200px;">
+              <button type="button" id="drive-sleep-folder-save" class="integration-btn integration-btn--primary">Save</button>
+            </div>
+            <div id="drive-sleep-folder-feedback" class="u-muted-12" style="margin-top:6px;min-height:16px;"></div>
+          </div>
+          <div class="integration-feedback" id="drive-sleep-feedback" aria-live="polite"></div>
+        </div>
+
+      </div>
+
+<div id="section-queue" class="settings-section" role="tabpanel" aria-labelledby="tab-queue" tabindex="0">
+        <h2 class="rv-settings-section-title">Queue</h2>
+        <p class="queue-intro">Background jobs the compute worker runs for you — syncs, backfills, and score recomputes. Newest first.</p>
+        <div class="queue-toolbar">
+          <button type="button" id="queue-refresh" class="rv-btn rv-btn--secondary queue-refresh-btn">Refresh</button>
+          <span id="queue-updated" class="queue-updated" aria-live="polite"></span>
+        </div>
+        <div id="queue-body" class="queue-body">
+          <p class="queue-empty">Loading…</p>
+        </div>
+      </div>
+
+      <div id="section-about" class="settings-section" role="tabpanel" aria-labelledby="tab-about" tabindex="0">
+        <h2 class="rv-settings-section-title">About</h2>
+        <div class="about-grid">
+          <div class="about-row">
+            <span class="about-label">App Version</span>
+            <span class="about-value" id="about-version">—</span>
+          </div>
+          <div class="about-row">
+            <span class="about-label">Build SHA</span>
+            <code class="about-value about-mono" id="about-sha">—</code>
+          </div>
+          <div class="about-row">
+            <span class="about-label">Environment</span>
+            <span class="about-value" id="about-env">—</span>
+          </div>
+        </div>
+        <div class="about-links">
+          <a href="https://github.com/zealchaiwut/perf-coach" target="_blank" rel="noopener noreferrer" class="about-link">GitHub ↗</a>
+          <a href="/docs/" target="_blank" rel="noopener noreferrer" class="about-link">Docs ↗</a>
+          <a href="/CHANGELOG.md" target="_blank" rel="noopener noreferrer" class="about-link" id="about-changelog-link" style="display:none">Changelog ↗</a>
+          <a href="/settings?legacy=1" id="about-legacy-settings" class="about-link" hidden>Classic settings</a>
+        </div>
+      </div>
+      </div>
     </section>
   </div>
+  <div id="rv-toast" class="rv-toast" role="status" aria-live="polite"></div>
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/v2-sync-status.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
-  <script src="/js/v2-settings.js"></script>
+  <script src="/js/v2-nav.js"></script>
+  <script src="/js/user.js"></script>
+  <script src="/js/lib/sync-poller.js"></script>
+  <script src="/js/settings-field-errors.js"></script>
+  <script src="/js/settings-profile.js"></script>
+  <script src="/js/settings-thresholds.js"></script>
+  <script src="/js/v2-settings-rules.js"></script>
+  <script src="/js/settings-integrations.js"></script>
+  <script src="/js/settings-about.js"></script>
+  <script src="/js/v2-settings-sections.js"></script>
+  <script src="/js/v2-settings-legacy.js"></script>
 </body>
 </html>

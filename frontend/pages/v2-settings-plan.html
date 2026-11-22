@@ -14,20 +14,16 @@
         <h1 class="rv-title">Plan settings</h1>
         <p class="rv-subtitle">Load block for your A race</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav"></nav>
     </header>
     <section class="rv-card rv-stack" id="v2-plan-settings-form" aria-label="Plan settings form"></section>
     <section class="rv-card rv-stack" id="v2-plan-settings-preview" hidden aria-label="Preview changes"></section>
   </div>
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/v2-sync-status.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js"></script>
   <script src="/js/v2-settings-plan.js"></script>
 </body>
 </html>

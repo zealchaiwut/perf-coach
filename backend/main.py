@@ -251,6 +251,7 @@ _REVAMP_ROUTE_REDIRECTS: dict[str, str] = {
     "/home": "/v2/home",
     "/log": "/v2/training/log",
     "/training": "/v2/training/plan",
+    "/settings": "/v2/settings",
 }
 
 
@@ -19243,9 +19244,11 @@ def get_plan_revamp_road_chart(user: User = Depends(resolve_user)):
     from backend.services.revamp_load_plan import road_to_chart
 
     with Session(engine) as db:
+        from backend.services.revamp_load_plan import generic_road_chart
+
         payload = road_to_chart(user.id, session=db)
-    if payload is None:
-        return Response(status_code=204)
+        if payload is None:
+            payload = generic_road_chart(user.id, session=db, today=_today_bkk())
     return JSONResponse(payload)
 
 
@@ -19459,9 +19462,11 @@ def get_plan_revamp_week_load(
             raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
         ws = ws - _timedelta(days=ws.weekday())
     with Session(engine) as db:
+        from backend.services.revamp_load_plan import generic_week_load
+
         payload = revamp_week_load(user.id, ws, session=db, today=today)
-    if payload is None:
-        return Response(status_code=204)
+        if payload is None:
+            payload = generic_week_load(user.id, ws, session=db, today=today)
     return JSONResponse(payload)
 
 

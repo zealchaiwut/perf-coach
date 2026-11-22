@@ -351,6 +351,109 @@ def phase_overrun_summary(columns: list[dict[str, Any]]) -> list[dict[str, Any]]
     return out
 
 
+def generic_road_chart(
+    user_id: uuid.UUID,
+    *,
+    session: Session,
+    today: Optional[date] = None,
+    span_weeks: int = 14,
+) -> dict[str, Any]:
+    """Rolling weekly load when no A-race plan context (still shows real logged/planned TSS)."""
+    from backend.services.weekly_rollup import weekly_rollup
+
+    uid = uuid.UUID(str(user_id))
+    today = today or today_bangkok()
+    ws = normalize_week_start(today)
+    chronic = chronic_weekly_tss(session, uid, today)
+    target = round(chronic, 1)
+    columns: list[dict[str, Any]] = []
+    for i in range(span_weeks - 1, -1, -1):
+        w = ws - timedelta(weeks=i)
+        rollup = weekly_rollup(uid, w, session=session, today=today)
+        logged = float(rollup.get("tss_total") or 0)
+        planned = float(rollup.get("planned_tss_training") or 0)
+        if w < ws:
+            state = "done"
+        elif w == ws:
+            state = "current"
+        else:
+            state = "future"
+        over = bool(state == "done" and target and logged > target * 1.05)
+        columns.append(
+            {
+                "week_start": w.isoformat(),
+                "phase": "this week" if state == "current" else None,
+                "target_tss": target,
+                "actual_tss": logged if state == "done" else None,
+                "planned_tss": planned if state != "done" else None,
+                "race_tss": rollup.get("race_planned_tss"),
+                "race_items": rollup.get("race_items") or [],
+                "state": state,
+                "over_target": over,
+                "on_target": bool(state == "done" and logged <= target * 1.05),
+            }
+        )
+    return {
+        "mode": "generic",
+        "title": "Recent training load",
+        "subtitle": f"Reference {target:.0f} TSS/wk from your 28-day chronic",
+        "chronic_baseline": chronic,
+        "plan_hint": "Add a planned A race in Settings → Plan to unlock the full road-to-race chart.",
+        "columns": columns,
+        "phase_overruns": [],
+    }
+
+
+def generic_week_load(
+    user_id: uuid.UUID,
+    week_start: date,
+    *,
+    session: Session,
+    today: Optional[date] = None,
+) -> dict[str, Any]:
+    """This-week load card without an A-race block — uses chronic as the training target."""
+    from backend.services.load_plan import ACWR_CEILING_MULT
+    from backend.services.weekly_rollup import weekly_rollup
+
+    uid = uuid.UUID(str(user_id))
+    today = today or today_bangkok()
+    ws = normalize_week_start(week_start)
+    chronic = chronic_weekly_tss(session, uid, today)
+    target = round(chronic, 1)
+    rollup = weekly_rollup(uid, ws, session=session, today=today)
+    ceiling = round(ACWR_CEILING_MULT * chronic, 1)
+    logged = float(rollup.get("tss_total") or 0)
+    planned = float(rollup.get("planned_tss_training") or 0)
+    race_note = None
+    if rollup.get("race_items"):
+        rt = rollup.get("race_planned_tss") or 0
+        race_note = f"Training target excludes race-day load; race adds about {int(rt)} TSS."
+    headroom = target - (logged + planned)
+    total = logged + planned
+    if total > ceiling:
+        headroom_state = "over_ceiling"
+    elif total > target:
+        headroom_state = "over_target"
+    else:
+        headroom_state = "under_target"
+    return {
+        "mode": "generic",
+        "week_start": ws.isoformat(),
+        "baseline_tss": target,
+        "phase": "general",
+        "phase_factor_pct": 100.0,
+        "target_tss": target,
+        "acwr_ceiling": ceiling,
+        "trailing_28d_avg": chronic,
+        "logged_tss": round(logged, 1),
+        "planned_tss": round(planned, 1),
+        "race_note": race_note,
+        "headroom_tss": round(headroom, 1),
+        "headroom_state": headroom_state,
+        "plan_hint": "Add a planned A race to unlock phase targets, taper, and the road chart.",
+    }
+
+
 def road_to_chart(
     user_id: uuid.UUID,
     *,

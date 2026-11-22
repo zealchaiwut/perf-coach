@@ -14,27 +14,20 @@
         <h1 class="rv-title rv-title--invert">Training</h1>
         <p class="rv-subtitle rv-subtitle--invert">What Stryd and Strava show over months</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav rv-tabnav--invert">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab on" href="/v2/training/plan" aria-current="page">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
 
-    <div class="rv-card rv-trends-toolbar">
-      <nav class="rv-subnav" aria-label="Training views">
-        <a class="rv-seg" href="/v2/training/plan">Plan</a>
-        <a class="rv-seg" href="/v2/training/log">Log</a>
-        <a class="rv-seg" href="/v2/training/trends" aria-current="page">Trends</a>
+    <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
+      <nav class="rv-segnav" aria-label="Training views">
+        <a href="/v2/training/plan">Plan</a>
+        <a href="/v2/training/log">Log</a>
+        <a href="/v2/training/trends" aria-current="page">Trends</a>
       </nav>
       <div class="rv-trends-range" role="group" aria-label="Chart range">
         <span class="rv-subtitle">Range</span>
-        <div class="rv-seg rv-trends-range-btns" id="v2-trends-range-btns"></div>
+        <div class="rv-segnav rv-trends-range-btns" id="v2-trends-range-btns"></div>
       </div>
-    </div>
+    </section>
 
     <div class="rv-stack" id="v2-trends-host">
       <p class="rv-section-state" role="status">Loading…</p>
@@ -43,7 +36,9 @@
 
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/v2-sync-status.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js"></script>
   <script src="/js/v2-training-trends.js"></script>
 </body>
 </html>

@@ -12,16 +12,9 @@
     <header class="rv-shell-head rv-home-top">
       <div class="rv-shell-head-text">
         <h1 class="rv-title rv-title--invert">Training</h1>
-        <p class="rv-subtitle rv-subtitle--invert">Plan week</p>
+        <p class="rv-subtitle rv-subtitle--invert" id="rv-training-subtitle">Loading…</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav rv-tabnav--invert">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab on" href="/v2/training/plan" aria-current="page">Training</a></li>
-          <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
 
     <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
@@ -76,7 +69,9 @@
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/v2-sync-status.js"></script>
   <script src="/js/lib/v2-sync-toolbar.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js"></script>
   <script src="/js/v2-session-editor.js"></script>
   <script src="/js/v2-plan-week-board.js"></script>
   <script src="/js/v2-training-plan.js"></script>

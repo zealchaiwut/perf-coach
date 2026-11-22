@@ -26,10 +26,16 @@
   function weekdayLong(iso) {
     try {
       var d = new Date(iso + "T12:00:00");
-      return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+      return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
     } catch (e) {
       return iso;
     }
+  }
+
+  function recentWhoChip(who) {
+    var w = String(who || "").toUpperCase();
+    if (w.indexOf("SUPPORT") >= 0) return "rv-chip--who-support";
+    return "rv-chip--who";
   }
 
   function tile(label, value) {
@@ -361,7 +367,7 @@
         '<span style="width:' + Math.min(bar.remaining_pct || 0, 100) + '%"></span></div>';
     }
     var rows = (week.days || []).map(function (day) {
-      var primary = (day.items && day.items[0]) || { name: "—", kind: "rest" };
+      var primary = (day.items && day.items[0]) || { name: "Rest", kind: "rest" };
       var st = primary.status || "planned";
       var done = st === "done";
       var chips = "";
@@ -369,7 +375,6 @@
       if (done) chips += '<span class="rv-chip rv-chip--done">DONE</span>';
       if (primary.race_priority === "A") chips += '<span class="rv-chip rv-chip--race">A RACE</span>';
       var tss = primary.estimated_tss != null ? String(Math.round(primary.estimated_tss)) : "—";
-      var note = primary.notes ? '<span class="rv-subtitle rv-week-day-note">' + esc(primary.notes) + "</span>" : "";
       var cls = "rv-week-day";
       if (day.is_today) cls += " is-today";
       if (day.is_race_day) cls += " is-race-day";
@@ -378,9 +383,9 @@
         '<span class="rv-mono rv-day-num">' + esc(day.day_of_month) + "</span></div>" +
         '<div class="rv-week-day-body">' +
         '<span class="rv-kind-dot" style="background:' + kindDot(primary.kind) + '"></span>' +
-        '<span class="rv-week-day-title' + (done ? " is-done" : "") + '">' + esc(primary.name) + "</span>" +
-        note + chips + "</div>" +
-        '<span class="rv-mono rv-subtitle">' + esc(tss) + "</span></div>";
+        '<span class="rv-week-day-title' + (done ? " is-done" : "") + (day.is_today ? " is-today-title" : "") + '">' + esc(primary.name) + "</span>" +
+        chips + "</div>" +
+        '<span class="rv-mono rv-subtitle rv-week-day-tss">' + esc(tss) + "</span></div>";
     }).join("");
     host.innerHTML =
       '<div class="rv-row"><h2 id="rv-week-h" class="rv-label">This week</h2>' +
@@ -422,32 +427,30 @@
       '<div class="rv-row"><h2 id="rv-status-h" class="rv-label">Status · same as Performance</h2>' +
       '<a href="' + esc((focus && focus.href) || "/v2/performance") + '">Performance</a></div>' +
       '<div class="rv-focus-banner">' +
-      '<span class="rv-label rv-focus-eyebrow">Most room to grow</span>' +
-      '<p class="rv-title rv-focus-axis">' + axisLabel + "</p>" +
+      '<p class="rv-label rv-focus-eyebrow">Most room to grow</p>' +
+      '<p class="rv-focus-axis-line">' + axisLabel + "</p>" +
       '<p class="rv-subtitle rv-focus-advice">' + advice + "</p></div>" +
-      '<div data-perf-radar data-size="small" class="rv-home-radar" aria-busy="true"></div>' +
-      '<div class="rv-radar-legend">' +
-      '<span><i class="rv-legend-swatch rv-legend-now"></i>Now</span>' +
-      '<span><i class="rv-legend-swatch rv-legend-prior"></i>4 wk ago</span>' +
-      '<span><i class="rv-legend-swatch rv-legend-stale"></i>Stale</span>' +
-      '<span><i class="rv-legend-swatch rv-legend-focus"></i>Focus</span></div>';
+      '<div data-perf-radar data-size="small" class="rv-home-radar" aria-busy="true"></div>';
     var radar = host.querySelector("[data-perf-radar]");
     if (radar && window.PerfRadar) {
-      window.PerfRadar.mount(radar, { size: "small" });
+      window.PerfRadar.mount(radar, { size: "small", compactLegend: true });
     }
   }
 
   function renderRecent(host, sessions) {
     if (!host) return;
     var rows = (sessions || []).map(function (s) {
-      var meta = [s.relative_date];
+      var meta = [];
       if (s.distance_km != null) meta.push(s.distance_km.toFixed(1) + " km");
       if (s.duration_min != null) meta.push(Math.round(s.duration_min) + " min");
       if (s.tss != null) meta.push(Math.round(s.tss) + " TSS");
+      var sub = esc(s.relative_date) + (meta.length ? " · " + esc(meta.join(" · ")) : "");
+      var who = s.who
+        ? '<span class="rv-chip ' + recentWhoChip(s.who) + '">' + esc(s.who) + "</span>"
+        : "";
       return '<a class="rv-recent-row" href="' + esc(s.log_href) + '">' +
-        '<div><span class="rv-recent-title">' + esc(s.name) + '</span><span class="rv-mono rv-subtitle">' +
-        esc(meta.join(" · ")) + "</span></div>" +
-        '<span class="rv-chip rv-chip--who">' + esc(s.who) + "</span></a>";
+        '<div><span class="rv-recent-title">' + esc(s.name) + '</span>' +
+        '<span class="rv-mono rv-recent-meta">' + sub + "</span></div>" + who + "</a>";
     }).join("");
     host.innerHTML =
       '<div class="rv-row"><h2 id="rv-recent-h" class="rv-label">Recent sessions</h2>' +
@@ -515,7 +518,6 @@
         renderHeaderPill(data.header_race_pill);
         renderAlerts(alertsHost, data.alerts);
         renderHero(heroHost, data, load);
-        renderDailyBasicsCard(document.getElementById("rv-home-daily-basics"), data.daily_basics, load);
         var weightHost = document.getElementById("rv-home-weight");
         if (data.weight_card) {
           renderWeightCard(weightHost, data.weight_card);

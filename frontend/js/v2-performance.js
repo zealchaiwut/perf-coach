@@ -297,7 +297,7 @@
       '<h2 style="margin:0">' + esc(focus.label) + ' <span style="font-family:var(--rv-mono)">' + esc(Math.round(focus.score)) + "</span></h2>" +
       '<div class="rv-focus-work-chips">' + chips + "</div>" +
       action + "</div>" +
-      '<div class="rv-card rv-card--soft rv-stack"><span class="rv-label" style="text-transform:none;letter-spacing:0">' +
+      '<div class="rv-card rv-stack rv-perf-focus-why"><span class="rv-label" style="text-transform:none;letter-spacing:0">' +
       esc(whyTitle) + "</span>" + whyNot + pickLine + "</div>";
     var btn = host.querySelector("#v2-focus-queue");
     if (btn) {
@@ -474,7 +474,7 @@
     var items = (data.items || []).map(function (it) {
       var actions = "";
       if (it.action === "update_cp") {
-        actions = ' <a class="rv-btn rv-btn--secondary" href="/settings" data-readiness-action="update-cp">Update CP</a>';
+        actions = ' <a class="rv-btn rv-btn--secondary" href="/v2/settings#thresholds" data-readiness-action="update-cp">Update CP</a>';
       }
       if (it.manual) {
         actions += ' <button type="button" class="rv-btn rv-btn--secondary" data-toilet-save>Save plan</button>';
@@ -545,10 +545,10 @@
         ' efforts · ' + esc(num(d.consistency)) + ' consistency · ' + esc(num(d.score_now)) + ' now</p>' : "");
     var split = c.split && (c.split.decay || c.split.gains) ?
       '<div class="rv-zone-bar" role="img" aria-label="Decay ' + esc(num(c.split.decay)) + ' points versus gains ' + esc(num(c.split.gains)) + ' points" data-card-split>' +
-      '<span class="rv-zone-seg" style="width:' + (c.split.decay_share * 100).toFixed(1) + '%;background:#f0b27a"></span>' +
-      '<span class="rv-zone-seg" style="width:' + (c.split.gains_share * 100).toFixed(1) + '%;background:#1f3b8a"></span></div>' +
-      '<div class="rv-split-legend"><span class="rv-k"><span class="rv-k-swatch" style="background:#f0b27a"></span>decay</span>' +
-      '<span class="rv-k"><span class="rv-k-swatch" style="background:#1f3b8a"></span>consistency</span></div>' : "";
+      '<span class="rv-zone-seg" style="width:' + (c.split.decay_share * 100).toFixed(1) + '%;background:#f4a5a5"></span>' +
+      '<span class="rv-zone-seg" style="width:' + (c.split.gains_share * 100).toFixed(1) + '%;background:#4ade80"></span></div>' +
+      '<div class="rv-split-legend"><span class="rv-k"><span class="rv-k-swatch" style="background:#f4a5a5"></span>decay</span>' +
+      '<span class="rv-k"><span class="rv-k-swatch" style="background:#4ade80"></span>consistency</span></div>' : "";
     var axisMod = c.axis === "speed" ? " rv-score-card--speed" : "";
     var scoreCls = c.axis === "speed" ? " rv-score-num--speed" : " rv-score-num--endurance";
     var callout = c.to_reach
@@ -560,10 +560,12 @@
       return '<li>' + esc(a.date) + ' · raw ' + esc(num(a.raw_score)) + ' · ' + esc(num(a.age_weeks)) + ' wk' +
         (a.is_stale ? ' · <strong>stale</strong>' : '') + '</li>';
     }).join("");
-    return '<div class="rv-card rv-stack' + axisMod + '" data-score-card="' + esc(c.axis) + '">' +
-      '<div class="rv-row"><span class="rv-label">' + esc(c.label) + '</span>' + chip + '</div>' +
-      '<strong class="rv-score-num' + scoreCls + '">' + esc(c.score == null ? "—" : Math.round(c.score)) + '</strong>' +
-      sparkline(c.sparkline, c.axis) + formula + split + reason + callout +
+    return '<div class="rv-card rv-stack rv-score-card' + axisMod + '" data-score-card="' + esc(c.axis) + '">' +
+      '<div class="rv-row rv-score-card-head"><span class="rv-label">' + esc(c.label) + '</span>' +
+      '<a href="/v2/training/trends" class="rv-score-trend-link">Trend</a></div>' +
+      '<div class="rv-score-hero-row">' +
+      '<strong class="rv-score-num' + scoreCls + '">' + esc(c.score == null ? "—" : Math.round(c.score)) + "</strong>" +
+      chip + sparkline(c.sparkline, c.axis) + "</div>" + formula + split + reason + callout +
       (anchors ? '<details><summary>Anchor efforts and other runs</summary><ul>' + anchors + '</ul></details>' : "") + '</div>';
   }
 

@@ -20,10 +20,13 @@
         var legend = document.createElement("div");
         legend.className = "perf-radar-legend";
         legend.setAttribute("aria-hidden", "true");
+        var compact = opts && opts.compactLegend;
+        var pastLabel = compact ? "4 wk ago" : "4 weeks ago";
+        var staleLabel = compact ? "Stale" : "Stale · needs a test effort";
         legend.innerHTML =
           '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--now"></span>Now</span>' +
-          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--past"></span>4 weeks ago</span>' +
-          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--stale"></span>Stale · needs a test effort</span>' +
+          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--past"></span>' + pastLabel + "</span>" +
+          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--stale"></span>' + staleLabel + "</span>" +
           '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--focus"></span>Focus</span>';
         host.appendChild(legend);
         host.removeAttribute("aria-busy");

@@ -9,18 +9,12 @@
 </head>
 <body class="rv-page">
   <div class="rv-shell rv-shell--wide">
-    <header class="rv-shell-head">
-      <div>
-        <h1 class="rv-title">Weekly check-in</h1>
-        <p class="rv-subtitle" id="wci-week-label">Loading…</p>
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Weekly check-in</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="wci-week-label">Loading…</p>
       </div>
-      <nav aria-label="Primary">
-        <ul class="rv-tabnav">
-          <li><a class="rv-tab" href="/v2/home">Home</a></li>
-          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
-          <li><a class="rv-tab rv-tab--on" href="/v2/performance">Performance</a></li>
-        </ul>
-      </nav>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
     <ol class="wci-steps" aria-label="Check-in steps">
       <li class="wci-step is-on" data-step="1">1 Last week's changes</li>
@@ -33,7 +27,9 @@
   <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
   <script src="/js/lib/app-common.js"></script>
   <script src="/js/v2-sync-status.js"></script>
+  <script src="/js/v2-csrf.js"></script>
   <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js"></script>
   <script src="/js/v2-weekly-check-in.js"></script>
 </body>
 </html>
