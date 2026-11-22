@@ -19,7 +19,7 @@
           <li><a class="rv-tab on" href="/v2/home" aria-current="page">Home</a></li>
           <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
           <li><a class="rv-tab" href="/v2/performance">Performance</a></li>
-          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/admin">Admin</a></li>
+          <li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>
         </ul>
       </nav>
     </header>
@@ -50,11 +50,7 @@
     </p>
   </div>
   <script src="/js/lib/app-common.js"></script>
+  <script src="/js/revamp-ui.js"></script>
   <script src="/js/v2-home.js"></script>
-  <script>
-    fetch("/api/auth/me").then(function (r) { return r.ok ? r.json() : null; }).then(function (u) {
-      if (u && u.is_admin) document.getElementById("rv-admin-tab").hidden = false;
-    });
-  </script>
 </body>
 </html>

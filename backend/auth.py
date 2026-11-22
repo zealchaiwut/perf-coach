@@ -377,6 +377,13 @@ async def resolve_user(
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 
+async def require_user_admin(user: User = Depends(resolve_user)) -> User:
+    """Session user must have ``users.is_admin`` (revamp training library guard)."""
+    if not bool(user.is_admin):
+        raise HTTPException(status_code=403, detail="Admin role required")
+    return user
+
+
 def require_write(request: Request, user: User = Depends(resolve_user)) -> User:
     """FastAPI dependency: block read-only API token holders from write routes.
 

@@ -1167,3 +1167,13 @@ body.rv-page .rv-trends-zone-bar {
   overflow: hidden;
   display: flex;
 }
+body.rv-page .rv-admin-badge {
+  font-size: 10px;
+  font-weight: 800;
+  background: #e4ff52;
+  color: #0b1530;
+  padding: 2px 6px;
+  border-radius: 5px;
+  margin-left: 4px;
+  vertical-align: middle;
+}

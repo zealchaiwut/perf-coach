@@ -19,7 +19,7 @@ import urllib.request as _urllib_request
 import urllib.error as _urllib_error
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
@@ -451,6 +451,7 @@ from backend.auth import (  # noqa: E402
     read_admin_cookie,
     read_session_cookie,
     require_admin,
+    require_user_admin,
     require_write,
     resolve_user,
     set_admin_cookie,
@@ -5842,6 +5843,17 @@ def _redirect_v2_training_root():
 
 for _v2_path, _v2_file in _V2_ROUTE_FILES.items():
     app.add_api_route(_v2_path, lambda f=_v2_file: _serve_v2_page(f), include_in_schema=False)
+
+
+@app.get("/v2/training/admin", include_in_schema=False)
+async def serve_v2_training_admin(user: User = Depends(get_current_user)):
+    if not _revamp_ui_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    if not user.is_admin:
+        forbidden = _static_root / "frontend" / "pages" / "v2-forbidden.html"
+        return HTMLResponse(forbidden.read_text(encoding="utf-8"), status_code=403)
+    return _serve_v2_page("v2-training-admin.html")
+
 
 app.add_api_route("/v2/training", _redirect_v2_training_root, include_in_schema=False)
 
@@ -19920,7 +19932,7 @@ def get_workout_session_versions(workout_id: str, user: User = Depends(resolve_u
 
 
 @app.get("/api/admin/pending-exercises")
-def get_admin_pending_exercises(user: User = Depends(require_admin)):
+def get_admin_pending_exercises(user: User = Depends(require_user_admin)):
     from backend.services.pending_exercises import list_pending
 
     with Session(engine) as session:
@@ -19933,7 +19945,7 @@ class PendingRemapBody(BaseModel):
 
 
 @app.post("/api/admin/pending-exercises/{pending_id}/remap")
-def post_pending_remap(pending_id: str, body: PendingRemapBody, user: User = Depends(require_admin)):
+def post_pending_remap(pending_id: str, body: PendingRemapBody, user: User = Depends(require_user_admin)):
     _ = user
     from backend.services.pending_exercises import remap_custom
 
