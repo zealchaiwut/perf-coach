@@ -2494,6 +2494,39 @@ class PlanExercise(Base):
     )
 
 
+class WeeklyCheckIn(Base):
+    """One weekly coach check-in (revamp P6-12): snapshot + self-report for a Mon–Sun week."""
+
+    __tablename__ = "weekly_check_ins"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    week_start = Column(Date, nullable=False)
+    snapshot = Column(JSONB, nullable=True)
+    carried_changes = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    feet = Column(Integer, nullable=True)
+    bed_bucket = Column(String(10), nullable=True)
+    motivation = Column(String(10), nullable=True)
+    note = Column(Text, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", name="uq_weekly_check_ins_user_week"),
+        CheckConstraint("feet IS NULL OR (feet >= 0 AND feet <= 3)", name="ck_weekly_check_ins_feet"),
+        CheckConstraint(
+            "bed_bucket IS NULL OR bed_bucket IN ('0-2', '3-4', '5-7')",
+            name="ck_weekly_check_ins_bed_bucket",
+        ),
+        CheckConstraint(
+            "motivation IS NULL OR motivation IN ('low', 'ok', 'high')",
+            name="ck_weekly_check_ins_motivation",
+        ),
+        Index("ix_weekly_check_ins_user_week", "user_id", week_start.desc()),
+    )
+
+
 class CoachWeekImportPhoto(Base):
     """Audit store for coach-week photo imports (one row per user + week)."""
 
