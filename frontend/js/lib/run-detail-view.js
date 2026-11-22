@@ -587,27 +587,6 @@
     return [];
   }
 
-  function extractIntervalSet(lapMeta) {
-    if (lapMeta.length < 3) return null;
-    var firstRest = -1, lastRest = -1;
-    for (var i = 0; i < lapMeta.length; i++) {
-      if (lapMeta[i].anomaly) {
-        if (firstRest === -1) firstRest = i;
-        lastRest = i;
-      }
-    }
-    if (firstRest === -1 || lastRest === firstRest) return null;
-    // Include the non-anomaly lap immediately before firstRest if it exists
-    // (the first fast interval precedes the first rest lap).
-    var startIdx = (firstRest > 0 && !lapMeta[firstRest - 1].anomaly) ? firstRest - 1 : firstRest;
-    var workLaps = [];
-    for (var j = startIdx; j <= lastRest; j++) {
-      if (!lapMeta[j].anomaly) workLaps.push(lapMeta[j]);
-    }
-    if (workLaps.length < 2) return null;
-    return workLaps;
-  }
-
   function renderIntervalBlock(workLaps, repsPerSet) {
     if (!workLaps || !workLaps.length) return "";
     function avg(arr) {
@@ -1203,13 +1182,23 @@
     var intervalHasRoles = intervalWorkLaps.some(function (m) {
       return m.role === "work";
     });
-    if ((!intervalWorkLaps || !intervalWorkLaps.length) && intervalLapMeta.length) {
+    // No auto-km fallback: aid-station walk km on a marathon look like
+    // interval rests to extractIntervalSet. Show the card only for real
+    // lap presses (2+ work laps) or a confident backend work-role profile.
+    if (
+      (!intervalWorkLaps || !intervalWorkLaps.length) &&
+      intervalLapMeta.length &&
+      detected &&
+      detected.confident
+    ) {
       intervalHasRoles = intervalLapMeta.some(function (m) {
         return m.role === "work";
       });
-      intervalWorkLaps = intervalHasRoles
-        ? intervalLapMeta.filter(function (m) { return m.role === "work"; })
-        : extractIntervalSet(intervalLapMeta) || [];
+      if (intervalHasRoles) {
+        intervalWorkLaps = intervalLapMeta.filter(function (m) {
+          return m.role === "work";
+        });
+      }
     }
     if (intervalWorkLaps && intervalWorkLaps.length) {
       var repsPerSet = detected && detected.confident ? detected.reps_per_set : null;
