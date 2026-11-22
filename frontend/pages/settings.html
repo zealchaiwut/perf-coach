@@ -1333,6 +1333,7 @@
           </div>
           <div class="thresholds-suggestion-banner" id="thresholds-ftp-suggestion" aria-live="polite"></div>
           <p class="thresholds-last-set" id="thresholds-ftp-last-set"></p>
+          <div class="thresholds-suggestion-banner" id="cp-staleness-banner" aria-live="polite"></div>
           <p class="thresholds-desc">Your maximum sustainable power output for ~1 hour (watts). Used to compute cycling TSS. Estimate via a 20-minute all-out effort × 0.95.</p>
           <div class="profile-field-error" id="thresholds-ftp-error"></div>
         </div>
@@ -2403,9 +2404,53 @@
 
       // Zone 2 habit is auto-seeded via coach_habit_targets (Habits page).
 
+      // ── CP staleness / Update CP (#1877) ─────────────────────────────────
+      // GET /api/cp/staleness is read-only; CP only changes when the athlete
+      // clicks Update CP, which POSTs /api/cp/update (also logs cp_history).
+      function _loadCpStaleness() {
+        fetch('/api/cp/staleness')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            var el = document.getElementById('cp-staleness-banner');
+            if (!el || !d || !d.stale) return;
+            el.innerHTML = '';
+            var txt = document.createElement('span');
+            txt.className = 'suggestion-text';
+            var msg = d.suggested_cp_w
+              ? 'CP looks out of date. Suggested ' + d.suggested_cp_w + ' W'
+                + (d.suggestion_basis ? ' (from ' + d.suggestion_basis.date + ' run, ' + d.suggestion_basis.avg_power_w + ' W avg)' : '')
+              : 'CP has not been updated in 6 weeks. Consider re-testing.';
+            if (d.stryd_cp_w) msg += ' · Stryd CP ' + d.stryd_cp_w + ' W';
+            txt.textContent = msg;
+            el.appendChild(txt);
+            [['suggested', d.suggested_cp_w], ['stryd', d.stryd_cp_w]].forEach(function (c) {
+              if (!c[1]) return;
+              var b = document.createElement('button');
+              b.type = 'button';
+              b.className = 'suggestion-accept-btn';
+              b.textContent = 'Update CP to ' + c[1] + ' W' + (c[0] === 'stryd' ? ' (Stryd)' : '');
+              b.addEventListener('click', function () {
+                b.disabled = true;
+                fetch('/api/cp/update', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ cp_w: c[1], source: c[0] })
+                }).then(function (r) {
+                  if (!r.ok) { b.disabled = false; return; }
+                  el.innerHTML = '';
+                  _tLoadPrefs();
+                }).catch(function () { b.disabled = false; });
+              });
+              el.appendChild(b);
+            });
+          })
+          .catch(function () {});
+      }
+
       window.addEventListener('userReady', function () {
         _tLoadPrefs();
         _loadThresholdSuggestions();
+        _loadCpStaleness();
         _loadDeviceZones();
       });
 

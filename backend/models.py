@@ -1466,6 +1466,32 @@ class RacePrediction(Base):
     )
 
 
+class CpHistory(Base):
+    """Dated audit trail of confirmed Critical Power changes (#1877).
+
+    The current CP lives on ``user_preferences.ftp_w``; every confirmed change
+    appends a row here. ``source`` is suggested | stryd | manual.
+    """
+
+    __tablename__ = "cp_history"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE", name="fk_cp_history_user_id"),
+        nullable=False,
+    )
+    cp_w = Column(Integer, nullable=False)
+    previous_cp_w = Column(Integer, nullable=True)
+    source = Column(String(30), nullable=False)
+    effective_date = Column(Date, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+
+    __table_args__ = (
+        Index("ix_cp_history_user_date", "user_id", "effective_date"),
+    )
+
+
 class AthleteDurationCurve(Base):
     """Per-athlete best-effort duration curve aggregated across all run workouts.
 

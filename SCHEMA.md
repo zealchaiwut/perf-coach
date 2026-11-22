@@ -844,6 +844,24 @@ Migration: `kk1f2a3b4c5e_add_athlete_duration_curves_table`.
 
 ---
 
+## cp_history
+
+Dated audit trail of confirmed Critical Power changes (#1877). Current CP stays on `user_preferences.ftp_w`.
+
+| column | type | notes |
+|--------|------|-------|
+| id | UUID PK | server default gen_random_uuid() |
+| user_id | UUID FK→users | CASCADE, NOT NULL |
+| cp_w | integer | NOT NULL |
+| previous_cp_w | integer | nullable |
+| source | varchar(30) | NOT NULL — suggested / stryd / manual |
+| effective_date | date | NOT NULL |
+| created_at | timestamptz | NOT NULL, server default now() |
+
+Index: `ix_cp_history_user_date` on `(user_id, effective_date)`. Migration: `c4b5ed9f6d24_add_cp_history_table`.
+
+---
+
 ## summary_cache
 
 Durable (L2) mirror of the in-memory `_SUMMARY_CACHE` (L1) in `backend/main.py`: one row per `(user_id, cache_key)`, invalidated when the stored `signature` no longer matches the recomputed signature. Persisting to Neon means a server restart (which wipes L1) doesn't force a cold recompute — the first request after restart reads straight from this table. `cache_key` values in use: `weekly`, `monthly:<...>`, `performance`.
