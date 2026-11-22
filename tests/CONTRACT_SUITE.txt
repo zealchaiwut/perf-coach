@@ -21,3 +21,4 @@ tests/test_ux_readiness_sync_fixes.py
 tests/test_ux_readiness_signal_copy.py
 tests/test_incremental_sync_inprocess_when_worker_off.py
 tests/test_sync_status__provider_states.py
+tests/test_log_plan_mock_match.py
