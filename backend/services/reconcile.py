@@ -178,6 +178,8 @@ def _sync_splits(session, workout, act) -> None:
             split_index=i,
             distance_km=s.get("distance_km") or 0,
             duration_seconds=s.get("duration_seconds") or 0,
+            moving_time_seconds=s.get("moving_time_seconds") or s.get("duration_seconds") or 0,
+            elapsed_time_seconds=s.get("elapsed_time_seconds") or s.get("duration_seconds") or 0,
             avg_hr=s.get("avg_hr"),
             avg_power=s.get("avg_power") if s.get("avg_power") is not None else s.get("avg_power_w"),
             cadence_spm=s.get("cadence_spm"),
@@ -366,6 +368,7 @@ def reconcile_workouts(
                         StravaActivity.strava_activity_id, StravaActivity.start_time,
                         StravaActivity.activity_type, StravaActivity.name,
                         StravaActivity.distance_km, StravaActivity.duration_seconds,
+                        StravaActivity.elapsed_time_seconds,
                         StravaActivity.avg_hr, StravaActivity.avg_power_w,
                         StravaActivity.max_hr, StravaActivity.elevation_m,
                         StravaActivity.is_stryd_synced,
@@ -555,6 +558,9 @@ def reconcile_workouts(
             if source_type == "stryd":
                 _apply_stryd_metrics(target, act)
                 stryd_pairs.append((target, act))
+
+            if source_type == "strava" and getattr(act, "elapsed_time_seconds", None) is not None:
+                target.elapsed_time_seconds = act.elapsed_time_seconds
 
             touched_workouts.append(target)
 

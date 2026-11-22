@@ -6580,6 +6580,7 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
+        "elapsed_time_seconds": getattr(w, "elapsed_time_seconds", None),
         "avg_hr": w.avg_hr,
         "max_hr": w.max_hr,
         "elevation_m": w.elevation_m,
@@ -7306,6 +7307,25 @@ def get_workout_full(
         }
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
+        # Stop detection + sensor glitches (revamp P6-2, #1876). Strava laps carry
+        # real moving/elapsed per lap; fall back to stored splits.
+        from backend.services import stop_detection as _sd
+        _sd_laps = _sd.laps_from_strava(unified["laps"]) or _sd.laps_from_splits(split_rows)
+        response_body["stop_detection"] = _sd.detect_stops_and_glitches(_sd_laps)
+        _race = (
+            session.query(Race)
+            .filter(
+                Race.user_id == workout.user_id,
+                Race.race_date == workout.workout_date,
+                Race.race_type == "race",
+                Race.status == "done",
+            )
+            .first()
+        )
+        if _race is not None:
+            response_body["race_result"] = _sd.race_result_time(
+                _race.actual_time_seconds, workout.elapsed_time_seconds, workout.duration_seconds
+            )
         _counted_tss = _session_tss(workout, prefs=prefs)
         response_body["tss_block"] = {
             **_counted_tss,
@@ -9006,6 +9026,8 @@ def _split_dict(s: WorkoutSplit) -> dict:
         "split_index": s.split_index,
         "distance_km": str(s.distance_km),
         "duration_seconds": s.duration_seconds,
+        "moving_time_seconds": s.moving_time_seconds,
+        "elapsed_time_seconds": s.elapsed_time_seconds,
         "avg_hr": s.avg_hr,
         "avg_power": s.avg_power,
         "cadence_spm": s.cadence_spm,
