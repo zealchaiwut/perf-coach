@@ -613,6 +613,18 @@
 
 .rd4-srcbtn--strava { background: #fc4c02; }
 .rd4-srcbtn--stryd { background: #0f1830; }
+.rd4-srcbtn--missing {
+  background: #fff4d8;
+  color: #6b4408;
+}
+.rd4-src-missing {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #6b4408;
+  font-weight: 600;
+}
+.rd4-src-missing a { color: #1f3b8a; }
 
 @media (max-width: 599px) {
   .rd4-stat-grid { grid-template-columns: repeat(3, 1fr); }

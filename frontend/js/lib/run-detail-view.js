@@ -73,6 +73,21 @@
     return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   }
 
+  function fmtSyncAt(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    var opts = {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    };
+    if (window.AppCommon && window.AppCommon.TIMEZONE) opts.timeZone = window.AppCommon.TIMEZONE;
+    return d.toLocaleString("en-GB", opts);
+  }
+
   function median(nums) {
     var a = nums.filter(function (v) {
       return v != null && isFinite(v);
@@ -1354,16 +1369,29 @@
 
     // ── 9 Source & sync ──
     var syncParts = [];
-    if (syncMeta.stravaLatest && syncMeta.stravaLatest.synced_at)
-      syncParts.push("Strava " + syncMeta.stravaLatest.synced_at);
-    if (syncMeta.strydLatest && syncMeta.strydLatest.synced_at)
-      syncParts.push("Stryd " + syncMeta.strydLatest.synced_at);
+    if (syncMeta.stravaLatest && syncMeta.stravaLatest.synced_at) {
+      var stravaSyncAt = fmtSyncAt(syncMeta.stravaLatest.synced_at);
+      syncParts.push("Strava " + (stravaSyncAt || syncMeta.stravaLatest.synced_at));
+    }
+    if (syncMeta.strydLatest && syncMeta.strydLatest.synced_at) {
+      var strydLatestAt = fmtSyncAt(syncMeta.strydLatest.synced_at);
+      syncParts.push("Stryd " + (strydLatestAt || syncMeta.strydLatest.synced_at));
+    }
     var ids = [];
     if (strava && strava.strava_activity_id)
       ids.push("Strava " + strava.strava_activity_id);
     if (stryd && stryd.stryd_activity_id)
       ids.push("Stryd " + stryd.stryd_activity_id);
 
+    var strydMissing = srcStrava && !srcStryd;
+    var strydSyncAt = fmtSyncAt(
+      (syncMeta.strydLatest && syncMeta.strydLatest.synced_at) || ""
+    );
+    var missingNote = strydMissing
+      ? '<p class="rd4-src-missing">No Stryd data on this session' +
+        (strydSyncAt ? " · last Stryd sync " + esc(strydSyncAt) : "") +
+        '. <a href="/v2/settings#integrations">Sync from Settings → Integrations</a></p>'
+      : "";
     var srcBlock =
       '<section class="rd4-card rd4-src"><h2 class="rd4-sec-title">Source &amp; sync</h2>' +
       '<div class="rd4-src-row">' +
@@ -1376,8 +1404,11 @@
         ? '<span class="rd4-srcbtn rd4-srcbtn--stryd">Stryd · TSS ' +
           dash(stryd && stryd.tss != null ? Math.round(stryd.tss) : (w.tss != null ? Math.round(w.tss) : null)) +
           "</span>"
-        : "") +
+        : strydMissing
+          ? '<a class="rd4-srcbtn rd4-srcbtn--missing" href="/v2/settings#integrations">No Stryd on this session</a>'
+          : "") +
       "</div>" +
+      missingNote +
       '<p class="rd4-muted">Merged from ' +
       ids.join(" · ") +
       (syncParts.length ? " · last sync " + syncParts.join(", ") : "") +
