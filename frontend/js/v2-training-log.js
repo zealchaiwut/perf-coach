@@ -52,7 +52,10 @@
 
   function sessionCardClass(kind, status) {
     if (status === 'missed') return 'rv-session--missed';
-    if (status === 'planned') return 'rv-session--run rv-month-card--planned';
+    if (status === 'planned') {
+      if (kind === 'mobility' || kind === 'plyo') return 'rv-month-card--planned-mobility';
+      return 'rv-month-card--planned';
+    }
     if (kind === 'rest') return 'rv-session--rest';
     if (kind === 'race') return 'rv-session--race';
     if (kind === 'quality_run') return 'rv-session--quality';
@@ -74,11 +77,13 @@
     if (!body || !nav) return;
     var label = new Date(data.month + '-01').toLocaleString('en', { month: 'long', year: 'numeric' });
     nav.innerHTML =
-      '<button type="button" class="rv-btn rv-btn--secondary" aria-label="Previous month" id="v2-month-prev">‹</button>' +
-      '<span style="font-weight:700;min-width:150px;text-align:center">' + esc(label) + '</span>' +
-      '<button type="button" class="rv-btn rv-btn--secondary" aria-label="Next month" id="v2-month-next">›</button>' +
-      '<button type="button" class="rv-btn rv-btn--secondary" id="v2-month-today">Today</button>' +
-      '<span class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">So far: ' +
+      '<div class="rv-month-nav-controls">' +
+      '<button type="button" class="rv-month-nav-btn" aria-label="Previous month" id="v2-month-prev">‹</button>' +
+      '<span class="rv-month-nav-label">' + esc(label) + '</span>' +
+      '<button type="button" class="rv-month-nav-btn" aria-label="Next month" id="v2-month-next">›</button>' +
+      '<button type="button" class="rv-month-nav-btn rv-month-nav-today" id="v2-month-today">Today</button>' +
+      '</div>' +
+      '<span class="rv-month-nav-summary">So far: ' +
       Math.round(data.summary.tss_total || 0) + ' TSS · ' + (data.summary.distance_km || 0) + ' km · ' +
       (data.summary.session_count || 0) + ' sessions' +
       (data.summary.plan_kept_label ? ' · plan kept ' + esc(data.summary.plan_kept_label) : '') +
@@ -92,16 +97,22 @@
     };
 
     var html = ['<div class="rv-month-grid" role="grid">'];
-    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Week'].forEach(function (h) {
+    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(function (h) {
       html.push('<div class="rv-month-head">' + h + '</div>');
     });
+    html.push('<div class="rv-month-head rv-month-head--week">Week</div>');
     (data.weeks || []).forEach(function (week) {
       week.days.forEach(function (day) {
         var cls = 'rv-month-day';
         if (!day.in_month) cls += ' rv-month-day--out';
         if (day.is_today) cls += ' rv-month-day--today';
         html.push('<div class="' + cls + '" role="gridcell">');
-        html.push('<div class="rv-month-daynum">' + esc(day.date.slice(-2)) + (day.is_today ? ' <span class="rv-chip" style="min-height:auto;padding:0 6px;font-size:10px">Today</span>' : '') + '</div>');
+        html.push(
+          '<div class="rv-month-daynum">' +
+          esc(String(parseInt(day.date.slice(-2), 10))) +
+          (day.is_today ? '<span class="rv-month-today-chip">TODAY</span>' : '') +
+          '</div>'
+        );
         (day.items || []).forEach(function (item) {
           var cardCls = 'rv-month-card ' + sessionCardClass(item.kind, item.status);
           var isRun = item.kind === 'run' || item.kind === 'quality_run';
@@ -113,13 +124,13 @@
           if (item.distance_km != null) meta.push(item.distance_km + ' km');
           if (item.duration_min != null) meta.push(item.duration_min + ' min');
           var who = item.who || String(item.kind || '').replace('_', ' ').toUpperCase();
-          var tag = item.status === 'done' ? 'Done' : (item.status === 'planned' ? '' : item.status);
+          var tag = item.status === 'done' ? 'DONE' : '';
           html.push(
             '<h3 class="' + cardCls + '" tabindex="' + (clickable ? '0' : '-1') + '" data-workout-id="' + esc(item.workout_id || '') + '" data-session-kind="' + esc(item.kind || '') + '">' +
             '<span class="rv-month-who" style="color:' + esc(whoColor(who)) + '">' + esc(who) + '</span>' +
             '<span class="rv-month-card-title">' + esc(item.name) + '</span>' +
-            (meta.length ? '<div class="rv-subtitle" style="margin:0;font-family:var(--rv-mono);font-size:10px">' + esc(meta.join(' · ')) + '</div>' : '') +
-            (tag ? '<span class="rv-chip rv-chip--done">' + esc(tag) + '</span>' : '') +
+            (meta.length ? '<div class="rv-month-card-meta">' + esc(meta.join(' · ')) + '</div>' : '') +
+            (tag ? '<span class="rv-chip rv-chip--done">' + tag + '</span>' : '') +
             '</h3>'
           );
         });
