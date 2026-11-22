@@ -15,6 +15,9 @@ how issues should use them.
 | TrainingLiftEdit | Session editor, logged mode | 2 | [mocks/source/TrainingLiftEdit.dc.html](mocks/source/TrainingLiftEdit.dc.html) | [mocks/preview/TrainingLiftEdit.html](mocks/preview/TrainingLiftEdit.html) | [mocks/screenshots/TrainingLiftEdit.png](mocks/screenshots/TrainingLiftEdit.png) |
 | TrainingTrends | Training · Trends | 5 | [mocks/source/TrainingTrends.dc.html](mocks/source/TrainingTrends.dc.html) | [mocks/preview/TrainingTrends.html](mocks/preview/TrainingTrends.html) | [mocks/screenshots/TrainingTrends.png](mocks/screenshots/TrainingTrends.png) |
 | TrainingAdmin | Admin · training library | 5 | [mocks/source/TrainingAdmin.dc.html](mocks/source/TrainingAdmin.dc.html) | [mocks/preview/TrainingAdmin.html](mocks/preview/TrainingAdmin.html) | [mocks/screenshots/TrainingAdmin.png](mocks/screenshots/TrainingAdmin.png) |
+| HomeSeason | Home · Osaka season layout — **provisional** copy of Main until canvas export | 6 · [#1883](https://github.com/zealchaiwut/perf-coach/issues/1883) | [mocks/source/HomeSeason.dc.html](mocks/source/HomeSeason.dc.html) | [mocks/preview/HomeSeason.html](mocks/preview/HomeSeason.html) | [mocks/screenshots/HomeSeason.png](mocks/screenshots/HomeSeason.png) |
+| SeasonRoad | Performance · season road — **provisional** copy of Performance until canvas export | 6 · [#1880](https://github.com/zealchaiwut/perf-coach/issues/1880) | [mocks/source/SeasonRoad.dc.html](mocks/source/SeasonRoad.dc.html) | [mocks/preview/SeasonRoad.html](mocks/preview/SeasonRoad.html) | [mocks/screenshots/SeasonRoad.png](mocks/screenshots/SeasonRoad.png) |
+| WeeklyCheckin | Performance · weekly check-in — **provisional** copy of Performance coach block | 6 · [#1887](https://github.com/zealchaiwut/perf-coach/issues/1887) | [mocks/source/WeeklyCheckin.dc.html](mocks/source/WeeklyCheckin.dc.html) | [mocks/preview/WeeklyCheckin.html](mocks/preview/WeeklyCheckin.html) | [mocks/screenshots/WeeklyCheckin.png](mocks/screenshots/WeeklyCheckin.png) |
 
 ## By phase
 
@@ -23,6 +26,7 @@ how issues should use them.
 - **Phase 3:** TrainingWeek, TrainingPlanEdit
 - **Phase 4:** Performance
 - **Phase 5:** Main (Home), TrainingTrends, TrainingAdmin
+- **Phase 6:** HomeSeason (provisional), SeasonRoad (provisional), WeeklyCheckin (provisional)
 
 ## Not included
 

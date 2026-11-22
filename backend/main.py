@@ -5872,6 +5872,7 @@ _V2_ROUTE_FILES = {
     "/v2/training/log": "v2-training-log.html",
     "/v2/training/trends": "v2-training-trends.html",
     "/v2/performance": "v2-performance.html",
+    "/v2/performance/season-road": "v2-season-road.html",
     "/v2/performance/check-in": "v2-weekly-check-in.html",
     "/v2/components": "v2-components.html",
     "/v2/settings/plan": "v2-settings-plan.html",
