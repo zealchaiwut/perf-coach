@@ -14398,6 +14398,7 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
         "user_id": str(prefs.user_id),
         "ftp_w": prefs.ftp_w,
         "ftp_w_updated_at": _isoformat(getattr(prefs, "ftp_w_updated_at", None)),
+        "ftp_w_source": getattr(prefs, "ftp_w_source", None),
         "threshold_hr": prefs.threshold_hr,
         "threshold_hr_updated_at": _isoformat(getattr(prefs, "threshold_hr_updated_at", None)),
         "threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km,
@@ -14573,6 +14574,11 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
 
         _now = _datetime.now(_timezone.utc)
         if ftp_w is not _PREFS_SENTINEL:
+            if ftp_w is not None and ftp_w != prefs.ftp_w:
+                from backend.services.cp_staleness import record_cp_history
+
+                record_cp_history(session, uid, ftp_w, prefs.ftp_w, "manual", _today_bkk())
+                prefs.ftp_w_source = "manual"
             prefs.ftp_w = ftp_w
             prefs.ftp_w_updated_at = _now
         if threshold_hr is not _PREFS_SENTINEL:
@@ -16490,6 +16496,66 @@ def get_device_zones(user: User = Depends(resolve_user)):
             "zones": zones,
             "activity_date": latest.start_time.date().isoformat() if latest.start_time else None,
         })
+
+
+# ── Critical Power staleness + confirmed update (#1877) ──────────────────────
+
+@app.get("/api/cp/staleness")
+def get_cp_staleness(user: User = Depends(resolve_user)):
+    """CP staleness verdict, suggested CP (if any) and Stryd CP for the session user."""
+    from backend.services.cp_staleness import get_cp_status
+
+    with Session(engine) as session:
+        return JSONResponse(get_cp_status(session, user.id, _today_bkk()))
+
+
+@app.get("/api/cp/history")
+def get_cp_history(user: User = Depends(resolve_user)):
+    from backend.services.cp_staleness import list_cp_history
+
+    with Session(engine) as session:
+        return JSONResponse({"history": list_cp_history(session, user.id)})
+
+
+@app.post("/api/cp/update")
+async def post_cp_update(request: Request, user: User = Depends(resolve_user)):
+    """Athlete-confirmed CP update. Body: ``{"cp_w": int, "source": "suggested"|"stryd"|"manual"}``.
+
+    CP is never changed automatically; this is the only write path for the
+    suggestion flow. Writes ftp_w/ftp_w_source/ftp_w_updated_at and a cp_history row.
+    """
+    from backend.services.cp_staleness import VALID_SOURCES, apply_cp_update, validate_cp
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Invalid JSON body")
+    cp_w = body.get("cp_w")
+    source = body.get("source", "manual")
+    errors = []
+    msg = validate_cp(cp_w)
+    if msg:
+        errors.append({"field": "cp_w", "msg": msg})
+    if source not in VALID_SOURCES:
+        errors.append({"field": "source", "msg": f"source must be one of {', '.join(VALID_SOURCES)}"})
+    if errors:
+        raise HTTPException(status_code=422, detail=errors)
+
+    with Session(engine) as session:
+        result = apply_cp_update(session, user.id, cp_w, source, _today_bkk())
+        session.commit()
+        try:
+            _recompute_user_running_tss(user.id, session)
+            session.commit()
+        except Exception as _exc:
+            _logging.getLogger(__name__).warning(
+                "recompute_user_running_tss failed for user %s: %s", user.id, _exc, exc_info=True
+            )
+        _trigger_performance_backfill_background(user.id)
+        result["status"] = "fresh"
+        return JSONResponse(result)
 
 
 # ── Athlete duration curve ────────────────────────────────────────────────────
