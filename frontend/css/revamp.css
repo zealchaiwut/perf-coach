@@ -1177,3 +1177,167 @@ body.rv-page .rv-admin-badge {
   margin-left: 4px;
   vertical-align: middle;
 }
+
+/* Training admin (P5-6) */
+body.rv-page .rv-admin-intro { align-items: flex-start; gap: 14px; margin-bottom: 16px; }
+body.rv-page .rv-admin-intro-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--rv-ink);
+  color: var(--rv-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 18px;
+}
+body.rv-page .rv-admin-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  body.rv-page .rv-admin-layout { grid-template-columns: 1fr; }
+}
+body.rv-page .rv-admin-sidenav { padding: 10px; gap: 2px; display: flex; flex-direction: column; }
+body.rv-page .rv-admin-side {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: #33405e;
+  border: 0;
+  background: transparent;
+}
+body.rv-page .rv-admin-side--on { background: var(--rv-ink); color: #fff; }
+body.rv-page .rv-admin-side--muted { opacity: 0.55; cursor: default; }
+body.rv-page .rv-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  body.rv-page .rv-admin-grid { grid-template-columns: 1fr; }
+}
+body.rv-page .rv-admin-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+body.rv-page .rv-admin-table-scroll { overflow-x: auto; }
+body.rv-page .rv-admin-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+body.rv-page .rv-admin-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--rv-secondary);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rv-hairline);
+}
+body.rv-page .rv-admin-table td {
+  padding: 10px;
+  border-top: 1px solid var(--rv-hairline);
+  vertical-align: middle;
+}
+body.rv-page .rv-admin-row--sel td { background: var(--rv-tile); }
+body.rv-page .rv-linkish {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--rv-ink);
+  cursor: pointer;
+  text-align: left;
+}
+body.rv-page .rv-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #eef2fb;
+  color: #33405e;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+body.rv-page .rv-switch {
+  appearance: none;
+  width: 42px;
+  height: 26px;
+  border-radius: 999px;
+  background: #c9d2e3;
+  position: relative;
+  cursor: pointer;
+  border: 0;
+}
+body.rv-page .rv-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+body.rv-page .rv-switch:checked { background: #16a34a; }
+body.rv-page .rv-switch:checked::after { left: 19px; }
+body.rv-page .rv-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+body.rv-page .rv-chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--rv-border);
+  background: #fff;
+  cursor: pointer;
+}
+body.rv-page .rv-chip.is-on {
+  background: var(--rv-ink);
+  color: #fff;
+  border-color: var(--rv-ink);
+}
+body.rv-page .rv-admin-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+body.rv-page .rv-admin-validation { font-size: 13px; margin: 8px 0 0; }
+body.rv-page .rv-admin-validation--err { color: #b91c1c; }
+body.rv-page .rv-admin-validation--ok { color: #15803d; }
+body.rv-page .rv-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 21, 48, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 80;
+}
+body.rv-page .rv-modal-backdrop[hidden] { display: none !important; }
+body.rv-page .rv-modal { max-width: 560px; width: 100%; max-height: 90vh; overflow: auto; }
+body.rv-page .rv-import-ta { min-height: 160px; font-family: var(--rv-mono); font-size: 13px; }
+body.rv-page .rv-import-diff {
+  background: var(--rv-tile);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  min-height: 80px;
+}
