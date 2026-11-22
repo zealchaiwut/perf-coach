@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Weekly check-in – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css">
+</head>
+<body class="rv-page">
+  <div class="rv-shell rv-shell--wide">
+    <header class="rv-shell-head">
+      <div>
+        <h1 class="rv-title">Weekly check-in</h1>
+        <p class="rv-subtitle" id="wci-week-label">Loading…</p>
+      </div>
+      <nav aria-label="Primary">
+        <ul class="rv-tabnav">
+          <li><a class="rv-tab" href="/v2/home">Home</a></li>
+          <li><a class="rv-tab" href="/v2/training/plan">Training</a></li>
+          <li><a class="rv-tab rv-tab--on" href="/v2/performance">Performance</a></li>
+        </ul>
+      </nav>
+    </header>
+    <ol class="wci-steps" aria-label="Check-in steps">
+      <li class="wci-step is-on" data-step="1">1 Last week's changes</li>
+      <li class="wci-step" data-step="2">2 Check the week</li>
+      <li class="wci-step" data-step="3">3 Three quick scores</li>
+      <li class="wci-step" data-step="4">4 Copy, talk, paste back</li>
+    </ol>
+    <div class="wci-layout" id="wci-root"><p class="rv-subtitle">Loading check-in…</p></div>
+  </div>
+  <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-weekly-check-in.js"></script>
+</body>
+</html>

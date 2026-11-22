@@ -7,6 +7,7 @@ projection and race-list routes here.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -312,3 +313,79 @@ def get_performance_coach_block(user: User = Depends(resolve_user)):
 
     with Session(engine) as db:
         return JSONResponse(fetch_coach_block(db, user.id, today_bangkok()))
+
+
+class _WeeklyCheckInChangePatch(BaseModel):
+    id: str
+    status: str
+
+
+class _WeeklyCheckInPatch(BaseModel):
+    carried_changes: list[_WeeklyCheckInChangePatch] | None = None
+    feet: int | None = None
+    bed_bucket: str | None = None
+    motivation: str | None = None
+    note: str | None = None
+    complete: bool | None = None
+
+
+@router.get("/api/weekly-check-in")
+def get_weekly_check_in(user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import checkin_payload, get_or_create_checkin
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        row, meta = get_or_create_checkin(db, user.id, today_bangkok())
+        db.commit()
+        return JSONResponse(checkin_payload(row, meta))
+
+
+@router.post("/api/weekly-check-in/refresh")
+def post_weekly_check_in_refresh(user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import refresh_snapshot
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        payload = refresh_snapshot(db, user.id, today_bangkok())
+        db.commit()
+        return JSONResponse(payload)
+
+
+@router.patch("/api/weekly-check-in")
+def patch_weekly_check_in(body: _WeeklyCheckInPatch, user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import (
+        checkin_payload,
+        get_or_create_checkin,
+        mark_complete,
+        save_carried_statuses,
+        save_self_report,
+    )
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        row, meta = get_or_create_checkin(db, user.id, today)
+        try:
+            if body.carried_changes is not None:
+                save_carried_statuses(
+                    db, row, [{"id": c.id, "status": c.status} for c in body.carried_changes]
+                )
+            report: dict[str, Any] = {}
+            fields = body.model_fields_set
+            if "feet" in fields:
+                report["feet"] = body.feet
+            if "bed_bucket" in fields:
+                report["bed_bucket"] = body.bed_bucket
+            if "motivation" in fields:
+                report["motivation"] = body.motivation
+            if "note" in fields:
+                report["note"] = body.note
+            if report:
+                save_self_report(db, row, **report)
+            if body.complete:
+                mark_complete(db, row)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(checkin_payload(row, meta))

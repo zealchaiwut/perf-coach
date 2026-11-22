@@ -108,7 +108,7 @@ def test_chip_misses_are_silently_absent():
 def test_checkin_due_or_done_for_this_week():
     assert cb.week_bounds(TODAY) == (date(2026, 11, 2), date(2026, 11, 8))
     done = cb.checkin_state([decision(decided_on=date(2026, 11, 2))], TODAY)
-    assert done["state"] == "done" and done["link"] == "/coach" and done["week_start"] == "2026-11-02"
+    assert done["state"] == "done" and done["link"] == "/v2/performance/check-in" and done["week_start"] == "2026-11-02"
     assert cb.checkin_state([decision(decided_on=date(2026, 11, 1))], TODAY)["state"] == "due"
     assert cb.checkin_state([], TODAY)["state"] == "due"
 
