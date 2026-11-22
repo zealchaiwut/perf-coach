@@ -1261,6 +1261,7 @@ class ActivityStream(Base):
 RACE_PRIORITY_VALUES = ("A", "B", "C")
 RACE_STATUS_VALUES = ("planned", "done", "abandoned")
 RACE_TYPE_VALUES = ("race", "checkpoint")
+RACE_ROLE_VALUES = ("a_race", "pb", "long_run", "fun")
 
 
 def _in_clause(values):
@@ -1303,6 +1304,22 @@ class Race(Base):
     """Classification of the effort — one of RACE_TYPE_VALUES ('race', 'checkpoint')."""
     actual_time_seconds = Column(Integer, nullable=True)
     """Recorded finish time in seconds after the race is completed; NULL for future races."""
+    role = Column(String(20), nullable=False, server_default=text("'pb'"))
+    """Training role — one of RACE_ROLE_VALUES (revamp P6-4)."""
+    power_cap_w = Column(Integer, nullable=True)
+    """long_run role: average-power cap in watts."""
+    addon_distance_km = Column(Numeric(8, 3), nullable=True)
+    """long_run role: add-on distance target in km after the race (0 allowed)."""
+    goal_band_low_seconds = Column(Integer, nullable=True)
+    """a_race role: goal band low (seconds)."""
+    goal_band_high_seconds = Column(Integer, nullable=True)
+    """a_race role: goal band high (seconds)."""
+    addon_workout_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("workouts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    """Synced run linked as the post-race add-on (revamp P6-4)."""
     tss_if_override = Column(Numeric(4, 3), nullable=True)
     """Optional intensity factor override for race-day TSS (revamp P3-2)."""
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
@@ -1332,9 +1349,14 @@ class Race(Base):
             f"race_type IN ({_in_clause(RACE_TYPE_VALUES)})",
             name="ck_races_race_type_values",
         ),
+        CheckConstraint(
+            f"role IN ({_in_clause(RACE_ROLE_VALUES)})",
+            name="ck_races_role_values",
+        ),
     )
 
     user = relationship("User", foreign_keys=[user_id])
+    addon_workout = relationship("Workout", foreign_keys=[addon_workout_id])
     checkpoints = relationship("RaceCheckpoint", back_populates="race", cascade="all, delete-orphan")
 
     def __init__(self, **kwargs):

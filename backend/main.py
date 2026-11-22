@@ -41,7 +41,18 @@ from backend.models import (
     WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
     PlanExercise, PendingExercise,
 )
-from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
+from backend.models import (
+    compute_goal_pace as _compute_goal_pace_tuple,
+    RACE_TYPE_VALUES as _RACE_TYPE_VALUES,
+)
+from backend.services import race_list as _race_list_svc
+from backend.services.race_roles import (
+    ROLES as _RACE_ROLES,
+    compute_role_result as _compute_role_result,
+    pb_limit_warning as _pb_limit_warning,
+    race_role as _race_role,
+    try_auto_link_addon as _try_auto_link_addon,
+)
 from backend.services.workout_merge import compute_best_values
 from backend.services.workout_types import WORKOUT_TYPE_RUN, WORKOUT_TYPE_STRENGTH
 from backend.services.tss import compute_running_tss as _compute_running_tss
@@ -14681,6 +14692,12 @@ class _RaceCreateBody(BaseModel):
     priority: Optional[Literal["A", "B", "C"]] = None
     status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
+    role: Optional[Literal["a_race", "pb", "long_run", "fun"]] = None
+    power_cap_w: Optional[int] = None
+    addon_distance_km: Optional[float] = None
+    goal_band_low_seconds: Optional[int] = None
+    goal_band_high_seconds: Optional[int] = None
+    addon_workout_id: Optional[str] = None
 
 
 class _RaceUpdateBody(BaseModel):
@@ -14693,6 +14710,12 @@ class _RaceUpdateBody(BaseModel):
     priority: Optional[Literal["A", "B", "C"]] = None
     status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
+    role: Optional[Literal["a_race", "pb", "long_run", "fun"]] = None
+    power_cap_w: Optional[int] = None
+    addon_distance_km: Optional[float] = None
+    goal_band_low_seconds: Optional[int] = None
+    goal_band_high_seconds: Optional[int] = None
+    addon_workout_id: Optional[str] = None
 
 
 def _race_met_status(race: Race) -> str:
@@ -14705,7 +14728,74 @@ def _race_met_status(race: Race) -> str:
     return "upcoming"
 
 
-def _race_dict(race: Race) -> dict:
+def _validate_race_role(role: Optional[str]) -> None:
+    if role is not None and role not in _RACE_ROLES:
+        raise HTTPException(
+            status_code=422,
+            detail={"field": "role", "error": f"role must be one of {', '.join(_RACE_ROLES)}"},
+        )
+
+
+def _apply_race_role_fields(race: Race, body: _RaceUpdateBody, fields_set: set) -> None:
+    _validate_race_role(body.role)
+    if body.role is not None:
+        race.role = body.role
+    if "power_cap_w" in fields_set:
+        race.power_cap_w = body.power_cap_w
+    if "addon_distance_km" in fields_set:
+        race.addon_distance_km = body.addon_distance_km
+    if "goal_band_low_seconds" in fields_set:
+        race.goal_band_low_seconds = body.goal_band_low_seconds
+    if "goal_band_high_seconds" in fields_set:
+        race.goal_band_high_seconds = body.goal_band_high_seconds
+    if "addon_workout_id" in fields_set:
+        if body.addon_workout_id is None:
+            race.addon_workout_id = None
+        else:
+            try:
+                race.addon_workout_id = _uuid.UUID(body.addon_workout_id)
+            except (ValueError, AttributeError):
+                raise HTTPException(status_code=400, detail="invalid addon_workout_id")
+
+
+def _race_day_workouts(session: Session, user_id, race_date: _date) -> list:
+    return (
+        session.query(Workout)
+        .filter(Workout.user_id == user_id, Workout.workout_date == race_date)
+        .all()
+    )
+
+
+def _race_main_workout(session: Session, race: Race, runs: list) -> Optional[Workout]:
+    if not race.distance_km:
+        return None
+    match = _race_list_svc.match_run(race.race_date, float(race.distance_km), runs)
+    if match is None or match.get("workout_id") is None:
+        return None
+    try:
+        wid = _uuid.UUID(match["workout_id"])
+    except (ValueError, AttributeError):
+        return None
+    return session.get(Workout, wid)
+
+
+def _maybe_autolink_addon(session: Session, user_id, race: Race) -> None:
+    if race.addon_workout_id is not None or _race_role(race) != "long_run":
+        return
+    runs = _race_day_workouts(session, user_id, race.race_date)
+    main_w = _race_main_workout(session, race, runs)
+    addon = _try_auto_link_addon(race, main_w, runs)
+    if addon is not None:
+        race.addon_workout_id = addon.id
+        session.commit()
+
+
+def _race_dict(
+    race: Race,
+    *,
+    pb_limit_warning: Optional[str] = None,
+    role_result: Optional[dict] = None,
+) -> dict:
     return {
         "id": str(race.id),
         "user_id": str(race.user_id),
@@ -14721,10 +14811,32 @@ def _race_dict(race: Race) -> dict:
         "priority": race.priority,
         "status": race.status,
         "race_type": race.race_type if race.race_type else "race",
+        "role": _race_role(race),
+        "power_cap_w": race.power_cap_w,
+        "addon_distance_km": float(race.addon_distance_km) if race.addon_distance_km is not None else None,
+        "goal_band_low_seconds": race.goal_band_low_seconds,
+        "goal_band_high_seconds": race.goal_band_high_seconds,
+        "addon_workout_id": str(race.addon_workout_id) if race.addon_workout_id else None,
+        "pb_limit_warning": pb_limit_warning,
+        "role_result": role_result,
         "met_status": _race_met_status(race),
         "created_at": race.created_at.isoformat() if race.created_at else None,
         "updated_at": race.updated_at.isoformat() if race.updated_at else None,
     }
+
+
+def _race_dict_enriched(session: Session, user: User, race: Race, *, autolink: bool = True) -> dict:
+    if autolink:
+        _maybe_autolink_addon(session, user.id, race)
+    all_races = session.query(Race).filter(Race.user_id == user.id).all()
+    runs = _race_day_workouts(session, user.id, race.race_date)
+    main_w = _race_main_workout(session, race, runs)
+    addon_w = session.get(Workout, race.addon_workout_id) if race.addon_workout_id else None
+    return _race_dict(
+        race,
+        pb_limit_warning=_pb_limit_warning(all_races, race),
+        role_result=_compute_role_result(race, main_w, addon_w),
+    )
 
 
 def _validate_race_date(race_date_str: str) -> _date:
@@ -14789,12 +14901,23 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
             race_kwargs["priority"] = body.priority
         if body.status is not None:
             race_kwargs["status"] = body.status
+        if body.role is not None:
+            _validate_race_role(body.role)
+            race_kwargs["role"] = body.role
+        if body.power_cap_w is not None:
+            race_kwargs["power_cap_w"] = body.power_cap_w
+        if body.addon_distance_km is not None:
+            race_kwargs["addon_distance_km"] = body.addon_distance_km
+        if body.goal_band_low_seconds is not None:
+            race_kwargs["goal_band_low_seconds"] = body.goal_band_low_seconds
+        if body.goal_band_high_seconds is not None:
+            race_kwargs["goal_band_high_seconds"] = body.goal_band_high_seconds
         race = Race(**race_kwargs)
         race.goal_pace_seconds_per_km = pace
         session.add(race)
         session.commit()
         session.refresh(race)
-        return JSONResponse(status_code=201, content=_race_dict(race))
+        return JSONResponse(status_code=201, content=_race_dict_enriched(session, user, race, autolink=False))
 
 
 @app.get("/api/races")
@@ -14806,7 +14929,7 @@ def list_races(user: User = Depends(resolve_user)):
             .order_by(Race.race_date)
             .all()
         )
-        return JSONResponse([_race_dict(r) for r in rows])
+        return JSONResponse([_race_dict_enriched(session, user, r) for r in rows])
 
 
 @app.get("/api/athletes/{athlete_id}/races")
@@ -14824,7 +14947,7 @@ def list_athlete_races(athlete_id: str, user: User = Depends(resolve_user)):
             .order_by(Race.race_date)
             .all()
         )
-        return JSONResponse([_race_dict(r) for r in rows])
+        return JSONResponse([_race_dict_enriched(session, user, r) for r in rows])
 
 
 _RACE_CHANGES_RETENTION_DAYS = 30
@@ -14927,7 +15050,7 @@ def get_race(race_id: str, user: User = Depends(resolve_user)):
         race = session.get(Race, rid)
         if race is None or race.user_id != user.id:
             raise HTTPException(status_code=404, detail="race not found")
-        return JSONResponse(_race_dict(race))
+        return JSONResponse(_race_dict_enriched(session, user, race))
 
 
 @app.put("/api/races/{race_id}")
@@ -14961,6 +15084,7 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
             race.status = body.status
         if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
             race.race_type = body.race_type
+        _apply_race_role_fields(race, body, body.model_fields_set)
 
         race.goal_pace_seconds_per_km = _derive_goal_pace(
             race.goal_time_seconds,
@@ -14970,7 +15094,7 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
 
         session.commit()
         session.refresh(race)
-        return JSONResponse(_race_dict(race))
+        return JSONResponse(_race_dict_enriched(session, user, race, autolink=False))
 
 
 @app.patch("/api/races/{race_id}")
@@ -15010,6 +15134,7 @@ def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve
             race.status = body.status
         if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
             race.race_type = body.race_type
+        _apply_race_role_fields(race, body, body.model_fields_set)
 
         race.goal_pace_seconds_per_km = _derive_goal_pace(
             race.goal_time_seconds,
@@ -15019,7 +15144,7 @@ def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve
 
         session.commit()
         session.refresh(race)
-        return JSONResponse(_race_dict(race))
+        return JSONResponse(_race_dict_enriched(session, user, race, autolink=False))
 
 
 @app.delete("/api/races/{race_id}", status_code=204)

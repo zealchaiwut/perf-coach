@@ -19,7 +19,7 @@ from backend.services.checkpoint_detector import is_run_workout
 from backend.services.perf_a_race import next_a_race
 from backend.services.race_finish_estimate import estimate_race_finish
 from backend.services.race_hero import build_estimate_block
-from backend.services.race_roles import ROLE_LABELS, ROLE_TARGETS, race_role, recalibrates
+from backend.services.race_roles import ROLE_LABELS, race_role, recalibrates, role_target_summary
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
@@ -94,7 +94,7 @@ def _base(race) -> dict[str, Any]:
         "race_type": race.race_type,
         "role": role,
         "role_label": ROLE_LABELS[role],
-        "role_target": ROLE_TARGETS[role],
+        "role_target": role_target_summary(race),
         "goal_sec": goal,
         "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km if race.goal_pace_seconds_per_km else _pace(goal, distance),
     }
