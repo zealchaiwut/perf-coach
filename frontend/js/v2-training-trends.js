@@ -184,6 +184,105 @@
       svg + foot + "</section>";
   }
 
+  function miniSparkline(vals, stroke) {
+    if (!vals || vals.length < 2) return "";
+    var W = 200, H = 40;
+    var min = Math.min.apply(null, vals);
+    var max = Math.max.apply(null, vals);
+    var span = max - min || 1;
+    var pts = vals.map(function (v, i) {
+      var x = Math.round(i / (vals.length - 1) * W * 10) / 10;
+      var y = Math.round((H - 6) - (v - min) / span * (H - 12) * 10) / 10;
+      return x + "," + y;
+    }).join(" ");
+    return '<svg viewBox="0 0 ' + W + " " + H + '" class="rv-trends-spark-mini" aria-hidden="true">' +
+      '<polyline points="' + pts + '" fill="none" stroke="' + stroke + '" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+  }
+
+  function deltaChip(d) {
+    if (!d) return "";
+    var good = d.indexOf("+") === 0;
+    var flat = d === "flat";
+    var cls = flat ? "rv-chip" : (good ? "rv-chip rv-chip--done" : "rv-chip rv-chip--race");
+    return '<span class="' + cls + '">' + esc(d) + "</span>";
+  }
+
+  function renderDecoupling(dc) {
+    var pts = (dc && dc.points) || [];
+    var W = 1000, bottom = 150, top = 10;
+    if (!pts.length) {
+      return '<section class="rv-card rv-stack" data-trends-decoupling><span class="rv-label">Decoupling per long run</span>' +
+        '<p class="rv-subtitle">No qualifying long runs in this range yet.</p></section>';
+    }
+    var maxP = Math.max.apply(null, pts.map(function (p) { return p.decoupling_percent; }).concat([12]));
+    maxP *= 1.1;
+    var X = function (i) { return Math.round(20 + (i / Math.max(pts.length - 1, 1)) * (W - 40) * 10) / 10; };
+    var Y = function (p) { return Math.round(top + (maxP - p) / maxP * (bottom - top) * 10) / 10; };
+    var parts = ['<line x1="0" y1="' + bottom + '" x2="' + W + '" y2="' + bottom + '" stroke="#e3e9f5"/>'];
+    if (dc.reference_pct != null) {
+      var ry = Y(dc.reference_pct);
+      parts.push('<line x1="0" y1="' + ry + '" x2="' + W + '" y2="' + ry + '" stroke="#15803d" stroke-width="1.5" stroke-dasharray="5 5"/>');
+      parts.push('<text x="' + (W - 4) + '" y="' + (ry - 4) + '" font-size="11" fill="#15803d" text-anchor="end" font-weight="700">' +
+        esc(dc.reference_pct) + '% · well-fuelled, well-paced</text>');
+    }
+    if (dc.median_last_4_pct != null) {
+      var my = Y(dc.median_last_4_pct);
+      parts.push('<line x1="' + (W * 0.65) + '" y1="' + my + '" x2="' + W + '" y2="' + my + '" stroke="#0b1530" stroke-width="2"/>');
+      parts.push('<text x="' + (W - 4) + '" y="' + (my - 4) + '" font-size="11" fill="#0b1530" text-anchor="end" font-weight="700">median of last 4 · ' +
+        esc(dc.median_last_4_pct) + '%</text>');
+    }
+    pts.forEach(function (p, i) {
+      var hot = dc.median_last_4_pct != null && p.decoupling_percent >= 2 * dc.median_last_4_pct;
+      parts.push('<circle cx="' + X(i) + '" cy="' + Y(p.decoupling_percent) + '" r="7" fill="' + (hot ? "#b45309" : "#1f3b8a") + '"/>');
+    });
+    var svg = '<svg viewBox="0 0 ' + W + ' 170" class="rv-trends-svg" data-decoupling-chart>' + parts.join("") + "</svg>";
+    var note = dc.note ? '<p class="rv-subtitle" style="margin:0;line-height:1.5">' + esc(dc.note) + "</p>" : "";
+    return '<section class="rv-card rv-stack" data-trends-decoupling><div><span class="rv-label">Decoupling per long run</span>' +
+      '<p class="rv-subtitle">Lower is better · this is what the durability score reads</p></div>' + svg + note + "</section>";
+  }
+
+  function renderFormTiles(ft) {
+    var tiles = (ft && ft.tiles) || [];
+    if (!tiles.length) {
+      return '<section class="rv-card rv-stack"><span class="rv-label">Stryd form metrics</span><p class="rv-subtitle">No easy runs with form data.</p></section>';
+    }
+    var cells = tiles.map(function (t) {
+      var stroke = t.economy_focus ? "#b45309" : "#1f3b8a";
+      var vals = (t.sparkline || []).map(function (p) { return p.value; });
+      var val = t.value != null ? t.value + (t.value_suffix || "") : "—";
+      return '<div class="rv-trends-form-tile' + (t.economy_focus ? " rv-trends-form-tile--economy" : "") + '">' +
+        '<div class="rv-row"><span style="font-size:14px;font-weight:600">' + esc(t.label) + "</span>" + deltaChip(t.delta_28d) + "</div>" +
+        '<span class="rv-mono" style="font-size:22px;font-weight:600">' + esc(val) + "</span>" +
+        miniSparkline(vals, stroke) + "</div>";
+    }).join("");
+    return '<section class="rv-card rv-stack" data-trends-form><div class="rv-row" style="align-items:flex-start">' +
+      '<div><span class="rv-label">Stryd form metrics</span><p class="rv-subtitle">Easy runs only · 28-day change</p></div></div>' +
+      '<div class="rv-trends-form-grid">' + cells + "</div></section>";
+  }
+
+  function renderZoneMix(zm) {
+    var months = (zm && zm.months) || [];
+    if (!months.length) {
+      return '<section class="rv-card rv-stack" data-trends-zones><span class="rv-label">Time in zone by month</span>' +
+        '<p class="rv-subtitle">Connect Stryd for power-zone minutes.</p></section>';
+    }
+    var colors = ["#dbeafe", "#6d93e8", "#1f3b8a", "#b45309", "#7a1a1a"];
+    var rows = months.map(function (m) {
+      var segs = (m.zone_pct || []).map(function (pct, i) {
+        return '<span style="width:' + esc(pct) + '%;background:' + colors[i] + '"></span>';
+      }).join("");
+      var total = (m.partial ? esc(m.total_hours) + " h so far" : esc(m.total_hours) + " h total");
+      return '<div class="rv-trends-zone-row"><span style="font-size:14px;font-weight:600">' + esc(m.label) + '</span>' +
+        '<div class="rv-trends-zone-bar">' + segs + "</div>" +
+        '<span class="rv-mono rv-subtitle" style="text-align:right">' + total + "</span></div>";
+    }).join("");
+    var keys = colors.map(function (c, i) {
+      return '<span class="rv-trends-key"><span style="width:11px;height:11px;border-radius:3px;background:' + c + '"></span>Z' + (i + 1) + "</span>";
+    }).join("");
+    return '<section class="rv-card rv-stack" data-trends-zones><div class="rv-row"><span class="rv-label">Time in zone by month</span>' +
+      '<div class="rv-trends-keys">' + keys + "</div></div><div class="rv-stack" style="gap:12px">' + rows + "</div></section>";
+  }
+
   function renderRangeButtons() {
     var host = document.getElementById("v2-trends-range-btns");
     if (!host) return;
@@ -202,7 +301,11 @@
   }
 
   function render(host, data) {
-    host.innerHTML = renderFitnessCard(data.fitness || {}) + renderWeeklyLoad(data.weekly_load || {});
+    host.innerHTML =
+      renderFitnessCard(data.fitness || {}) +
+      '<div class="rv-trends-mid">' + renderWeeklyLoad(data.weekly_load || {}) + renderDecoupling(data.decoupling || {}) + "</div>" +
+      renderFormTiles(data.form_tiles || {}) +
+      renderZoneMix(data.zone_mix || {});
   }
 
   function load() {
