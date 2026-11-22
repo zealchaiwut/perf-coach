@@ -18818,6 +18818,16 @@ def post_plan_revamp_suggest_apply(body: RevampSuggestApplyIn, user: User = Depe
     return JSONResponse(out)
 
 
+@app.get("/api/home/revamp")
+def get_home_revamp(user: User = Depends(resolve_user)):
+    """Revamp Home: today hero, race-week panel, alerts (P5-1)."""
+    from backend.services.revamp_home import home_payload
+
+    today = _today_bkk()
+    with Session(engine) as db:
+        return JSONResponse(home_payload(db, user.id, today=today))
+
+
 @app.get("/api/plan/revamp-week-board")
 def get_plan_revamp_week_board(
     week_start: Optional[str] = Query(default=None),

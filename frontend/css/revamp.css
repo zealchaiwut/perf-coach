@@ -900,3 +900,77 @@ body.rv-page .perf-radar { display: block; width: 100%; height: auto; }
 body.rv-page .perf-radar--large { max-width: 640px; margin: 0 auto; }
 body.rv-page .perf-radar--small { max-width: 360px; margin: 0 auto; }
 body.rv-page .perf-radar-missing { margin: 4px 0 0; font-size: 0.85rem; color: var(--rv-secondary); text-align: center; }
+
+/* Home (P5-1) */
+body.rv-page .rv-shell--wide { max-width: 1344px; }
+body.rv-page .rv-title--invert,
+body.rv-page .rv-subtitle--invert { color: #ffffff; }
+body.rv-page .rv-subtitle--invert { color: #e3ecff; }
+body.rv-page .rv-tabnav--invert { background: rgba(11, 21, 48, 0.3); padding: 5px; border-radius: 13px; }
+body.rv-page .rv-tabnav--invert .rv-tab { color: #e3ecff; }
+body.rv-page .rv-tabnav--invert .rv-tab.on { background: #ffffff; color: var(--rv-ink); }
+body.rv-page .rv-home-alerts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+body.rv-page .rv-alert-strip {
+  background: var(--rv-warn-bg);
+  color: var(--rv-warn-ink);
+  border-radius: var(--rv-radius);
+  padding: 13px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+body.rv-page .rv-alert-strip a { color: var(--rv-warn-ink); font-weight: 700; white-space: nowrap; }
+body.rv-page .rv-home-today { padding: 22px 26px; }
+body.rv-page .rv-home-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 32px;
+  margin-top: 8px;
+}
+@media (max-width: 860px) {
+  body.rv-page .rv-home-hero-grid { grid-template-columns: 1fr; }
+}
+body.rv-page .rv-home-bar {
+  width: 12px;
+  height: 56px;
+  border-radius: 6px;
+  background: #fca5a5;
+  flex-shrink: 0;
+}
+body.rv-page .rv-home-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+body.rv-page .rv-tile {
+  background: var(--rv-tile);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+body.rv-page .rv-home-race-plan {
+  border-left: 1px solid var(--rv-hairline);
+  padding-left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+@media (max-width: 860px) {
+  body.rv-page .rv-home-race-plan { border-left: none; padding-left: 0; border-top: 1px solid var(--rv-hairline); padding-top: 16px; }
+}
+body.rv-page .rv-home-race-row { padding: 7px 0; border-bottom: 1px solid var(--rv-hairline); }
+body.rv-page .rv-warn-box {
+  background: var(--rv-warn-bg);
+  color: var(--rv-warn-ink);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+body.rv-page .rv-btn--accent { background: var(--rv-accent); color: var(--rv-ink); border: 0; }
