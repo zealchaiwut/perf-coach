@@ -24,6 +24,14 @@
       </nav>
     </header>
 
+    <section class="rv-card rv-stack" id="pending-queue-card" hidden>
+      <div class="rv-row">
+        <h2 class="rv-card-title">Logged as custom by users</h2>
+        <span class="rv-subtitle" id="pending-queue-count"></span>
+      </div>
+      <div id="pending-queue-list" class="rv-stack"></div>
+    </section>
+
     <div class="rv-admin-intro rv-card rv-row">
       <div class="rv-admin-intro-icon" aria-hidden="true">&#x1F512;</div>
       <div style="display:flex;flex-direction:column;gap:4px">
@@ -36,7 +44,7 @@
       <nav class="rv-card rv-admin-sidenav" aria-label="Admin sections">
         <a class="rv-admin-side rv-admin-side--on" href="#exercises" id="nav-exercises">Exercise library <span class="rv-mono" id="nav-ex-count">…</span></a>
         <span class="rv-admin-side rv-admin-side--muted">Session templates <span class="rv-subtitle">P5-7</span></span>
-        <span class="rv-admin-side rv-admin-side--muted">Custom from users <span class="rv-subtitle">P5-7</span></span>
+        <a class="rv-admin-side" href="#pending-queue-card" id="nav-pending">Custom from users <span class="rv-mono" id="nav-pending-count">0</span></a>
       </nav>
 
       <div class="rv-admin-main">

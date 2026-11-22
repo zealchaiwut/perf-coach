@@ -67,7 +67,7 @@ def test_remap_custom_updates_sessions(session_db):
     upsert_custom_names(session_db, workout_id=w1.id, exercises=w1.exercises_json)
     upsert_custom_names(session_db, workout_id=w2.id, exercises=w2.exercises_json)
     session_db.flush()
-    touched = remap_custom(session_db, name="Zebra Custom", library_id=lib.id)
-    assert touched == 2
+    stats = remap_custom(session_db, name="Zebra Custom", library_id=lib.id)
+    assert stats["sessions_updated"] == 2
     session_db.refresh(w1)
     assert w1.exercises_json[0]["name"] == lib.name

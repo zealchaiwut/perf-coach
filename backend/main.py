@@ -230,7 +230,44 @@ async def _no_cache_frontend(request, call_next):
 
 
 def _revamp_ui_enabled() -> bool:
-    return os.getenv("REVAMP_UI", "0").strip().lower() in ("1", "true", "yes")
+    raw = os.getenv("REVAMP_UI", "1").strip().lower()
+    return raw in ("1", "true", "yes")
+
+
+_REVAMP_ROUTE_REDIRECTS: dict[str, str] = {
+    "/home": "/v2/home",
+    "/log": "/v2/training/log",
+    "/training": "/v2/training/plan",
+}
+
+
+def _revamp_legacy_escape_allowed() -> bool:
+    deadline = os.getenv("REVAMP_LEGACY_DEADLINE", "2026-12-22").strip()
+    try:
+        from datetime import date as _date
+
+        end = _date.fromisoformat(deadline)
+    except ValueError:
+        return False
+    from datetime import date as _date
+
+    return _date.today() <= end
+
+
+@app.middleware("http")
+async def _revamp_cutover_redirect(request: Request, call_next):
+    """When revamp is default-on, send legacy app routes to /v2 (legacy=1 escape hatch)."""
+    if not _revamp_ui_enabled():
+        return await call_next(request)
+    path = request.url.path
+    target = _REVAMP_ROUTE_REDIRECTS.get(path)
+    if not target:
+        return await call_next(request)
+    if request.query_params.get("legacy") == "1" and _revamp_legacy_escape_allowed():
+        return await call_next(request)
+    q = request.url.query
+    url = target + (("?" + q) if q else "")
+    return RedirectResponse(url=url, status_code=302)
 
 
 def _is_guarded_path(path: str) -> bool:
@@ -5826,6 +5863,7 @@ _V2_ROUTE_FILES = {
     "/v2/performance": "v2-performance.html",
     "/v2/components": "v2-components.html",
     "/v2/settings/plan": "v2-settings-plan.html",
+    "/v2/settings": "v2-settings.html",
 }
 
 
@@ -8807,6 +8845,12 @@ def list_exercise_catalog(user: User = Depends(resolve_user)):
 class WorkoutTemplateIn(BaseModel):
     name: str
     exercises: list
+    session_type: Optional[str] = "strength"
+    tss_estimate: Optional[float] = None
+
+
+class WorkoutTemplatePatchIn(BaseModel):
+    name: Optional[str] = None
 
 
 def _template_dict(t: WorkoutTemplate) -> dict:
@@ -8815,6 +8859,9 @@ def _template_dict(t: WorkoutTemplate) -> dict:
         "user_id": str(t.user_id),
         "name": t.name,
         "exercises": t.exercises,
+        "session_type": getattr(t, "session_type", None) or "strength",
+        "tss_estimate": float(t.tss_estimate) if t.tss_estimate is not None else None,
+        "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
 
@@ -8825,7 +8872,10 @@ def get_workout_templates(user: User = Depends(resolve_user)):
         templates = (
             session.query(WorkoutTemplate)
             .filter(WorkoutTemplate.user_id == user.id)
-            .order_by(WorkoutTemplate.created_at.desc())
+            .order_by(
+                WorkoutTemplate.last_used_at.desc().nullslast(),
+                WorkoutTemplate.created_at.desc(),
+            )
             .all()
         )
         return JSONResponse([_template_dict(t) for t in templates])
@@ -8856,12 +8906,63 @@ def post_workout_template(body: WorkoutTemplateIn, user: User = Depends(resolve_
     ]
     if not exercises:
         raise HTTPException(status_code=422, detail="Template must have at least one named exercise")
+    st = (body.session_type or "strength").strip().lower()
+    if st not in ("strength", "mobility", "plyo", "stretch"):
+        raise HTTPException(status_code=422, detail="session_type invalid")
     with Session(engine) as session:
-        tmpl = WorkoutTemplate(user_id=user.id, name=name, exercises=exercises)
+        tmpl = WorkoutTemplate(
+            user_id=user.id,
+            name=name,
+            exercises=exercises,
+            session_type=st,
+            tss_estimate=body.tss_estimate,
+        )
         session.add(tmpl)
         session.commit()
         session.refresh(tmpl)
         return JSONResponse(status_code=201, content=_template_dict(tmpl))
+
+
+@app.patch("/api/workout-templates/{template_id}")
+def patch_workout_template(
+    template_id: str, body: WorkoutTemplatePatchIn, user: User = Depends(resolve_user)
+):
+    try:
+        tid = _uuid.UUID(template_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid template_id")
+    with Session(engine) as session:
+        tmpl = session.get(WorkoutTemplate, tid)
+        if tmpl is None:
+            raise HTTPException(status_code=404, detail="Template not found")
+        if tmpl.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        if body.name is not None:
+            name = body.name.strip()
+            if not name:
+                raise HTTPException(status_code=422, detail="Template name is required")
+            tmpl.name = name
+        session.commit()
+        session.refresh(tmpl)
+        return JSONResponse(_template_dict(tmpl))
+
+
+@app.post("/api/workout-templates/{template_id}/touch")
+def touch_workout_template(template_id: str, user: User = Depends(resolve_user)):
+    from datetime import datetime, timezone
+
+    try:
+        tid = _uuid.UUID(template_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid template_id")
+    with Session(engine) as session:
+        tmpl = session.get(WorkoutTemplate, tid)
+        if tmpl is None or tmpl.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Template not found")
+        tmpl.last_used_at = datetime.now(timezone.utc)
+        session.commit()
+        session.refresh(tmpl)
+        return JSONResponse(_template_dict(tmpl))
 
 
 @app.delete("/api/workout-templates/{template_id}", status_code=204)
@@ -19959,11 +20060,11 @@ def post_pending_remap(pending_id: str, body: PendingRemapBody, user: User = Dep
         if row is None:
             raise HTTPException(status_code=404, detail="Pending exercise not found")
         try:
-            touched = remap_custom(session, name=row.display_name, library_id=lib_id)
+            stats = remap_custom(session, name=row.display_name, library_id=lib_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         session.commit()
-    return JSONResponse({"sessions_updated": touched})
+    return JSONResponse(stats)
 
 
 # ── Session consult prompt (race debrief clipboard) ───────────────────────────

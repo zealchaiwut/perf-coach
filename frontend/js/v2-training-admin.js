@@ -11,6 +11,8 @@
   var _selectedId = null;
   var _bodyPartKeys = [];
   var _importReady = null;
+  var _pending = [];
+  var _pendingResolveId = null;
 
   function esc(s) {
     return window.AppCommon ? window.AppCommon.escapeHtml(s) : String(s);
@@ -321,6 +323,100 @@
     });
   }
 
+  function loadPending() {
+    return api("/api/admin/pending-exercises").then(function (res) {
+      if (!res.ok) return;
+      _pending = (res.data && res.data.pending) || [];
+      renderPendingQueue();
+    });
+  }
+
+  function renderPendingQueue() {
+    var card = document.getElementById("pending-queue-card");
+    var list = document.getElementById("pending-queue-list");
+    var count = document.getElementById("pending-queue-count");
+    var navCount = document.getElementById("nav-pending-count");
+    if (!card || !list) return;
+    if (!_pending.length) {
+      card.hidden = true;
+      if (navCount) navCount.textContent = "0";
+      return;
+    }
+    card.hidden = false;
+    if (count) count.textContent = _pending.length + " waiting";
+    if (navCount) navCount.textContent = String(_pending.length);
+    list.innerHTML = _pending.map(function (p) {
+      var prev = p.remap_preview || { sessions: 0, weeks: 0 };
+      var meta = (p.first_seen_user || "User") + (p.first_seen_date ? " · " + p.first_seen_date : "") +
+        " · ×" + (p.occurrence_count || 1);
+      var hint = p.closest_match ? " · close to “" + esc(p.closest_match) + "”" : "";
+      return (
+        '<div class="rv-row rv-admin-pending-row" style="gap:12px;flex-wrap:wrap;padding:10px;background:var(--rv-tile);border-radius:10px">' +
+        '<div style="flex:1 1 220px"><strong>' + esc(p.display_name) + '</strong>' +
+        '<p class="rv-subtitle" style="font-size:12px;margin:4px 0 0">' + esc(meta) + esc(hint) + '</p></div>' +
+        '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-pending-add="' + esc(p.id) + '">Add to library</button>' +
+        '<button type="button" class="rv-btn rv-btn--primary rv-btn--sm" data-pending-map="' + esc(p.id) + '">Map to existing</button>' +
+        '<span class="rv-subtitle" style="font-size:12px">' + prev.sessions + ' sessions · ' + prev.weeks + ' weeks</span></div>'
+      );
+    }).join("");
+    list.querySelectorAll("[data-pending-add]").forEach(function (btn) {
+      btn.onclick = function () {
+        var id = btn.getAttribute("data-pending-add");
+        var row = _pending.filter(function (p) { return p.id === id; })[0];
+        if (!row) return;
+        _pendingResolveId = id;
+        fillEditor({
+          name: row.display_name,
+          groups: ["standalone"],
+          focus_tags: ["full"],
+          body_parts: [{ part: "core", ratio: 1 }],
+          tss_weight: 1,
+          default_sets: 3,
+          default_reps: "10",
+          default_load: "moderate",
+        });
+        document.getElementById("exercise-editor").scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+    });
+    list.querySelectorAll("[data-pending-map]").forEach(function (btn) {
+      btn.onclick = function () { mapPendingExisting(btn.getAttribute("data-pending-map")); };
+    });
+  }
+
+  function mapPendingExisting(pendingId) {
+    var row = _pending.filter(function (p) { return p.id === pendingId; })[0];
+    if (!row) return;
+    var preview = row.remap_preview || { sessions: 0, weeks: 0 };
+    var guess = row.closest_match || "";
+    var pick = window.prompt("Map to library exercise (exact name)", guess);
+    if (!pick) return;
+    var lib = _all.filter(function (e) { return e.name === pick; })[0];
+    if (!lib) {
+      window.RevampUI && window.RevampUI.showToast("No library exercise with that name");
+      return;
+    }
+    if (!window.confirm(
+      "Recount " + preview.sessions + " session(s) across " + preview.weeks + " week(s)?"
+    )) return;
+    api("/api/admin/pending-exercises/" + encodeURIComponent(pendingId) + "/remap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ library_id: lib.id }),
+    }).then(function (res) {
+      if (!res.ok) {
+        window.RevampUI && window.RevampUI.showToast((res.data && res.data.detail) || "Remap failed");
+        return;
+      }
+      var d = res.data || {};
+      window.RevampUI && window.RevampUI.showToast(
+        "Remapped — " + (d.sessions_updated || 0) + " sessions, " + (d.weeks_updated || 0) + " weeks"
+      );
+      _pendingResolveId = null;
+      loadPending();
+      loadExercises();
+    });
+  }
+
   function saveExercise() {
     var v = readEditorPayload();
     renderValidation(v);
@@ -329,6 +425,7 @@
       ? "/api/admin/plan-exercises/" + encodeURIComponent(_selectedId)
       : "/api/admin/plan-exercises";
     var method = _selectedId ? "PATCH" : "POST";
+    var pendingId = _pendingResolveId;
     api(path, {
       method: method,
       headers: { "Content-Type": "application/json" },
@@ -338,9 +435,29 @@
         window.RevampUI && window.RevampUI.showToast((res.data && res.data.detail) || "Save failed");
         return;
       }
-      window.RevampUI && window.RevampUI.showToast("Saved");
-      loadExercises().then(function () {
-        if (res.data && res.data.id) fillEditor(res.data);
+      var afterSave = Promise.resolve();
+      if (pendingId && res.data && res.data.id) {
+        afterSave = api("/api/admin/pending-exercises/" + encodeURIComponent(pendingId) + "/remap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ library_id: res.data.id }),
+        }).then(function (rem) {
+          if (rem.ok && rem.data) {
+            window.RevampUI && window.RevampUI.showToast(
+              "Saved & remapped — " + (rem.data.sessions_updated || 0) + " sessions, " +
+              (rem.data.weeks_updated || 0) + " weeks"
+            );
+          }
+          _pendingResolveId = null;
+          return loadPending();
+        });
+      } else {
+        window.RevampUI && window.RevampUI.showToast("Saved");
+      }
+      return afterSave.then(function () {
+        return loadExercises().then(function () {
+          if (res.data && res.data.id) fillEditor(res.data);
+        });
       });
     });
   }
@@ -600,7 +717,7 @@
 
   populateFilters();
   wireEvents();
-  Promise.all([loadBodyParts(), loadExercises()]).then(function () {
+  Promise.all([loadBodyParts(), loadExercises(), loadPending()]).then(function () {
     if (_all.length) fillEditor(_all[0]);
     else fillEditor(null);
   });

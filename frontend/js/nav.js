@@ -146,6 +146,8 @@
     return _currentUserPromise;
   };
 
+  var _revampUiEnabled = false;
+
   // Every primary destination, shown inline in the bar (left → right).
   var LINKS = [
     { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
@@ -349,11 +351,18 @@
     return window.AppCommon.escapeHtml(s);
   }
 
+  function navLinksForBar() {
+    return LINKS.filter(function (l) {
+      if (!_revampUiEnabled) return true;
+      return l.href !== "/habits" && l.href !== "/weight";
+    });
+  }
+
   function buildNav() {
     if (document.querySelector(".global-nav")) return;
     var path = window.location.pathname;
 
-    var linksHtml = LINKS.map(function (l) {
+    var linksHtml = navLinksForBar().map(function (l) {
       if (l.disabled) {
         return (
           '<span class="gn-link gn-link-disabled" aria-disabled="true" title="Coming soon">' +
@@ -1354,32 +1363,26 @@
     window.SyncPoller.checkNow();
   };
 
-  function injectRevampLink() {
-    fetch("/api/revamp-ui")
+  function loadRevampNavFlag() {
+    return fetch("/api/revamp-ui", { credentials: "same-origin" })
       .then(function (r) {
         return r.ok ? r.json() : { enabled: false };
       })
       .then(function (body) {
-        if (!body || !body.enabled) return;
-        var links = document.getElementById("gn-links");
-        if (!links || links.querySelector("[data-revamp-link]")) return;
-        var a = document.createElement("a");
-        a.className = "gn-link";
-        a.href = "/v2/home";
-        a.setAttribute("data-revamp-link", "1");
-        a.innerHTML =
-          '<i class="ti ti-layout-grid" aria-hidden="true"></i><span>New UI</span>';
-        links.appendChild(a);
+        _revampUiEnabled = !!(body && body.enabled);
       })
-      .catch(function () {});
+      .catch(function () {
+        _revampUiEnabled = false;
+      });
   }
 
   function init() {
     ensureIconFont();
     injectStyles();
-    buildNav();
-    injectRevampLink();
-    buildSyncBar();
+    loadRevampNavFlag().then(function () {
+      buildNav();
+      buildSyncBar();
+    });
     window.addEventListener("resize", _positionGlobalNav);
     window.addEventListener("load", _positionGlobalNav);
     // One initial status check on load (picks up a sync started elsewhere);
