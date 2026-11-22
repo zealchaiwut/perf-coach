@@ -21,7 +21,7 @@ from backend.services.goal_habits import LONG_RUN_MIN_MINUTES
 
 SUMMARY_MAX_CHARS = 140
 HISTORY_LIMIT = 12
-CHECKIN_LINK = "/coach"
+CHECKIN_LINK = "/v2/performance/check-in"
 PASTE_LINK = "/coach#paste"
 
 STATUS_OPEN = "open"
@@ -140,9 +140,21 @@ def week_bounds(today: date) -> tuple[date, date]:
     return start, start + timedelta(days=6)
 
 
-def checkin_state(decisions: Iterable[Any], today: date) -> dict[str, Any]:
+def checkin_state(
+    decisions: Iterable[Any],
+    today: date,
+    *,
+    session=None,
+    user_id=None,
+) -> dict[str, Any]:
     start, end = week_bounds(today)
-    done = any(start <= d.decided_on <= end for d in decisions)
+    done = False
+    if session is not None and user_id is not None:
+        from backend.services.weekly_checkin import is_week_checkin_done, target_checkin_week_start
+
+        done = is_week_checkin_done(session, user_id, target_checkin_week_start(today))
+    if not done:
+        done = any(start <= d.decided_on <= end for d in decisions)
     return {
         "week_start": start.isoformat(),
         "state": "done" if done else "due",
@@ -165,7 +177,14 @@ def _decision_row(d) -> dict[str, Any]:
     }
 
 
-def build_coach_block(decisions: list[Any], workouts: list[Any], today: date) -> dict[str, Any]:
+def build_coach_block(
+    decisions: list[Any],
+    workouts: list[Any],
+    today: date,
+    *,
+    session=None,
+    user_id=None,
+) -> dict[str, Any]:
     """Pure assembly from already-fetched decisions (newest first) and workouts."""
     due = newest_due(decisions, today)
     review = None
@@ -179,7 +198,7 @@ def build_coach_block(decisions: list[Any], workouts: list[Any], today: date) ->
             "chips": evidence_chips(lines, workouts, due.decided_on, today),
         }
     return {
-        "checkin": checkin_state(decisions, today),
+        "checkin": checkin_state(decisions, today, session=session, user_id=user_id),
         "review_due": review,
         "history": [_decision_row(d) for d in decisions[:HISTORY_LIMIT]],
         "paste_link": PASTE_LINK,
@@ -208,4 +227,4 @@ def fetch_coach_block(session, user_id: uuid.UUID, today: date) -> dict[str, Any
             )
             .all()
         )
-    return build_coach_block(decisions, workouts, today)
+    return build_coach_block(decisions, workouts, today, session=session, user_id=user_id)

@@ -238,6 +238,23 @@ def build_today_hero(
     is_run = kind.startswith("run") or (row and (row.session_type or "").lower() == "run")
     mark_done = bool(row) and not is_run and src in ("support", "user") and status == "planned"
 
+    support_blocks: list[dict[str, Any]] = []
+    for extra in items[1:]:
+        ex_src = extra.get("plan_source") or "support"
+        ex_kind = (extra.get("kind") or "").lower()
+        ex_status = extra.get("status") or "planned"
+        ex_id = extra.get("id")
+        ex_row = session.get(PlannedSession, uuid.UUID(ex_id)) if ex_id else None
+        can_done = bool(ex_row) and not (ex_kind.startswith("run")) and ex_src in ("support", "user") and ex_status == "planned"
+        support_blocks.append(
+            {
+                "id": ex_id,
+                "name": extra.get("name"),
+                "status": ex_status,
+                "mark_done_allowed": can_done,
+            }
+        )
+
     session_block = {
         "id": ps_id,
         "name": primary.get("name"),
@@ -249,6 +266,7 @@ def build_today_hero(
         "tiles": _session_tiles(session, row) if row else {},
         "mark_done_allowed": mark_done,
         "run_auto_complete_note": "Ticks itself when Strava syncs" if is_run else None,
+        "support_blocks": support_blocks,
     }
     state = "done" if status == "done" else "planned"
     if status == "planned" and len(items) > 1 and all(i.get("status") == "done" for i in items[1:]):
@@ -593,6 +611,8 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
     )
 
     from backend.models import User
+    from backend.services.body_log_store import body_log_day_payload, _weight_rows
+    from backend.services.body_log_weight_card import weight_card_payload
 
     user_row = session.get(User, user_id)
     name = (user_row.name if user_row else None) or None
@@ -600,6 +620,8 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
     from backend.services.long_run_ladder import long_run_ladder_payload
 
     ladder = long_run_ladder_payload(session, user_id, today=today)
+    fetch_from = today - timedelta(days=120)
+    wrows = _weight_rows(session, user_id, fetch_from, today)
 
     return {
         "as_of": today.isoformat(),
@@ -619,4 +641,6 @@ def home_payload(session: Session, user_id: uuid.UUID, *, today: Optional[date] 
         "focus": build_focus_teaser(session, user_id, today),
         "recent_sessions": build_recent_sessions(session, user_id, today),
         "coach": build_coach_card(session, user_id, today),
+        "daily_basics": body_log_day_payload(session, user_id, today),
+        "weight_card": weight_card_payload(session, user_id, weight_rows=wrows, today=today),
     }

@@ -357,6 +357,10 @@ class Workout(Base):
     # for everything logged before the column existed, and "unknown" must never
     # read as "no". Only consulted for long runs, by the long-run-fuel habit.
     fuelled = Column(Boolean, nullable=True)
+    gel_count = Column(Integer, nullable=True)
+    fluid_level = Column(String(10), nullable=True)
+    stomach_ok = Column(Boolean, nullable=True)
+    shoe_id = Column(UUID(as_uuid=True), ForeignKey("athlete_shoes.id", ondelete="SET NULL"), nullable=True)
     # Running drills done alongside this session — form drills, strides, skips.
     # A duration only, on purpose: no exercise breakdown and no TSS. Drills ride
     # along with a session rather than being one, so they never claim a skeleton
@@ -569,6 +573,10 @@ class DailyMetric(Base):
     mood = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
     kcal_intake = Column(Integer, nullable=True)
+    lunch_rule = Column(Boolean, nullable=True)
+    feet = Column(Integer, nullable=True)
+    steps = Column(Integer, nullable=True)
+    steps_source = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -601,6 +609,18 @@ class DailyMetric(Base):
         CheckConstraint(
             "kcal_intake IS NULL OR kcal_intake > 0",
             name="ck_daily_metrics_kcal_intake",
+        ),
+        CheckConstraint(
+            "feet IS NULL OR (feet >= 0 AND feet <= 3)",
+            name="ck_daily_metrics_feet",
+        ),
+        CheckConstraint(
+            "steps IS NULL OR steps >= 0",
+            name="ck_daily_metrics_steps",
+        ),
+        CheckConstraint(
+            "steps_source IS NULL OR steps_source IN ('manual', 'imported')",
+            name="ck_daily_metrics_steps_source",
         ),
     )
 
@@ -1326,6 +1346,8 @@ class Race(Base):
     """a_race: fallback weekly long-run target when the plan has none (P6-8)."""
     tss_if_override = Column(Numeric(4, 3), nullable=True)
     """Optional intensity factor override for race-day TSS (revamp P3-2)."""
+    notes = Column(Text, nullable=True)
+    toilet_plan_done = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     """Timestamp when this record was first created."""
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"), onupdate=text("now()"))
@@ -2475,6 +2497,57 @@ class PlanExercise(Base):
 
     __table_args__ = (
         Index("ix_plan_exercises_active", "active"),
+    )
+
+
+class AthleteShoe(Base):
+    """Named running shoe for mileage tracking (revamp P6-14)."""
+
+    __tablename__ = "athlete_shoes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(120), nullable=False)
+    is_race_shoe = Column(Boolean, nullable=False, server_default=text("false"))
+    retired = Column(Boolean, nullable=False, server_default=text("false"))
+    total_km = Column(Numeric(10, 2), nullable=False, server_default=text("0"))
+    longest_run_km = Column(Numeric(10, 2), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    __table_args__ = (Index("ix_athlete_shoes_user", "user_id"),)
+
+
+class WeeklyCheckIn(Base):
+    """One weekly coach check-in (revamp P6-12): snapshot + self-report for a Mon–Sun week."""
+
+    __tablename__ = "weekly_check_ins"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    week_start = Column(Date, nullable=False)
+    snapshot = Column(JSONB, nullable=True)
+    carried_changes = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    feet = Column(Integer, nullable=True)
+    bed_bucket = Column(String(10), nullable=True)
+    motivation = Column(String(10), nullable=True)
+    note = Column(Text, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(timezone=True), nullable=True, onupdate=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", name="uq_weekly_check_ins_user_week"),
+        CheckConstraint("feet IS NULL OR (feet >= 0 AND feet <= 3)", name="ck_weekly_check_ins_feet"),
+        CheckConstraint(
+            "bed_bucket IS NULL OR bed_bucket IN ('0-2', '3-4', '5-7')",
+            name="ck_weekly_check_ins_bed_bucket",
+        ),
+        CheckConstraint(
+            "motivation IS NULL OR motivation IN ('low', 'ok', 'high')",
+            name="ck_weekly_check_ins_motivation",
+        ),
+        Index("ix_weekly_check_ins_user_week", "user_id", week_start.desc()),
     )
 
 

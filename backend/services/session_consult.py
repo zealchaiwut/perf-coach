@@ -35,7 +35,7 @@ from backend.services.race_auto_complete import _distance_ok
 from backend.services.training_load import _FORMULA_VERSION as _LOAD_FORMULA_VERSION
 from backend.utils.time import today_bangkok
 
-PROMPT_VERSION_RACE = "race-debrief-v1"
+PROMPT_VERSION_RACE = "race-debrief-v2"
 PROMPT_VERSION_SESSION = "session-review-v1"
 NOT_AVAILABLE = "not available"
 MAX_PROMPT_CHARS = 20_000
@@ -463,6 +463,28 @@ def _lessons_text(lessons: list[str]) -> str:
     return " ".join(f"({i}) {l.rstrip('.')}." for i, l in enumerate(lessons, 1))
 
 
+def _fuel_detail_line(workout: Workout) -> str:
+    gels = getattr(workout, "gel_count", None)
+    fluid = getattr(workout, "fluid_level", None)
+    stomach = getattr(workout, "stomach_ok", None)
+    if gels is None and fluid is None and stomach is None:
+        return NOT_AVAILABLE
+    stomach_s = "yes" if stomach is True else ("no" if stomach is False else NOT_AVAILABLE)
+    return f"gels={_na(gels)} fluid={_na(fluid)} stomach_ok={stomach_s}"
+
+
+def _shoe_line(session: Session, workout: Workout) -> str:
+    sid = getattr(workout, "shoe_id", None)
+    if sid is None:
+        return NOT_AVAILABLE
+    from backend.models import AthleteShoe
+
+    shoe = session.get(AthleteShoe, sid)
+    if shoe is None:
+        return NOT_AVAILABLE
+    return f"{shoe.name} · {_na(float(shoe.total_km), suffix=' km total')}"
+
+
 def _previous_race_lines(session: Session, races: Iterable[Race]) -> list[str]:
     lines = []
     for r in races:
@@ -660,6 +682,9 @@ def build_session_consult(
                     f"goal_pace: {goal_pace}",
                     f"pre-race estimate ({est_label}): {est}",
                     f"estimate band: {band}",
+                    f"chip_time: {_fmt_duration(race.actual_time_seconds)}",
+                    f"elapsed_time: {_fmt_duration(getattr(workout, "elapsed_time_seconds", None))}",
+                    f"moving_time: {_fmt_duration(workout.duration_seconds)}",
                     f"actual_time: {_fmt_duration(actual)}",
                     f"gap_to_goal: {gap_goal}",
                     f"gap_to_estimate: {gap_est}",
@@ -715,7 +740,8 @@ def build_session_consult(
                 "## What I logged",
                 f"feeling: {_na(workout.feeling)}",
                 f"fuel: {_na(workout.fuelled)}",
-                f"fuel_detail (gels/first-at/stomach): {NOT_AVAILABLE}",
+                f"fuel_detail (gels/fluid/stomach): {_fuel_detail_line(workout)}",
+                f"shoe: {_shoe_line(session, workout)}",
                 f"feel_notes: {_na(feel.notes if feel else None)}",
                 f"remarks: {_na(workout.remarks)}",
             ]

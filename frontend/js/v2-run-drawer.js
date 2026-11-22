@@ -80,9 +80,13 @@
     var e = els();
     if (!id || !e.body) return;
     e.body.innerHTML = '<p class="rv-section-state">Loading session…</p>';
-    fetch('/api/workouts/' + encodeURIComponent(id) + '/full?streams=summary', { credentials: 'same-origin' })
-      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
-      .then(function (data) { render(data); })
+    Promise.all([
+      fetch('/api/workouts/' + encodeURIComponent(id) + '/full?streams=summary', { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error(); return r.json(); }),
+      fetch('/api/athlete-shoes', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { shoes: [], default_shoe_id: null }; }),
+    ])
+      .then(function (pair) { render(pair[0], pair[1].shoes, pair[1].default_shoe_id); })
       .catch(function () { e.body.innerHTML = '<p class="rv-section-state">Could not load session.</p>'; });
   }
 
@@ -245,7 +249,63 @@
     }).catch(function () { toast('Screenshot failed'); });
   }
 
-  function render(data) {
+  function fuelRequired(w, data) {
+    var dur = w.duration_seconds || 0;
+    if (data && data.kind === 'race') return true;
+    if (dur >= 90 * 60) return true;
+    return false;
+  }
+
+  function fuelShoeBlock(w, data, shoes, defShoe) {
+    if (!fuelRequired(w, data)) return '';
+    var gels = w.gel_count != null ? w.gel_count : '';
+    var fluid = w.fluid_level || '';
+    var stomach = w.stomach_ok === true ? 'yes' : (w.stomach_ok === false ? 'no' : '');
+    var shoeOpts = (shoes || []).map(function (s) {
+      var sel = (w.shoe_id === s.id || (!w.shoe_id && defShoe === s.id)) ? ' selected' : '';
+      return '<option value="' + esc(s.id) + '"' + sel + '>' + esc(s.name) + (s.is_race_shoe ? ' (race)' : '') + '</option>';
+    }).join('');
+    return (
+      '<section class="rv-drawer-sec" id="v2-fuel-sec">' +
+      '<span class="rv-label" style="margin:0">Fuel and shoe</span>' +
+      '<span class="rv-chip" style="background:#fff4d8;color:#6b4408">' + (w.gel_count != null ? 'LOGGED' : 'NOT LOGGED') + '</span>' +
+      '<div class="rv-drawer-grid" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px">' +
+      '<label class="rv-label" style="font-size:12px">Gels (0–12)<input class="rv-input rv-mono" id="v2-fuel-gels" type="number" min="0" max="12" value="' + esc(String(gels)) + '"></label>' +
+      '<label class="rv-label" style="font-size:12px">Fluid<select class="rv-input" id="v2-fuel-fluid"><option value="">—</option>' +
+      ['low', 'ok', 'high'].map(function (f) { return '<option value="' + f + '"' + (fluid === f ? ' selected' : '') + '>' + f + '</option>'; }).join('') +
+      '</select></label>' +
+      '<label class="rv-label" style="font-size:12px">Stomach OK<select class="rv-input" id="v2-fuel-stomach"><option value="">—</option>' +
+      '<option value="yes"' + (stomach === 'yes' ? ' selected' : '') + '>Yes</option><option value="no"' + (stomach === 'no' ? ' selected' : '') + '>No</option></select></label></div>' +
+      '<label class="rv-label" style="font-size:12px;margin-top:8px">Shoe<select class="rv-input" id="v2-fuel-shoe"><option value="">—</option>' + shoeOpts + '</select></label>' +
+      '<button type="button" class="rv-btn rv-btn--primary" id="v2-fuel-save" style="margin-top:10px">Save fuel log</button></section>'
+    );
+  }
+
+  function bindFuelSave(w) {
+    var btn = document.getElementById('v2-fuel-save');
+    if (!btn) return;
+    btn.onclick = function () {
+      var g = document.getElementById('v2-fuel-gels');
+      var fl = document.getElementById('v2-fuel-fluid');
+      var st = document.getElementById('v2-fuel-stomach');
+      var sh = document.getElementById('v2-fuel-shoe');
+      var body = {};
+      if (g && g.value !== '') body.gel_count = parseInt(g.value, 10);
+      if (fl) body.fluid_level = fl.value || null;
+      if (st && st.value) body.stomach_ok = st.value === 'yes';
+      if (sh) body.shoe_id = sh.value || null;
+      fetch('/api/workouts/' + encodeURIComponent(w.id), {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': global.AppCommon.csrfToken() },
+        body: JSON.stringify(body),
+      }).then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+        .then(function () { toast('Fuel log saved'); global.dispatchEvent(new Event('v2:log-refresh')); loadCurrent(); })
+        .catch(function () { toast('Could not save fuel log'); });
+    };
+  }
+
+  function render(data, shoes, defShoe) {
     var w = data.workout || data;
     var tss = data.tss_block || {};
     var notice = tss.tss_dual_notice;
@@ -338,6 +398,8 @@
 
       formBlock(data.form, !!stryd) +
 
+      fuelShoeBlock(w, data, shoes, defShoe) +
+
       '<section class="rv-drawer-sec">' +
       '<span class="rv-label" style="margin:0">Notes</span>' +
       '<p class="rv-subtitle" style="margin:0;white-space:pre-wrap">' + esc(w.remarks || '—') + '</p></section>';
@@ -351,6 +413,8 @@
     if (global.V2FeelButtons) {
       global.V2FeelButtons.mount(document.getElementById('v2-drawer-feel'), w.id, w.feeling);
     }
+
+    bindFuelSave(w);
 
     e.body.querySelectorAll('[data-tss-method]').forEach(function (btn) {
       btn.addEventListener('click', function () {

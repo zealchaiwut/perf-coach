@@ -1,4 +1,5 @@
 // Revamp Home (P5-1): today hero, race plan panel, alert strip.
+// APIs: GET /api/home/revamp (primary), GET /api/home/weight-card, GET /api/body-log/weekly-rollup.
 (function () {
   "use strict";
 
@@ -54,17 +55,110 @@
     }).join("");
   }
 
-  function renderHero(host, data) {
+  function patchBodyLog(payload) {
+    return csrfToken().then(function (token) {
+      var headers = { "Content-Type": "application/json" };
+      if (token) headers["X-CSRF-Token"] = token;
+      return fetch("/api/body-log", {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: headers,
+        body: JSON.stringify(payload),
+      });
+    });
+  }
+
+  function dailyBasicsHtml(basics) {
+    basics = basics || {};
+    var w = basics.weight_kg;
+    var wLogged = w != null ? '<span class="rv-daily-logged">Logged</span>' : "";
+  return (
+      '<aside class="rv-daily-basics" aria-label="Daily basics">' +
+      '<span class="rv-label">Daily basics</span>' +
+      '<div class="rv-daily-row"><label for="rv-db-weight">Morning weight (kg)</label>' +
+      '<div><input type="number" step="0.1" min="40" max="200" class="rv-daily-input" id="rv-db-weight" data-bl-field="weight_kg" value="' +
+      (w != null ? esc(w) : "") + '" inputmode="decimal" />' + wLogged + "</div></div>" +
+      '<div class="rv-daily-row"><span>Lunch rule</span>' +
+      '<div class="rv-daily-toggle" data-bl-field="lunch_rule">' +
+      '<button type="button" data-val="true" class="' + (basics.lunch_rule === true ? "is-on" : "") + '">Yes</button>' +
+      '<button type="button" data-val="false" class="' + (basics.lunch_rule === false ? "is-on" : "") + '">No</button>' +
+      "</div></div>" +
+      '<div class="rv-daily-row"><label for="rv-db-steps">Steps</label>' +
+      '<input type="number" min="0" step="1" class="rv-daily-input" id="rv-db-steps" data-bl-field="steps" value="' +
+      (basics.steps != null ? esc(basics.steps) : "") + '" inputmode="numeric" /></div>' +
+      '<div class="rv-daily-row"><span>Feet</span>' +
+      '<div class="rv-daily-feet rv-daily-toggle" data-bl-field="feet">' +
+      [0, 1, 2, 3].map(function (n) {
+        return '<button type="button" data-val="' + n + '" class="' + (basics.feet === n ? "is-on" : "") + '">' + n + "</button>";
+      }).join("") +
+      "</div></div></aside>"
+    );
+  }
+
+  function bindDailyBasics(host, reload) {
+    if (!host) return;
+    var weight = host.querySelector("#rv-db-weight");
+    if (weight) {
+      weight.addEventListener("change", function () {
+        var v = parseFloat(weight.value, 10);
+        if (!v || v < 40 || v > 200) return;
+        patchBodyLog({ weight_kg: v }).then(function () { return reload(); });
+      });
+    }
+    var steps = host.querySelector("#rv-db-steps");
+    if (steps) {
+      steps.addEventListener("change", function () {
+        var v = parseInt(steps.value, 10);
+        if (isNaN(v) || v < 0) return;
+        patchBodyLog({ steps: v }).then(function () { return reload(); });
+      });
+    }
+    host.querySelectorAll(".rv-daily-toggle").forEach(function (group) {
+      var field = group.getAttribute("data-bl-field");
+      group.querySelectorAll("button").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var raw = btn.getAttribute("data-val");
+          var payload = {};
+          if (field === "lunch_rule") payload.lunch_rule = raw === "true";
+          else if (field === "feet") payload.feet = parseInt(raw, 10);
+          patchBodyLog(payload).then(function () { return reload(); });
+        });
+      });
+    });
+  }
+
+  function supportBlocksHtml(blocks) {
+    return (blocks || []).map(function (b) {
+      var done = b.status === "done";
+      return '<div class="rv-support-line">' +
+        '<span' + (done ? ' style="text-decoration:line-through;color:var(--rv-secondary)"' : "") + ">" + esc(b.name) + "</span>" +
+        (done ? '<span class="rv-chip rv-chip--done">DONE</span>' : (
+          b.mark_done_allowed
+            ? '<button type="button" class="rv-btn rv-btn--secondary" data-mark-done="' + esc(b.id) + '">Done</button>'
+            : ""
+        )) +
+        "</div>";
+    }).join("");
+  }
+
+  function renderHero(host, data, reload) {
     var hero = data.hero || {};
     var session = hero.session;
     var racePlan = data.show_race_plan && data.race_plan;
+    var basics = data.daily_basics;
     var inner = "";
+    var rightPanel = dailyBasicsHtml(basics);
 
     if (hero.state === "rest") {
-      inner = '<p class="rv-title" style="font-size:1.35rem">Rest day</p><p class="rv-subtitle">Recovery is on the plan.</p>';
+      inner =
+        '<div class="rv-home-hero-grid"><div class="rv-home-hero-main">' +
+        '<p class="rv-title" style="font-size:1.35rem">Rest day</p><p class="rv-subtitle">Recovery is on the plan.</p></div>' +
+        rightPanel + "</div>";
     } else if (hero.state === "empty") {
-      inner = '<p class="rv-subtitle">' + esc(hero.empty_copy || "Nothing planned today.") +
-        ' <a href="' + esc(hero.plan_link) + '">Open plan</a></p>';
+      inner =
+        '<div class="rv-home-hero-grid"><div class="rv-home-hero-main">' +
+        '<p class="rv-subtitle">' + esc(hero.empty_copy || "Nothing planned today.") +
+        ' <a href="' + esc(hero.plan_link) + '">Open plan</a></p></div>' + rightPanel + "</div>";
     } else if (session) {
       var tiles = session.tiles || {};
       var tss = tiles.target_tss != null ? Math.round(tiles.target_tss) + " TSS" : "—";
@@ -79,6 +173,7 @@
         esc(session.name) + "</h2>" +
         '<p class="rv-subtitle">' + esc(session.source_subtitle) +
         (session.notes ? " · " + esc(session.notes) : "") + "</p></div></div>" +
+        supportBlocksHtml(session.support_blocks) +
         '<div class="rv-home-tiles">' + tile("Target", tss) + tile("Duration", dur) + tile("Effort", tiles.effort || "—") + "</div>" +
         '<div class="rv-row" style="border-top:1px solid var(--rv-hairline);padding-top:12px">' +
         '<span class="rv-subtitle">' +
@@ -90,7 +185,7 @@
         "</div></div>";
 
       if (racePlan) {
-        inner +=
+        rightPanel =
           '<aside class="rv-home-race-plan" aria-labelledby="rv-race-plan-h">' +
           '<span id="rv-race-plan-h" class="rv-label">Race plan</span>' +
           '<div class="rv-row rv-home-race-row"><span style="font-weight:600">Fuel</span><span class="rv-mono rv-subtitle">' +
@@ -100,13 +195,57 @@
           '<div class="rv-row rv-home-race-row"><span style="font-weight:600">First 10 km, no faster than</span><span class="rv-mono rv-subtitle">' +
           esc(racePlan.first_10k_cap_label || fmtPace(racePlan.first_10k_cap_seconds_per_km)) + "</span></div>" +
           '<p class="rv-warn-box">' + esc(racePlan.reminder_copy) + "</p></aside>";
+      } else {
+        rightPanel = dailyBasicsHtml(basics);
       }
-      inner += "</div>";
+      inner += rightPanel + "</div>";
     }
 
     host.innerHTML =
       '<div class="rv-row"><span class="rv-label">Today</span><a href="' + esc(hero.plan_link || "/v2/training/plan") + '">Open in Training</a></div>' +
       inner;
+    bindDailyBasics(host, reload || load);
+  }
+
+  function rateChipLabel(chip) {
+    if (chip === "in_range") return "In range";
+    if (chip === "too_fast") return "Too fast";
+    if (chip === "slow") return "Slow";
+    return "—";
+  }
+
+  var GET_HOME_WEIGHT_CARD = "/api/home/weight-card";
+  var GET_BODY_LOG_WEEKLY = "/api/body-log/weekly-rollup";
+
+  function fetchWeightCardFallback() {
+    return fetch(GET_HOME_WEIGHT_CARD, { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; });
+  }
+
+  function renderWeightCard(host, card) {
+    if (!host || !card) return;
+    host.hidden = false;
+    var avg = card.seven_day_avg_kg;
+    var rate = card.weekly_rate_kg;
+    var chip = card.rate_chip || "unknown";
+    var chipCls = chip === "in_range" ? "is-range" : chip === "too_fast" ? "is-fast" : "is-slow";
+    var spark = (card.sparkline_6w || []).filter(function (p) { return p.value != null; });
+    var maxV = spark.reduce(function (m, p) { return Math.max(m, p.value); }, 0) || 1;
+    var bars = spark.map(function (p) {
+      var h = Math.round((p.value / maxV) * 100);
+      return '<span style="height:' + h + '%" title="' + esc(p.date) + '"></span>';
+    }).join("");
+    host.innerHTML =
+      '<div class="rv-home-weight-head">' +
+      '<p class="rv-label" id="rv-weight-h">Weight</p>' +
+      '<span class="rv-weight-chip ' + chipCls + '">' + esc(rateChipLabel(chip)) +
+      (rate != null ? " · " + esc(rate) + " kg/wk" : "") + "</span>" +
+      '<span class="rv-subtitle">' + esc(card.phase_label) + "</span></div>" +
+      '<p class="rv-title" style="margin:8px 0 0;font-size:1.5rem">' +
+      (avg != null ? esc(avg) + " kg" : "—") +
+      '<span class="rv-subtitle" style="margin-left:8px;font-size:0.9rem">7-day avg</span></p>' +
+      (card.eat_more_flag ? '<p class="rv-weight-eat-more">EAT MORE — ease the deficit.</p>' : "") +
+      '<div class="rv-weight-spark" aria-hidden="true">' + bars + "</div>";
   }
 
   function kindDot(kind) {
@@ -316,7 +455,14 @@
         var greet = document.getElementById("rv-home-greet");
         if (greet && data.greeting_name) greet.textContent = "Good morning, " + data.greeting_name;
         renderAlerts(alertsHost, data.alerts);
-        renderHero(heroHost, data);
+        renderHero(heroHost, data, load);
+        var weightHost = document.getElementById("rv-home-weight");
+        if (data.weight_card) {
+          renderWeightCard(weightHost, data.weight_card);
+        } else {
+          fetchWeightCardFallback().then(function (card) { renderWeightCard(weightHost, card); });
+        }
+        void GET_BODY_LOG_WEEKLY;
         renderWeek(document.getElementById("rv-home-week"), data.this_week);
         renderLadder(document.getElementById("rv-home-ladder"), data.long_run_ladder);
         renderRecent(document.getElementById("rv-home-recent"), data.recent_sessions);

@@ -7,6 +7,7 @@ projection and race-list routes here.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -262,6 +263,15 @@ def get_performance_hero(user: User = Depends(resolve_user)):
         return JSONResponse(build_hero(db, user.id, today_bangkok()))
 
 
+@router.get("/api/performance/a-race-readiness")
+def get_a_race_readiness_checklist(user: User = Depends(resolve_user)):
+    from backend.services.a_race_readiness_checklist import build_checklist
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(build_checklist(db, user.id, today_bangkok()))
+
+
 # ── Endurance and Speed score cards (P4-9) ───────────────────────────────────
 
 @router.get("/api/performance/score-cards")
@@ -294,6 +304,17 @@ def get_performance_races(user: User = Depends(resolve_user)):
         return JSONResponse(build_race_list(db, user.id, today_bangkok()))
 
 
+# ── Season road (P6-6) ───────────────────────────────────────────────────────
+
+@router.get("/api/performance/season-road")
+def get_performance_season_road(user: User = Depends(resolve_user)):
+    from backend.services.season_road import build_season_road
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(build_season_road(db, user.id, today_bangkok()))
+
+
 # ── Coach block (P4-12) ──────────────────────────────────────────────────────
 
 @router.get("/api/performance/coach-block")
@@ -303,3 +324,112 @@ def get_performance_coach_block(user: User = Depends(resolve_user)):
 
     with Session(engine) as db:
         return JSONResponse(fetch_coach_block(db, user.id, today_bangkok()))
+
+
+class _WeeklyCheckInChangePatch(BaseModel):
+    id: str
+    status: str
+
+
+class _WeeklyCheckInPatch(BaseModel):
+    carried_changes: list[_WeeklyCheckInChangePatch] | None = None
+    feet: int | None = None
+    bed_bucket: str | None = None
+    motivation: str | None = None
+    note: str | None = None
+    complete: bool | None = None
+
+
+@router.get("/api/weekly-check-in")
+def get_weekly_check_in(user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import checkin_payload, get_or_create_checkin
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        row, meta = get_or_create_checkin(db, user.id, today_bangkok())
+        db.commit()
+        return JSONResponse(checkin_payload(db, row, meta, today_bangkok()))
+
+
+@router.post("/api/weekly-check-in/refresh")
+def post_weekly_check_in_refresh(user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import refresh_snapshot
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        payload = refresh_snapshot(db, user.id, today_bangkok())
+        db.commit()
+        return JSONResponse(payload)
+
+
+class _WeeklyCheckInParseBody(BaseModel):
+    raw_text: str
+
+
+class _WeeklyCheckInApplyBody(BaseModel):
+    raw_text: str
+    items: list[dict[str, Any]] | None = None
+
+
+@router.post("/api/weekly-check-in/parse")
+def post_weekly_check_in_parse(body: _WeeklyCheckInParseBody, user: User = Depends(resolve_user)):
+    from backend.services.checkin_changes import parse_changes_block
+    from backend.utils.time import today_bangkok
+
+    return JSONResponse({"items": parse_changes_block(body.raw_text, decided_on=today_bangkok())})
+
+
+@router.post("/api/weekly-check-in/apply-paste")
+def post_weekly_check_in_apply(body: _WeeklyCheckInApplyBody, user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import apply_paste_back, checkin_payload, get_or_create_checkin
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        row, meta = get_or_create_checkin(db, user.id, today)
+        try:
+            result = apply_paste_back(db, user.id, row, body.raw_text, today, items=body.items)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        db.commit()
+        return JSONResponse({**result, "check_in": checkin_payload(db, row, meta, today)})
+
+
+@router.patch("/api/weekly-check-in")
+def patch_weekly_check_in(body: _WeeklyCheckInPatch, user: User = Depends(resolve_user)):
+    from backend.services.weekly_checkin import (
+        checkin_payload,
+        get_or_create_checkin,
+        mark_complete,
+        save_carried_statuses,
+        save_self_report,
+    )
+    from backend.utils.time import today_bangkok
+
+    today = today_bangkok()
+    with Session(engine) as db:
+        row, meta = get_or_create_checkin(db, user.id, today)
+        try:
+            if body.carried_changes is not None:
+                save_carried_statuses(
+                    db, row, [{"id": c.id, "status": c.status} for c in body.carried_changes]
+                )
+            report: dict[str, Any] = {}
+            fields = body.model_fields_set
+            if "feet" in fields:
+                report["feet"] = body.feet
+            if "bed_bucket" in fields:
+                report["bed_bucket"] = body.bed_bucket
+            if "motivation" in fields:
+                report["motivation"] = body.motivation
+            if "note" in fields:
+                report["note"] = body.note
+            if report:
+                save_self_report(db, row, **report)
+            if body.complete:
+                mark_complete(db, row)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        db.commit()
+        db.refresh(row)
+        return JSONResponse(checkin_payload(db, row, meta, today_bangkok()))

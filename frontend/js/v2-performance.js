@@ -292,6 +292,8 @@
         '<h2 style="display:inline;margin:0 8px">' + esc(r.name) + '</h2>' +
         '<span class="rv-subtitle">' + esc(r.race_date) + (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") + '</span></div>' +
         '<div class="rv-row"><span class="rv-chip" data-hero="countdown"><strong>' + esc(r.days_to_race) + '</strong>&nbsp;days</span>' +
+        (data.readiness_checklist ? '<span class="rv-chip" data-hero="readiness" title="A-race readiness">' +
+          esc(data.readiness_checklist.count_label || "—") + ' ready</span>' : "") +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-hero-change-race">Change race</button></div></div>' +
         '<div class="rv-row" style="align-items:stretch;flex-wrap:wrap">' +
         tile("Goal", esc(fmtHMS(goal.time_sec)), esc(fmtPace(goal.pace_seconds_per_km)), ' data-hero="goal"') +
@@ -330,6 +332,56 @@
     getJSON("/api/performance/hero")
       .then(function (data) { renderHero(host, after, data); })
       .catch(function () { host.innerHTML = '<span class="rv-label">A race</span><p>Not available.</p>'; });
+  }
+
+  function stateChip(state) {
+    var bg = state === "done" ? "#dcfce7" : state === "in_progress" ? "#fef3c7" : "#eef1f7";
+    var ink = state === "done" ? "#15803d" : state === "in_progress" ? "#92400e" : "#475569";
+    return '<span class="rv-chip" style="background:' + bg + ";color:" + ink + '">' + esc(state.replace("_", " ")) + "</span>";
+  }
+
+  function renderReadiness(host, data) {
+    if (!data || !data.available) {
+      host.hidden = true;
+      return;
+    }
+    host.hidden = false;
+    var items = (data.items || []).map(function (it) {
+      var actions = "";
+      if (it.action === "update_cp") {
+        actions = ' <a class="rv-btn rv-btn--secondary" href="/settings" data-readiness-action="update-cp">Update CP</a>';
+      }
+      if (it.manual) {
+        actions += ' <button type="button" class="rv-btn rv-btn--secondary" data-toilet-save>Save plan</button>';
+      }
+      return '<div class="rv-row" data-readiness-item="' + esc(it.key) + '" style="align-items:flex-start;border-top:1px solid #eef1f7;padding:10px 0">' +
+        '<div style="flex:1"><strong>' + esc(it.label) + '</strong><br>' +
+        '<span class="rv-subtitle">' + esc(it.count_label) + ' · ' + esc(it.source) + '</span></div>' +
+        stateChip(it.state) + actions + (it.manual ? '<textarea rows="2" style="width:100%;margin-top:8px" data-toilet-note placeholder="Race-morning toilet plan…">' +
+          esc(it.detail || "") + "</textarea>" : "") + "</div>";
+    }).join("");
+    host.innerHTML = '<h2 class="rv-label">A-race readiness</h2><p class="rv-subtitle">' +
+      esc(data.summary.count_label) + " items complete.</p>" + items;
+    var raceId = data.race_id;
+    var saveBtn = host.querySelector("[data-toilet-save]");
+    var noteEl = host.querySelector("[data-toilet-note]");
+    if (saveBtn && noteEl && raceId) {
+      saveBtn.addEventListener("click", function () {
+        var note = noteEl.value.trim();
+        if (!note) { toast("Write the toilet plan first"); return; }
+        sendJSON("PATCH", "/api/races/" + encodeURIComponent(raceId), { notes: note, toilet_plan_done: true })
+          .then(function () { toast("Toilet plan saved"); loadReadiness(); loadHero(); })
+          .catch(function (e) { toast("Could not save: " + e.message); });
+      });
+    }
+  }
+
+  function loadReadiness() {
+    var host = document.getElementById("v2-perf-readiness");
+    if (!host) return;
+    getJSON("/api/performance/a-race-readiness")
+      .then(function (data) { renderReadiness(host, data); })
+      .catch(function () { host.hidden = true; });
   }
 
   // ── Endurance and Speed cards (P4-9) ──────────────────────────────────────
@@ -625,7 +677,9 @@
     needs.concat(up, done).forEach(function (r) { raceIndex[r.id] = r; });
     var more = data.total_upcoming > up.length ? '<span class="rv-subtitle">Showing ' + up.length + ' of ' + esc(data.total_upcoming) + ' upcoming races</span>' : "";
     host.innerHTML =
-      '<div class="rv-row"><span class="rv-label">Races</span><button type="button" class="rv-btn rv-btn--primary" id="v2-race-add">Add a race</button></div>' +
+      '<div class="rv-row"><span class="rv-label">Races</span>' +
+      '<div class="rv-row"><a class="rv-btn rv-btn--secondary" href="/v2/performance/season-road" data-season-road-link>Season road</a>' +
+      '<button type="button" class="rv-btn rv-btn--primary" id="v2-race-add">Add a race</button></div></div>' +
       (needs.length ? '<div class="rv-stack" data-section="needs-result"><span class="rv-label">Needs a result</span>' + needs.map(renderNeedsResult).join("") + '</div>' : "") +
       '<div class="rv-stack" data-section="upcoming"><span class="rv-label">Upcoming</span>' +
       (up.length ? up.map(renderUpcoming).join("") + more : '<p class="rv-subtitle">No upcoming races.</p>') + '</div>' +
@@ -833,6 +887,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     loadScoreCards();
     loadHero();
+    loadReadiness();
     loadProjection();
     loadRaces();
     loadFocus();

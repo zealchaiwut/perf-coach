@@ -139,13 +139,17 @@ def build_after_race(session, user_id: uuid.UUID, race, today: date) -> dict[str
 
 
 def build_hero(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
+    from backend.services.a_race_readiness_checklist import build_checklist
+
     race = next_a_race(session, user_id, today)
+    checklist = build_checklist(session, user_id, today)
     payload: dict[str, Any] = {
         "race": None,
         "goal": None,
         "estimate": None,
         "gap": None,
         "race_specific": None,
+        "readiness_checklist": checklist.get("summary"),
         "after_race": build_after_race(session, user_id, race, today),
     }
     if race is None:

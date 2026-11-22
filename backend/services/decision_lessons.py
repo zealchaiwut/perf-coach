@@ -20,7 +20,7 @@ from typing import Optional
 
 # Mirrors session_consult.PROMPT_VERSION_RACE (asserted equal in tests; importing it
 # here would be circular because session_consult reads lessons from this module).
-PROMPT_VERSION_RACE = "race-debrief-v1"
+PROMPT_VERSION_RACE = "race-debrief-v2"
 
 MAX_LESSONS = 3
 LESSON_MAX_CHARS = 200

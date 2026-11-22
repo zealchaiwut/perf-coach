@@ -160,6 +160,7 @@ from backend.routers.preferences import router as _preferences_router
 from backend.routers.decisions import router as _decisions_router
 from backend.routers.admin import router as _admin_router
 from backend.routers.performance_axes import router as _performance_axes_router
+from backend.routers.athlete_shoes import router as _athlete_shoes_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -199,6 +200,7 @@ app.include_router(_preferences_router)
 app.include_router(_decisions_router)
 app.include_router(_admin_router)
 app.include_router(_performance_axes_router)
+app.include_router(_athlete_shoes_router)
 
 
 def _today_bkk() -> _date:
@@ -5872,6 +5874,8 @@ _V2_ROUTE_FILES = {
     "/v2/training/log": "v2-training-log.html",
     "/v2/training/trends": "v2-training-trends.html",
     "/v2/performance": "v2-performance.html",
+    "/v2/performance/season-road": "v2-season-road.html",
+    "/v2/performance/check-in": "v2-weekly-check-in.html",
     "/v2/components": "v2-components.html",
     "/v2/settings/plan": "v2-settings-plan.html",
     "/v2/settings": "v2-settings.html",
@@ -6033,6 +6037,10 @@ class WorkoutPatch(BaseModel):
     feeling: Optional[str] = None
     # Did this session take on fuel? null clears it back to unknown.
     fuelled: Optional[bool] = None
+    gel_count: Optional[int] = None
+    fluid_level: Optional[str] = None
+    stomach_ok: Optional[bool] = None
+    shoe_id: Optional[str] = None
     # Running drills alongside this session. null clears it back to unknown.
     drills_minutes: Optional[int] = None
     tss_method_override: Optional[str] = None
@@ -6608,6 +6616,10 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
+        "gel_count": getattr(w, "gel_count", None),
+        "fluid_level": getattr(w, "fluid_level", None),
+        "stomach_ok": getattr(w, "stomach_ok", None),
+        "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
         "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
@@ -6870,6 +6882,10 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "exercise_count": exercise_count,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
+        "gel_count": getattr(w, "gel_count", None),
+        "fluid_level": getattr(w, "fluid_level", None),
+        "stomach_ok": getattr(w, "stomach_ok", None),
+        "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
         "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
@@ -7661,6 +7677,42 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             # Explicit null returns it to unknown rather than to "no" — the
             # long-run-fuel habit only ticks on a literal True.
             workout.fuelled = body.fuelled
+        if "gel_count" in body.model_fields_set:
+            if body.gel_count is not None and not (0 <= body.gel_count <= 12):
+                raise HTTPException(status_code=422, detail="gel_count must be 0–12")
+            workout.gel_count = body.gel_count
+            if body.gel_count is not None:
+                workout.fuelled = body.gel_count > 0
+        if "fluid_level" in body.model_fields_set:
+            fl = body.fluid_level
+            if fl is not None:
+                fl = fl.strip().lower()
+                if fl not in ("low", "ok", "high"):
+                    raise HTTPException(status_code=422, detail="fluid_level must be low, ok, or high")
+                workout.fluid_level = fl
+            else:
+                workout.fluid_level = None
+        if "stomach_ok" in body.model_fields_set:
+            workout.stomach_ok = body.stomach_ok
+        if "shoe_id" in body.model_fields_set:
+            from backend.models import AthleteShoe
+            from backend.services.athlete_shoes import recompute_shoe_stats
+            old_shoe = workout.shoe_id
+            if body.shoe_id is None or body.shoe_id == "":
+                workout.shoe_id = None
+            else:
+                try:
+                    sid = _uuid.UUID(body.shoe_id)
+                except ValueError:
+                    raise HTTPException(status_code=422, detail="Invalid shoe_id") from None
+                shoe = session.get(AthleteShoe, sid)
+                if shoe is None or shoe.user_id != user.id:
+                    raise HTTPException(status_code=422, detail="Unknown shoe_id")
+                workout.shoe_id = sid
+            session.flush()
+            for sid in {old_shoe, workout.shoe_id}:
+                if sid:
+                    recompute_shoe_stats(session, user.id, sid)
         if 'drills_minutes' in body.model_fields_set:
             # Explicit null returns it to unknown, which is distinct from 0
             # ("logged the session, did no drills").
@@ -9227,9 +9279,127 @@ def _daily_metric_dict(m: DailyMetric) -> dict:
         "mood": m.mood,
         "notes": m.notes,
         "kcal_intake": m.kcal_intake,
+        "lunch_rule": m.lunch_rule,
+        "feet": m.feet,
+        "steps": m.steps,
+        "steps_source": m.steps_source,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
     }
+
+
+# ── Body log (P6-9) ─────────────────────────────────────────────────────────────
+
+
+class BodyLogPatchIn(BaseModel):
+    weight_kg: Optional[float] = None
+    lunch_rule: Optional[bool] = None
+    feet: Optional[int] = None
+    steps: Optional[int] = None
+
+
+def _validate_body_log_fields(
+    *,
+    weight_kg: Optional[float] = None,
+    feet: Optional[int] = None,
+    steps: Optional[int] = None,
+) -> None:
+    if weight_kg is not None and not (40 <= weight_kg <= 200):
+        raise HTTPException(status_code=422, detail={"field": "weight_kg", "error": "weight_kg must be between 40 and 200"})
+    if feet is not None and not (0 <= feet <= 3):
+        raise HTTPException(status_code=422, detail={"field": "feet", "error": "feet must be between 0 and 3"})
+    if steps is not None and steps < 0:
+        raise HTTPException(status_code=422, detail={"field": "steps", "error": "steps must be a non-negative integer"})
+
+
+@app.get("/api/body-log")
+def get_body_log(
+    log_date: Optional[str] = Query(default=None, alias="date"),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.body_log_store import body_log_day_payload
+
+    today = _today_bkk()
+    if log_date is None:
+        md = today
+    else:
+        try:
+            md = _date.fromisoformat(log_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+    with Session(engine) as session:
+        return JSONResponse(body_log_day_payload(session, user.id, md))
+
+
+@app.patch("/api/body-log")
+def patch_body_log(
+    body: BodyLogPatchIn,
+    log_date: Optional[str] = Query(default=None, alias="date"),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.body_log_store import patch_body_log as _patch_body_log
+
+    if not body.model_fields_set:
+        raise HTTPException(status_code=422, detail="No fields to update")
+    today = _today_bkk()
+    if log_date is None:
+        md = today
+    else:
+        try:
+            md = _date.fromisoformat(log_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
+    _validate_body_log_fields(
+        weight_kg=body.weight_kg if "weight_kg" in body.model_fields_set else None,
+        feet=body.feet if "feet" in body.model_fields_set else None,
+        steps=body.steps if "steps" in body.model_fields_set else None,
+    )
+    with Session(engine) as session:
+        payload = _patch_body_log(
+            session,
+            user.id,
+            md,
+            weight_kg=body.weight_kg if "weight_kg" in body.model_fields_set else None,
+            lunch_rule=body.lunch_rule if "lunch_rule" in body.model_fields_set else None,
+            feet=body.feet if "feet" in body.model_fields_set else None,
+            steps=body.steps if "steps" in body.model_fields_set else None,
+        )
+    if "weight_kg" in body.model_fields_set:
+        _recompute_weigh_in_autofill(user.id, md)
+    return JSONResponse(payload)
+
+
+@app.get("/api/body-log/weekly-rollup")
+def get_body_log_weekly_rollup(
+    week_start: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    from backend.services.body_log_store import body_log_week_rollup
+
+    today = _today_bkk()
+    if week_start is None:
+        from backend.services.weekly_rollup import normalize_week_start
+
+        ws = normalize_week_start(today)
+    else:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid week_start; use YYYY-MM-DD")
+    with Session(engine) as session:
+        return JSONResponse(body_log_week_rollup(session, user.id, ws))
+
+
+@app.get("/api/home/weight-card")
+def get_home_weight_card(user: User = Depends(resolve_user)):
+    from backend.services.body_log_store import _weight_rows
+    from backend.services.body_log_weight_card import weight_card_payload
+
+    today = _today_bkk()
+    fetch_from = today - _timedelta(days=120)
+    with Session(engine) as session:
+        rows = _weight_rows(session, user.id, fetch_from, today)
+        return JSONResponse(weight_card_payload(session, user.id, weight_rows=rows, today=today))
 
 
 @app.get("/api/daily-metrics")
@@ -14700,6 +14870,8 @@ class _RaceCreateBody(BaseModel):
     addon_workout_id: Optional[str] = None
     long_run_need_seconds: Optional[int] = None
     long_run_manual_target_seconds: Optional[int] = None
+    notes: Optional[str] = None
+    toilet_plan_done: Optional[bool] = None
 
 
 class _RaceUpdateBody(BaseModel):
@@ -14720,6 +14892,8 @@ class _RaceUpdateBody(BaseModel):
     addon_workout_id: Optional[str] = None
     long_run_need_seconds: Optional[int] = None
     long_run_manual_target_seconds: Optional[int] = None
+    notes: Optional[str] = None
+    toilet_plan_done: Optional[bool] = None
 
 
 def _race_met_status(race: Race) -> str:
@@ -14831,6 +15005,8 @@ def _race_dict(
         "role_result": role_result,
         "met_status": _race_met_status(race),
         "created_at": race.created_at.isoformat() if race.created_at else None,
+        "notes": getattr(race, "notes", None),
+        "toilet_plan_done": bool(getattr(race, "toilet_plan_done", False)),
         "updated_at": race.updated_at.isoformat() if race.updated_at else None,
     }
 
@@ -15149,6 +15325,10 @@ def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve
         if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
             race.race_type = body.race_type
         _apply_race_role_fields(race, body, body.model_fields_set)
+        if "notes" in body.model_fields_set:
+            race.notes = body.notes
+        if "toilet_plan_done" in body.model_fields_set:
+            race.toilet_plan_done = bool(body.toilet_plan_done)
 
         race.goal_pace_seconds_per_km = _derive_goal_pace(
             race.goal_time_seconds,
