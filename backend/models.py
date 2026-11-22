@@ -571,6 +571,10 @@ class DailyMetric(Base):
     mood = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
     kcal_intake = Column(Integer, nullable=True)
+    lunch_rule = Column(Boolean, nullable=True)
+    feet = Column(Integer, nullable=True)
+    steps = Column(Integer, nullable=True)
+    steps_source = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=text("now()"))
     updated_at = Column(DateTime(timezone=True), server_default=text("now()"))
 
@@ -603,6 +607,18 @@ class DailyMetric(Base):
         CheckConstraint(
             "kcal_intake IS NULL OR kcal_intake > 0",
             name="ck_daily_metrics_kcal_intake",
+        ),
+        CheckConstraint(
+            "feet IS NULL OR (feet >= 0 AND feet <= 3)",
+            name="ck_daily_metrics_feet",
+        ),
+        CheckConstraint(
+            "steps IS NULL OR steps >= 0",
+            name="ck_daily_metrics_steps",
+        ),
+        CheckConstraint(
+            "steps_source IS NULL OR steps_source IN ('manual', 'imported')",
+            name="ck_daily_metrics_steps_source",
         ),
     )
 
