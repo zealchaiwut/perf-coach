@@ -304,6 +304,17 @@ def get_performance_races(user: User = Depends(resolve_user)):
         return JSONResponse(build_race_list(db, user.id, today_bangkok()))
 
 
+# ── Season road (P6-6) ───────────────────────────────────────────────────────
+
+@router.get("/api/performance/season-road")
+def get_performance_season_road(user: User = Depends(resolve_user)):
+    from backend.services.season_road import build_season_road
+    from backend.utils.time import today_bangkok
+
+    with Session(engine) as db:
+        return JSONResponse(build_season_road(db, user.id, today_bangkok()))
+
+
 # ── Coach block (P4-12) ──────────────────────────────────────────────────────
 
 @router.get("/api/performance/coach-block")
@@ -337,7 +348,7 @@ def get_weekly_check_in(user: User = Depends(resolve_user)):
     with Session(engine) as db:
         row, meta = get_or_create_checkin(db, user.id, today_bangkok())
         db.commit()
-        return JSONResponse(checkin_payload(row, meta))
+        return JSONResponse(checkin_payload(db, row, meta, today_bangkok()))
 
 
 @router.post("/api/weekly-check-in/refresh")
@@ -388,4 +399,4 @@ def patch_weekly_check_in(body: _WeeklyCheckInPatch, user: User = Depends(resolv
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         db.commit()
         db.refresh(row)
-        return JSONResponse(checkin_payload(row, meta))
+        return JSONResponse(checkin_payload(db, row, meta, today_bangkok()))

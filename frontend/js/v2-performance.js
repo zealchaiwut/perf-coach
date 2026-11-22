@@ -677,7 +677,9 @@
     needs.concat(up, done).forEach(function (r) { raceIndex[r.id] = r; });
     var more = data.total_upcoming > up.length ? '<span class="rv-subtitle">Showing ' + up.length + ' of ' + esc(data.total_upcoming) + ' upcoming races</span>' : "";
     host.innerHTML =
-      '<div class="rv-row"><span class="rv-label">Races</span><button type="button" class="rv-btn rv-btn--primary" id="v2-race-add">Add a race</button></div>' +
+      '<div class="rv-row"><span class="rv-label">Races</span>' +
+      '<div class="rv-row"><a class="rv-btn rv-btn--secondary" href="/v2/performance/season-road" data-season-road-link>Season road</a>' +
+      '<button type="button" class="rv-btn rv-btn--primary" id="v2-race-add">Add a race</button></div></div>' +
       (needs.length ? '<div class="rv-stack" data-section="needs-result"><span class="rv-label">Needs a result</span>' + needs.map(renderNeedsResult).join("") + '</div>' : "") +
       '<div class="rv-stack" data-section="upcoming"><span class="rv-label">Upcoming</span>' +
       (up.length ? up.map(renderUpcoming).join("") + more : '<p class="rv-subtitle">No upcoming races.</p>') + '</div>' +
