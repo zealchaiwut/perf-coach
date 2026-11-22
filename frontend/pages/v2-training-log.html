@@ -13,7 +13,7 @@
     <header class="rv-shell-head rv-home-top">
       <div class="rv-shell-head-text">
         <h1 class="rv-title rv-title--invert">Training</h1>
-        <p class="rv-subtitle rv-subtitle--invert">Session log</p>
+        <p class="rv-subtitle rv-subtitle--invert" id="rv-training-subtitle">Session log</p>
       </div>
       <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
@@ -33,14 +33,24 @@
       <div id="v2-month-body"></div>
     </section>
 
-    <section class="rv-card rv-stack" id="v2-chart-section" aria-labelledby="v2-chart-h">
-      <h2 id="v2-chart-h" class="rv-label">Weekly volume</h2>
-      <p class="rv-subtitle" style="margin:0">Click a week to jump to it in the list below.</p>
+    <section class="rv-card rv-chart-card" id="v2-chart-section" aria-labelledby="v2-chart-h">
+      <div class="rv-chart-head">
+        <div>
+          <h2 id="v2-chart-h" class="rv-label">Weekly volume</h2>
+          <p class="rv-chart-sub">Click a week, here or in the calendar, to jump to it in the list</p>
+        </div>
+        <div class="rv-chart-legend" aria-hidden="true">
+          <span class="rv-key"><i class="rv-swatch" style="background:#bfd3f8"></i>Run TSS</span>
+          <span class="rv-key"><i class="rv-swatch" style="background:#c9b6f2"></i>Lift TSS</span>
+          <span class="rv-key"><i class="rv-swatch rv-swatch--line"></i>Distance</span>
+          <span class="rv-key"><i class="rv-swatch rv-swatch--planned"></i>Planned</span>
+        </div>
+      </div>
       <div id="v2-chart-body" class="rv-chart-wrap"></div>
     </section>
 
-    <section class="rv-card rv-stack" id="v2-list-section" aria-labelledby="v2-list-h">
-      <h2 id="v2-list-h" class="rv-label">Sessions</h2>
+    <section class="rv-card rv-list-card" id="v2-list-section" aria-labelledby="v2-list-h">
+      <h2 id="v2-list-h" class="sr-only">Sessions</h2>
       <div id="v2-list-filters" class="rv-list-filters"></div>
       <div id="v2-list-body"></div>
     </section>

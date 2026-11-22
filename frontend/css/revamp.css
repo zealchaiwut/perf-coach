@@ -478,6 +478,21 @@ body.rv-page .rv-swatch--missed {
   border: 1.5px dashed #e0a56b;
 }
 
+body.rv-page .rv-swatch--line {
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: #d97706;
+}
+
+body.rv-page .rv-swatch--planned {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: transparent;
+  border: 2px dashed #6d93e8;
+}
+
 body.rv-page .rv-feel {
   display: inline-flex;
   gap: 4px;
@@ -3044,11 +3059,59 @@ body.rv-page .rv-chip--outline {
   letter-spacing: 0.04em;
 }
 
+body.rv-page .rv-training-page .rv-chart-card {
+  padding: 20px 24px;
+  gap: 8px;
+}
+
+body.rv-page .rv-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+body.rv-page .rv-chart-sub {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--rv-secondary);
+}
+
+body.rv-page .rv-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 13px;
+  color: #56627f;
+  align-items: center;
+}
+
+body.rv-page .rv-chart-legend .rv-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+body.rv-page .rv-training-page .rv-list-card {
+  padding: 16px 20px 22px;
+  gap: 8px;
+}
+
 body.rv-page .rv-training-page .rv-list-filters {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
   gap: 12px;
   margin-bottom: 4px;
+}
+
+body.rv-page .rv-list-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 body.rv-page .rv-list-filter-chips button.rv-chip {
@@ -3058,34 +3121,39 @@ body.rv-page .rv-list-filter-chips button.rv-chip {
   font-weight: 700;
   letter-spacing: 0;
   text-transform: none;
-  border: 1px solid var(--rv-border);
+  border: 1px solid #c9d2e3;
   background: #fff;
-  color: var(--rv-ink);
+  color: #3c4a6b;
   cursor: pointer;
 }
 body.rv-page .rv-list-filter-chips button.rv-chip.is-on {
-  background: var(--rv-ink);
+  background: #0b1530;
   color: #fff;
-  border-color: var(--rv-ink);
+  border-color: #0b1530;
 }
 
 body.rv-page .rv-list-filter-tools {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
 }
 
 body.rv-page .rv-list-search,
 body.rv-page .rv-list-range {
   min-height: 38px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--rv-border);
+  border: 1px solid #c9d2e3;
   background: #fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--rv-ink);
+}
+
+body.rv-page .rv-list-range {
+  font-size: 13.5px;
+  padding: 10px;
 }
 
 body.rv-page .rv-list-search {
@@ -3102,31 +3170,137 @@ body.rv-page .rv-training-page .rv-week-block {
 }
 
 body.rv-page .rv-training-page .rv-week-head {
-  background: var(--rv-card);
-  border: 1px solid transparent;
-  border-radius: var(--rv-radius);
-  margin-bottom: 10px;
-  box-shadow: var(--rv-shadow);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 20px 6px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  margin: 0;
+  box-shadow: none;
+  min-height: 0;
+  cursor: default;
+}
+
+body.rv-page .rv-week-range {
+  font-size: 15px;
+  font-weight: 700;
+  color: #33405e;
+}
+
+body.rv-page .rv-week-stats {
+  font-family: var(--rv-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f3b8a;
+}
+
+body.rv-page .rv-week-target {
+  color: #7a3a10;
+  font-weight: 600;
+}
+
+body.rv-page .rv-week-plan-link {
+  font-family: var(--rv-mono);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: #1f3b8a;
+}
+
+body.rv-page .rv-week-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+body.rv-page .rv-planned-empty {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  border: 1px dashed #b9c8e6;
+  background: #f8faff;
+}
+
+body.rv-page .rv-planned-empty-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 body.rv-page .rv-training-page .rv-session-row {
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  gap: 12px 16px;
-  padding: 14px 18px;
-  align-items: start;
+  display: grid;
+  grid-template-columns: 58px 10px minmax(0, 1fr) auto auto;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
   border: 1px solid #e6ebf5;
   border-radius: 12px;
-  margin: 0 0 10px;
+  margin: 0;
   background: #fff;
-  box-shadow: 0 2px 8px rgba(13, 30, 67, 0.06);
+  box-shadow: none;
+  color: var(--rv-ink);
+  text-decoration: none;
+}
+
+body.rv-page .rv-session-row--today {
+  border: 2px solid #3b6fe0;
+}
+
+body.rv-page .rv-training-page .rv-session-row--missed {
+  background: #fff7ed;
+  border: 1px dashed #e0a56b;
+  margin: 0;
 }
 
 body.rv-page .rv-session-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.05;
   font-family: var(--rv-mono);
-  font-size: 13px;
+  color: var(--rv-ink);
+  padding-top: 0;
+}
+
+body.rv-page .rv-session-day {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+body.rv-page .rv-session-wd {
+  font-size: 11px;
   font-weight: 700;
-  color: var(--rv-secondary);
-  padding-top: 2px;
+  color: #56627f;
+  letter-spacing: 0.04em;
+}
+
+body.rv-page .rv-session-row--missed .rv-session-day,
+body.rv-page .rv-session-row--missed .rv-session-wd,
+body.rv-page .rv-session-row--missed .rv-session-title {
+  color: #7a3a10;
+}
+
+body.rv-page .rv-session-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: block;
+}
+
+body.rv-page .rv-session-dot--run { background: #3b6fe0; }
+body.rv-page .rv-session-dot--support { background: #7c5cd6; }
+body.rv-page .rv-session-dot--missed {
+  background: transparent;
+  border: 2px solid #7c5cd6;
+  box-sizing: border-box;
 }
 
 body.rv-page .rv-session-title-row {
@@ -3137,27 +3311,34 @@ body.rv-page .rv-session-title-row {
 }
 
 body.rv-page .rv-session-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--rv-ink);
 }
 
 body.rv-page .rv-session-metrics {
-  margin-top: 5px;
+  margin-top: 3px;
   font-family: var(--rv-mono);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--rv-secondary);
 }
 
-body.rv-page .rv-session-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+body.rv-page .rv-session-title-row .rv-chip {
+  min-height: auto;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
+  border: none;
 }
 
-body.rv-page .rv-training-page .rv-session-badges .rv-chip,
+body.rv-page .rv-chip--missed {
+  background: #ffedd5;
+  color: #7a3a10;
+}
+
 body.rv-page .rv-training-page .rv-month-card .rv-chip {
   min-height: auto;
   padding: 3px 8px;
@@ -3167,16 +3348,76 @@ body.rv-page .rv-training-page .rv-month-card .rv-chip {
   line-height: 1.25;
 }
 
+body.rv-page .rv-session-tss-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 64px;
+  line-height: 1.05;
+}
+
 body.rv-page .rv-session-tss {
   font-family: var(--rv-mono);
   font-size: 20px;
-  font-weight: 700;
-  color: var(--rv-ink);
+  font-weight: 600;
+  color: #1f3b8a;
   white-space: nowrap;
 }
 
-body.rv-page .rv-training-page .rv-session-tss {
-  font-size: 20px;
+body.rv-page .rv-session-tss-unit {
+  font-size: 11.5px;
+  color: var(--rv-secondary);
+}
+
+body.rv-page .rv-session-open {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f3b8a;
+}
+
+body.rv-page .rv-list-feel {
+  margin-top: 0;
+  gap: 3px;
+}
+
+body.rv-page .rv-btn--ghost-amber {
+  min-height: 36px;
+  padding: 6px 12px;
+  font-size: 13px;
+  background: #fff;
+  border: 1px solid #e0c09a;
+  color: #7a3a10;
+  border-radius: 10px;
+}
+
+body.rv-page .rv-week-more {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid #e6ebf5;
+  background: #fafbfe;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #33405e;
+  font-size: 14px;
+  font-weight: 600;
+  width: 100%;
+}
+
+body.rv-page .rv-week-more-meta {
+  font-family: var(--rv-mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--rv-secondary);
+}
+
+body.rv-page .rv-older-wrap {
+  text-align: center;
+  margin: 12px 0 0;
 }
 
 body.rv-page .rv-week-head strong {
@@ -3226,3 +3467,320 @@ body.rv-page .rd4-drawer-host .rd4-srcbadge {
 body.rv-page .rd4-drawer-host .rd4-title {
   font-size: 1.25rem;
 }
+
+/* ── Plan mock match ─────────────────────────────────────────────────────── */
+body.rv-page .rv-plan-road-card,
+body.rv-page .rv-plan-week-load-card {
+  padding: 20px 24px;
+  gap: 16px;
+}
+
+body.rv-page .rv-plan-road-title {
+  margin: 3px 0 0;
+  font-size: 19px;
+  font-weight: 700;
+}
+
+body.rv-page .rv-plan-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 900px) {
+  body.rv-page .rv-plan-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+body.rv-page .rv-plan-tile {
+  background: #f7f9fd;
+  border-radius: 11px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+body.rv-page .rv-plan-tile strong { font-size: 15px; font-weight: 700; }
+body.rv-page .rv-plan-tile--target {
+  background: #fff;
+  border: 2px solid #1f3b8a;
+}
+body.rv-page .rv-plan-tile--target strong { color: #1f3b8a; }
+body.rv-page .rv-plan-ceiling { color: #7a3a10; }
+
+body.rv-page .rv-road-grid,
+body.rv-page .rv-road-phases {
+  display: grid;
+  gap: 8px;
+}
+body.rv-page .rv-road-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+body.rv-page .rv-road-box {
+  position: relative;
+  height: 230px;
+}
+body.rv-page .rv-road-tgt {
+  position: absolute;
+  bottom: 0;
+  left: 4%;
+  right: 4%;
+  border: 2px dashed #8ba7e6;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+  box-sizing: border-box;
+}
+body.rv-page .rv-road-tgt--future { background: #f8faff; }
+body.rv-page .rv-road-tgt--race {
+  background: #fdffe8;
+  border-color: #b8c400;
+}
+body.rv-page .rv-road-tgt--a-race {
+  background: #fff8f8;
+  border-color: #e07a7a;
+}
+body.rv-page .rv-road-act {
+  position: absolute;
+  bottom: 0;
+  left: 18%;
+  right: 18%;
+  background: #1f3b8a;
+  border-radius: 5px 5px 0 0;
+}
+body.rv-page .rv-road-act--over { background: #b45309; }
+body.rv-page .rv-road-act--planned {
+  background: repeating-linear-gradient(135deg, #8ba7e6 0 6px, #c7d7f5 6px 12px);
+}
+body.rv-page .rv-road-act--race {
+  background: repeating-linear-gradient(135deg, #d4e400 0 6px, #eef87a 6px 12px);
+}
+body.rv-page .rv-road-val {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--rv-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: #0b1530;
+}
+body.rv-page .rv-road-val--over { color: #7a3a10; }
+body.rv-page .rv-road-call {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 92px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #7a3a10;
+  background: #fff1dc;
+  border-radius: 6px;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+body.rv-page .rv-road-x {
+  font-family: var(--rv-mono);
+  font-size: 12px;
+  color: #56627f;
+  text-align: center;
+}
+body.rv-page .rv-road-x.is-current { color: #0b1530; font-weight: 700; }
+body.rv-page .rv-road-phase {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-align: center;
+  padding: 5px 0;
+  border-radius: 6px;
+}
+body.rv-page .rv-road-swatch--over { background: #b45309; }
+body.rv-page .rv-road-swatch--planned {
+  background: repeating-linear-gradient(135deg, #8ba7e6 0 3px, #c7d7f5 3px 6px);
+  border: none;
+}
+body.rv-page .rv-road-insight {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: #7a3a10;
+}
+
+body.rv-page .rv-plan-formula-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr) 30px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  body.rv-page .rv-plan-formula-grid { grid-template-columns: 1fr; }
+  body.rv-page .rv-plan-op { display: none; }
+}
+body.rv-page .rv-plan-op {
+  font-family: var(--rv-mono);
+  font-size: 20px;
+  color: #56627f;
+  text-align: center;
+}
+body.rv-page .rv-plan-week-nums {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+body.rv-page .rv-plan-week-tss { font-size: 34px; font-weight: 600; margin-left: 0; }
+body.rv-page .rv-plan-week-den { font-size: 18px; color: #56627f; }
+body.rv-page .rv-plan-status--ok { background: #dff5d6; color: #2d5e10; }
+body.rv-page .rv-plan-load-wrap { position: relative; }
+body.rv-page .rv-plan-load-bar { height: 22px; overflow: visible; }
+body.rv-page .rv-plan-load-bar__planned {
+  background: repeating-linear-gradient(135deg, #6d93e8 0 6px, #a9c0ef 6px 12px);
+}
+body.rv-page .rv-plan-load-bar__tick {
+  top: -6px;
+  width: 3px;
+  height: 34px;
+  border: none;
+  background: #0b1530;
+  border-radius: 2px;
+}
+body.rv-page .rv-plan-load-bar__tick--ceiling { background: #b45309; border: none; }
+body.rv-page .rv-plan-load-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #56627f;
+}
+body.rv-page .rv-plan-headroom { margin-left: auto; }
+
+body.rv-page .rv-plan-callout--amber {
+  background: #fff4d8;
+  border-radius: 11px;
+  padding: 12px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  font-size: 13.5px;
+  color: #6b4408;
+  line-height: 1.5;
+}
+
+body.rv-page .rv-week-nav {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+}
+body.rv-page .rv-week-nav-left,
+body.rv-page .rv-week-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+body.rv-page .rv-week-nav-title { font-size: 17px; font-weight: 700; }
+
+body.rv-page .rv-suggest-banner {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border: 0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  background: #0b1530;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+body.rv-page .rv-suggest-copy { display: flex; flex-direction: column; gap: 3px; }
+body.rv-page .rv-suggest-title { font-size: 16px; font-weight: 700; }
+body.rv-page .rv-suggest-sub {
+  font-family: var(--rv-mono);
+  font-size: 12.5px;
+  color: #c9d5ef;
+}
+body.rv-page .rv-suggest-chevron { font-size: 22px; color: #e4ff52; }
+
+body.rv-page .rv-week-board-card { padding: 14px; }
+body.rv-page .rv-week-board-note {
+  margin: 8px 4px 2px;
+  font-size: 12.5px;
+  color: #56627f;
+}
+body.rv-page .rv-week-dh {
+  font-size: 11px;
+  font-weight: 700;
+  color: #5f6b84;
+}
+body.rv-page .rv-week-dn {
+  font-family: var(--rv-mono);
+  font-size: 14px;
+  color: #0b1530;
+  font-weight: 500;
+}
+body.rv-page .rv-btn--ghost-plus {
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0;
+  font-size: 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #5f6b84;
+}
+body.rv-page .rv-week-col--rest {
+  background: transparent;
+  border: none;
+}
+body.rv-page .rv-sess {
+  border-radius: 11px;
+  padding: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: #0b1530;
+  text-decoration: none;
+}
+body.rv-page .rv-sess--run { background: #f0fdf4; border: 1px solid #bbf7d0; }
+body.rv-page .rv-sess--quality { background: #fef2f2; border: 1px solid #fca5a5; }
+body.rv-page .rv-sess--support { background: #f5f3ff; border: 1px solid #ddd6fe; }
+body.rv-page .rv-sess--race { background: #fbffe0; border: 1px solid #c9d400; }
+body.rv-page .rv-sess--restday {
+  background: #f4f6fb;
+  border: 1px dashed #c9d2e3;
+  align-items: center;
+  padding: 18px 10px;
+  font-size: 12px;
+  color: #56627f;
+}
+body.rv-page .rv-sess-who {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+body.rv-page .rv-sess-who--coach { color: #1e3fb0; }
+body.rv-page .rv-sess-who--support { color: #4c1d95; }
+body.rv-page .rv-sess-who--race { color: #6b4408; }
+body.rv-page .rv-sess-title { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+body.rv-page .rv-sess-meta {
+  font-family: var(--rv-mono);
+  font-size: 12px;
+  color: #56627f;
+}
+body.rv-page .rv-sess-edit {
+  appearance: none;
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4c1d95;
+}
+body.rv-page .rv-plan-next { display: flex; align-items: flex-start; gap: 12px; }
+body.rv-page .rv-plan-board-host { display: flex; flex-direction: column; gap: 16px; }

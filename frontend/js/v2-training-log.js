@@ -14,6 +14,8 @@
     openWeeks: {},
     runIds: [],
     showAllWeeks: false,
+    expandedWeeks: {},
+    raceLine: '',
   };
 
   function readQuery() {
@@ -207,6 +209,47 @@
       .catch(function () { sectionError(body, 'Could not load month board.'); });
   }
 
+  var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var WEEKDAYS_SHORT = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+  function isoParts(iso) {
+    var p = String(iso || '').slice(0, 10).split('-');
+    return { y: parseInt(p[0], 10), m: parseInt(p[1], 10), d: parseInt(p[2], 10) };
+  }
+
+  function fmtDayMonth(iso) {
+    var p = isoParts(iso);
+    if (!p.m) return iso;
+    return p.d + ' ' + MONTHS_SHORT[p.m - 1];
+  }
+
+  function weekdayIndex(iso) {
+    var p = isoParts(iso);
+    var t = Date.UTC(p.y, p.m - 1, p.d);
+    return new Date(t).getUTCDay();
+  }
+
+  function fmtWeekRange(start, end) {
+    var a = isoParts(start);
+    var b = isoParts(end || start);
+    if (!a.m) return start;
+    if (a.m === b.m) return a.d + ' – ' + b.d + ' ' + MONTHS_SHORT[a.m - 1];
+    return a.d + ' ' + MONTHS_SHORT[a.m - 1] + ' – ' + b.d + ' ' + MONTHS_SHORT[b.m - 1];
+  }
+
+  function topRoundRect(x, y, w, h, r, fill) {
+    if (h <= 0) return '';
+    if (r > h) r = h;
+    if (r > w / 2) r = w / 2;
+    return '<path d="M' + x + ',' + (y + h) + ' L' + x + ',' + (y + r) +
+      ' Q' + x + ',' + y + ' ' + (x + r) + ',' + y +
+      ' L' + (x + w - r) + ',' + y +
+      ' Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) +
+      ' L' + (x + w) + ',' + (y + h) + ' Z" fill="' + fill + '"/>';
+  }
+
   function drawChart(weeks) {
     var el = document.getElementById('v2-chart-body');
     if (!el) return;
@@ -214,61 +257,114 @@
       sectionError(el, 'No weekly data yet.');
       return;
     }
-    var maxTss = Math.max.apply(null, weeks.map(function (w) {
-      return (w.tss_run || 0) + (w.tss_strength || 0) + (w.tss_support_other || 0) + (w.planned_tss || 0);
-    }).concat([1]));
-    var maxKm = Math.max.apply(null, weeks.map(function (w) { return w.distance_km || 0; }).concat([1]));
-    var w = 1000;
-    var h = 220;
-    var pad = 40;
-    var slot = (w - pad * 2) / weeks.length;
-    var parts = ['<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="Weekly training volume">'];
-    var linePts = [];
+    if (weeks.length > 9) weeks = weeks.slice(-9);
+    var BASE = 190;
+    var TOP = 20;
+    var PLOT = 170;
+    var BAR_W = 56;
+    var FIRST_CX = 55;
+    var SLOT = 111;
+    var maxTss = 1;
+    var maxKm = 1;
+    weeks.forEach(function (w) {
+      var t = (w.tss_run || 0) + (w.tss_strength || 0) + (w.tss_support_other || 0);
+      if ((w.planned_tss || 0) > t) t = w.planned_tss;
+      if (t > maxTss) maxTss = t;
+      if ((w.distance_km || 0) > maxKm) maxKm = w.distance_km;
+    });
+    function yTss(v) { return BASE - (v / maxTss) * PLOT; }
+    function yKm(v) { return BASE - (v / maxKm) * PLOT; }
+    function cx(i) { return FIRST_CX + i * SLOT; }
+
+    var currentIdx = -1;
+    var lastDoneIdx = -1;
+    var peakIdx = 0;
+    var peakVal = -1;
+    weeks.forEach(function (wk, i) {
+      var total = (wk.tss_run || 0) + (wk.tss_strength || 0) + (wk.tss_support_other || 0);
+      if (total > peakVal) { peakVal = total; peakIdx = i; }
+      if (wk.partial) currentIdx = i;
+      if (total > 0 || wk.partial) lastDoneIdx = i;
+    });
+    if (currentIdx < 0) currentIdx = lastDoneIdx < 0 ? weeks.length - 1 : lastDoneIdx;
+    if (lastDoneIdx < 0) lastDoneIdx = currentIdx;
+
+    var parts = ['<svg viewBox="0 0 1000 220" style="width:100%;height:240px;display:block" role="img" aria-label="Weekly training volume">'];
+    parts.push('<line x1="0" y1="20" x2="1000" y2="20" stroke="#eef1f7"/>');
+    parts.push('<line x1="0" y1="105" x2="1000" y2="105" stroke="#eef1f7"/>');
+    parts.push('<line x1="0" y1="190" x2="1000" y2="190" stroke="#dfe5f1"/>');
+
+    var kmPts = [];
     weeks.forEach(function (wk, i) {
       var run = wk.tss_run || 0;
       var lift = (wk.tss_strength || 0) + (wk.tss_support_other || 0);
       var total = run + lift;
       var planned = wk.planned_tss || 0;
-      var x = pad + i * slot + slot * 0.15;
-      var bw = slot * 0.7;
-      var runH = total ? (run / maxTss) * (h - pad * 2) : 0;
-      var liftH = total ? (lift / maxTss) * (h - pad * 2) : 0;
-      var yBase = h - pad;
-      var isCur = wk.partial;
-      var fill = isCur ? '#3b6fe0' : '#bfd3f8';
-      if (total <= 0 && planned > 0) {
-        var ph = (planned / maxTss) * (h - pad * 2);
-        parts.push('<rect x="' + x + '" y="' + (yBase - ph) + '" width="' + bw + '" height="' + ph + '" rx="4" fill="#ffffff" stroke="#6d93e8" stroke-width="2" stroke-dasharray="5 4"/>');
+      var x = cx(i) - BAR_W / 2;
+      var isCur = i === currentIdx;
+      var plannedOnly = total <= 0 && planned > 0;
+      if (plannedOnly) {
+        var ph = Math.max(4, (planned / maxTss) * PLOT);
+        parts.push('<rect x="' + x + '" y="' + (BASE - ph) + '" width="' + BAR_W + '" height="' + ph + '" rx="4" fill="#ffffff" stroke="#6d93e8" stroke-width="2" stroke-dasharray="5 4"/>');
       } else if (total <= 0) {
-        parts.push('<rect x="' + x + '" y="' + (yBase - 4) + '" width="' + bw + '" height="4" rx="2" fill="#eef1f7"/>');
+        parts.push('<rect x="' + x + '" y="' + (BASE - 4) + '" width="' + BAR_W + '" height="4" rx="2" fill="#eef1f7"/>');
       } else {
-        parts.push('<rect x="' + x + '" y="' + (yBase - runH - liftH) + '" width="' + bw + '" height="' + runH + '" rx="3" fill="' + fill + '"/>');
-        if (liftH > 0) parts.push('<rect x="' + x + '" y="' + (yBase - runH - liftH) + '" width="' + bw + '" height="' + liftH + '" fill="#c9b6f2"/>');
-        if (isCur && planned > total) {
-          var rem = ((planned - total) / maxTss) * (h - pad * 2);
-          parts.push('<rect x="' + x + '" y="' + (yBase - runH - liftH - rem) + '" width="' + bw + '" height="' + rem + '" rx="3" fill="none" stroke="#6d93e8" stroke-width="2" stroke-dasharray="4 3"/>');
+        var runH = (run / maxTss) * PLOT;
+        var liftH = (lift / maxTss) * PLOT;
+        var fill = isCur ? '#3b6fe0' : '#bfd3f8';
+        if (liftH > 0.5) {
+          parts.push('<rect x="' + x + '" y="' + (BASE - runH) + '" width="' + BAR_W + '" height="' + runH + '" fill="' + fill + '"/>');
+          parts.push(topRoundRect(x, BASE - runH - liftH, BAR_W, liftH, 4, '#c9b6f2'));
+        } else {
+          parts.push('<rect x="' + x + '" y="' + (BASE - runH) + '" width="' + BAR_W + '" height="' + runH + '" rx="4" fill="' + fill + '"/>');
         }
       }
-      var kmY = pad + (1 - (wk.distance_km || 0) / maxKm) * (h - pad * 2);
-      if (isCur) {
-        parts.push('<circle cx="' + (x + bw / 2) + '" cy="' + kmY + '" r="5" fill="#d97706"/>');
-      }
-      linePts.push((x + bw / 2) + ',' + kmY);
-      parts.push('<text x="' + (x + bw / 2) + '" y="' + (h - 8) + '" font-size="11" text-anchor="middle" fill="#56627f">' +
-        esc(wk.week_start.slice(5)) + '</text>');
-      parts.push('<rect tabindex="0" role="button" aria-label="Week ' + esc(wk.week_start) + '" x="' + x + '" y="' + pad + '" width="' + bw + '" height="' + (h - pad * 2) + '" fill="transparent" data-week="' + esc(wk.week_start) + '"/>');
+      kmPts.push({ x: cx(i), y: yKm(wk.distance_km || 0), i: i, total: total, planned: planned, plannedOnly: plannedOnly, isCur: isCur });
     });
-    if (linePts.length) {
-      parts.push('<polyline points="' + linePts.join(' ') + '" fill="none" stroke="#d97706" stroke-width="2.5"/>');
+
+    var solid = [];
+    weeks.forEach(function (wk, i) {
+      if (i <= lastDoneIdx) solid.push(kmPts[i].x + ',' + kmPts[i].y);
+    });
+    if (solid.length > 1) {
+      parts.push('<polyline points="' + solid.join(' ') + '" fill="none" stroke="#d97706" stroke-width="2.5" stroke-linejoin="round"/>');
+    } else if (solid.length === 1) {
+      parts.push('<polyline points="' + solid[0] + ' ' + solid[0] + '" fill="none" stroke="#d97706" stroke-width="2.5"/>');
     }
+    for (var d = lastDoneIdx; d < weeks.length - 1; d++) {
+      if (d < 0) continue;
+      var a = kmPts[d];
+      var b = kmPts[d + 1];
+      parts.push('<line x1="' + a.x + '" y1="' + a.y + '" x2="' + b.x + '" y2="' + b.y + '" stroke="#d97706" stroke-width="2.5" stroke-dasharray="5 4"/>');
+    }
+
+    kmPts.forEach(function (pt) {
+      var r = pt.isCur ? 5 : 4;
+      parts.push('<circle cx="' + pt.x + '" cy="' + pt.y + '" r="' + r + '" fill="#d97706"/>');
+    });
+
+    kmPts.forEach(function (pt, i) {
+      if (pt.isCur && pt.total > 0) {
+        parts.push('<text x="' + pt.x + '" y="' + (pt.y + 4) + '" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" font-family="JetBrains Mono, monospace">' + Math.round(pt.total) + '</text>');
+      } else if (pt.plannedOnly && pt.planned > 0) {
+        parts.push('<text x="' + pt.x + '" y="' + (yTss(pt.planned) - 8) + '" font-size="11" fill="#1f3b8a" text-anchor="middle" font-family="JetBrains Mono, monospace">' + Math.round(pt.planned) + '</text>');
+      } else if (i === peakIdx && peakVal > 0 && i !== currentIdx) {
+        parts.push('<text x="' + pt.x + '" y="' + (Math.min(yTss(peakVal), pt.y) - 8) + '" font-size="11" fill="#0b1530" text-anchor="middle" font-family="JetBrains Mono, monospace">' + Math.round(peakVal) + '</text>');
+      }
+    });
+
+    weeks.forEach(function (wk, i) {
+      var isCur = i === currentIdx;
+      parts.push(
+        '<text x="' + cx(i) + '" y="208" font-size="11.5" fill="' + (isCur ? '#0b1530' : '#56627f') + '"' +
+        (isCur ? ' font-weight="700"' : '') + ' text-anchor="middle">' + esc(fmtDayMonth(wk.week_start)) + '</text>'
+      );
+      parts.push(
+        '<rect tabindex="0" role="button" aria-label="Week ' + esc(wk.week_start) + '" x="' + (cx(i) - BAR_W / 2) +
+        '" y="' + TOP + '" width="' + BAR_W + '" height="' + PLOT + '" fill="transparent" data-week="' + esc(wk.week_start) + '"/>'
+      );
+    });
     parts.push('</svg>');
-    parts.push(
-      '<div class="rv-log-chart-legend">' +
-      '<span class="rv-key"><i class="rv-swatch" style="background:#bfd3f8"></i>Run TSS</span>' +
-      '<span class="rv-key"><i class="rv-swatch" style="background:#c9b6f2"></i>Lift TSS</span>' +
-      '<span class="rv-key"><i class="rv-swatch" style="background:#d97706;height:3px;border-radius:0"></i>Distance</span>' +
-      '<span class="rv-key"><i class="rv-swatch" style="background:#fff;border:2px dashed #6d93e8"></i>Planned</span></div>'
-    );
     el.innerHTML = parts.join('');
     el.querySelectorAll('[data-week]').forEach(function (node) {
       function jump() {
@@ -289,9 +385,9 @@
     var el = document.getElementById('v2-chart-body');
     sectionLoading(el, 'Loading chart…');
     var end = todayISO();
-    var startDate = new Date(end);
-    startDate.setDate(startDate.getDate() - 7 * 8);
-    var fromW = startDate.toISOString().slice(0, 10);
+    var fromW = window.AppCommon && window.AppCommon.addDaysISO
+      ? window.AppCommon.addDaysISO(end, -7 * 8)
+      : end;
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, 25000);
     fetch('/api/weekly-rollup?from=' + encodeURIComponent(fromW) + '&to=' + encodeURIComponent(end), { signal: ctrl.signal })
@@ -305,11 +401,11 @@
 
   function listRange() {
     var end = todayISO();
-    var start = new Date(end);
-    if (state.range === 'all') start.setFullYear(start.getFullYear() - 3);
-    else if (state.range === 'block') start.setDate(start.getDate() - 7 * 8);
-    else start.setDate(start.getDate() - 7 * 8);
-    return { from: start.toISOString().slice(0, 10), to: end };
+    var add = window.AppCommon && window.AppCommon.addDaysISO;
+    if (state.range === 'all') {
+      return { from: add ? add(end, -365 * 3) : end, to: end };
+    }
+    return { from: add ? add(end, -7 * 8) : end, to: end };
   }
 
   function typeMatches(entry) {
@@ -323,102 +419,312 @@
     return true;
   }
 
-  function fmtDurationMin(m) {
-    if (m == null) return null;
-    return Math.round(Number(m)) + " min";
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  function fmtHms(sec) {
+    if (sec == null || sec === '') return null;
+    sec = Math.round(Number(sec));
+    if (!isFinite(sec) || sec < 0) return null;
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    return h + ':' + pad2(m) + ':' + pad2(s);
+  }
+
+  function fmtMins(sec) {
+    if (sec == null || sec === '') return null;
+    var n = Math.round(Number(sec) / 60);
+    if (!isFinite(n)) return null;
+    return n + ' min';
   }
 
   function fmtPaceSpk(spk) {
     if (!spk) return null;
     var m = Math.floor(spk / 60);
     var s = Math.round(spk % 60);
-    return m + ":" + (s < 10 ? "0" : "") + s + " /km";
+    return m + ':' + pad2(s) + ' /km';
+  }
+
+  function fmtKm(km) {
+    if (km == null || km === '') return null;
+    var n = Number(km);
+    if (!isFinite(n)) return null;
+    return n.toFixed(1) + ' km';
+  }
+
+  function isLogged(entry) {
+    return entry.row_kind !== 'missed_plan' && String(entry.id || '').indexOf('plan:') !== 0;
+  }
+
+  function isRunType(entry) {
+    return (entry.type || '').toLowerCase().indexOf('run') >= 0;
+  }
+
+  function isStrengthType(entry) {
+    var t = (entry.type || '').toLowerCase();
+    return t.indexOf('strength') >= 0 || t.indexOf('lift') >= 0 || t.indexOf('gym') >= 0;
+  }
+
+  function phaseLabel(raw) {
+    if (!raw) return '';
+    return String(raw).replace(/_/g, '-').replace(/\s+/g, ' ').trim();
   }
 
   function badgeChips(entry) {
     var chips = [];
+    var missed = entry.row_kind === 'missed_plan';
+    if (missed) {
+      chips.push('<span class="rv-chip rv-chip--missed">PLANNED, NOT DONE</span>');
+      return chips.join('');
+    }
     if (entry.is_stryd_synced || entry.has_stryd) {
       chips.push('<span class="rv-chip rv-chip--dark">STRYD</span>');
     }
+    if (isStrengthType(entry)) {
+      chips.push('<span class="rv-chip rv-chip--who-support">STRENGTH</span>');
+    }
     if (entry.plan_match) {
       chips.push('<span class="rv-chip rv-chip--good">MATCHED COACH PLAN</span>');
-    } else if (entry.row_kind !== 'missed_plan' && entry.id && String(entry.id).indexOf('plan:') !== 0) {
-      chips.push('<span class="rv-chip rv-chip--outline">UNPLANNED</span>');
+    } else if (entry.id && String(entry.id).indexOf('plan:') !== 0) {
+      var unplanned = isStrengthType(entry) && (entry.source || '') === 'manual'
+        ? 'UNPLANNED · TYPED AT THE GYM'
+        : 'UNPLANNED';
+      chips.push('<span class="rv-chip rv-chip--warn">' + unplanned + '</span>');
     }
     if (entry.speed_signal != null) {
-      chips.push('<span class="rv-chip rv-chip--warn">Hard effort · speed signal</span>');
+      chips.push('<span class="rv-chip rv-chip--warn">HARD EFFORT · SPEED SIGNAL</span>');
     }
-    if (entry.row_kind === 'missed_plan') {
-      chips.push('<span class="rv-chip rv-chip--warn">Planned, not done</span>');
+    return chips.join('');
+  }
+
+  function typeDot(entry) {
+    if (entry.row_kind === 'missed_plan') return '<span class="rv-session-dot rv-session-dot--missed" aria-hidden="true"></span>';
+    if (isStrengthType(entry) || (entry.type || '').toLowerCase().indexOf('plyo') >= 0 || (entry.type || '').toLowerCase().indexOf('mobility') >= 0) {
+      return '<span class="rv-session-dot rv-session-dot--support" aria-hidden="true"></span>';
     }
-    return chips.join(' ');
+    return '<span class="rv-session-dot rv-session-dot--run" aria-hidden="true"></span>';
+  }
+
+  function sessionMeta(entry) {
+    var missed = entry.row_kind === 'missed_plan';
+    if (missed) {
+      var bits = [];
+      if (entry.exercise_count) bits.push(entry.exercise_count + ' exercises');
+      if (entry.tss != null) bits.push(Math.round(entry.tss) + ' TSS planned');
+      return bits.join(' · ');
+    }
+    var tpe = (entry.type || '').toLowerCase();
+    var strength = isStrengthType(entry) || tpe.indexOf('plyo') >= 0 || tpe.indexOf('mobility') >= 0;
+    if (strength) {
+      var sbits = [];
+      var mins = fmtMins(entry.duration_seconds);
+      if (mins) sbits.push(mins);
+      if (entry.exercise_count) sbits.push(entry.exercise_count + ' exercises');
+      if (entry.set_count) sbits.push(entry.set_count + ' sets');
+      return sbits.join(' · ');
+    }
+    var rbits = [];
+    var dur = fmtHms(entry.duration_seconds);
+    if (dur) rbits.push(dur);
+    var km = fmtKm(entry.distance_km);
+    if (km) rbits.push(km);
+    var pace = fmtPaceSpk(entry.average_pace_seconds_per_km);
+    if (pace) rbits.push(pace);
+    if (entry.avg_power) rbits.push(Math.round(entry.avg_power) + ' W');
+    if (entry.avg_hr) rbits.push('HR ' + Math.round(entry.avg_hr));
+    return rbits.join(' · ');
+  }
+
+  function paintSubtitle(sessionCount) {
+    var el = document.getElementById('rv-training-subtitle');
+    if (!el) return;
+    var today = todayISO();
+    var p = isoParts(today);
+    var line = WEEKDAYS[weekdayIndex(today)] + ', ' + p.d + ' ' + MONTHS_LONG[p.m - 1];
+    if (state.raceLine) line += ' · ' + state.raceLine;
+    if (sessionCount != null) line += ' · ' + sessionCount + ' total';
+    el.textContent = line;
+  }
+
+  function loadRaceLine() {
+    fetch('/api/races', { credentials: 'include' })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (body) {
+        var races = (Array.isArray(body) ? body : (body.races || body.items || []))
+          .filter(function (race) { return (race.status || 'planned') === 'planned'; });
+        if (!races.length) return;
+        races.sort(function (a, b) { return (a.race_date || '').localeCompare(b.race_date || ''); });
+        var next = races[0];
+        state.raceLine = next.name || 'Race';
+        paintSubtitle(null);
+      })
+      .catch(function () { /* keep date only */ });
+  }
+
+  function renderSessionRow(entry, highlight) {
+    var missed = entry.row_kind === 'missed_plan';
+    var tpe = (entry.type || '').toLowerCase();
+    var run = isRunType(entry) && !missed;
+    var str = !missed && window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(tpe);
+    var rowCls = 'rv-session-row';
+    if (missed) rowCls += ' rv-session-row--missed';
+    if (highlight) rowCls += ' rv-session-row--today';
+    if (run || str) rowCls += ' rv-session-row--clickable';
+    var day = isoParts(entry.date).d;
+    var wd = WEEKDAYS_SHORT[weekdayIndex(entry.date)] || '';
+    var meta = sessionMeta(entry);
+    var attrs = (run || str)
+      ? ' data-run-id="' + esc(entry.id) + '" data-workout-type="' + esc(entry.type || '') + '" tabindex="0" role="button"'
+      : '';
+    var side;
+    if (missed) {
+      var pid = (entry.plan_match && entry.plan_match.planned_id) || String(entry.id).replace('plan:', '');
+      side =
+        '<div class="rv-missed-actions">' +
+        '<button type="button" class="rv-btn rv-btn--ghost-amber" data-plan-open="' + esc(pid) + '">Review in Plan</button>' +
+        '<button type="button" class="rv-btn rv-btn--ghost-amber" data-plan-skip="' + esc(pid) + '">Skip</button>' +
+        '</div><span class="rv-session-tss-block" aria-hidden="true"></span>';
+    } else if (str) {
+      side =
+        '<span class="rv-session-open">Open</span>' +
+        '<span class="rv-session-tss-block"><span class="rv-session-tss">' + (entry.tss != null ? Math.round(entry.tss) : '—') + '</span><span class="rv-session-tss-unit">TSS</span></span>';
+    } else {
+      side =
+        (run ? '<div class="rv-list-feel" data-feel-host="' + esc(entry.id) + '" data-feel-val="' + esc(entry.feeling || '') + '"></div>' : '<span></span>') +
+        '<span class="rv-session-tss-block"><span class="rv-session-tss">' + (entry.tss != null ? Math.round(entry.tss) : '—') + '</span><span class="rv-session-tss-unit">TSS</span></span>';
+    }
+    return (
+      '<div class="' + rowCls + '"' + attrs + '>' +
+      '<span class="rv-session-date"><span class="rv-session-day">' + esc(String(day)) + '</span><span class="rv-session-wd">' + esc(wd) + '</span></span>' +
+      typeDot(entry) +
+      '<div class="rv-session-main">' +
+      '<div class="rv-session-title-row"><strong class="rv-session-title">' + esc(entry.title || 'Session') + '</strong>' + badgeChips(entry) + '</div>' +
+      (meta ? '<div class="rv-session-metrics">' + esc(meta) + '</div>' : '') +
+      '</div>' + side + '</div>'
+    );
+  }
+
+  function plannedEmptyCard(entries) {
+    var counts = { run: 0, mobility: 0, race: 0, strength: 0, plyo: 0 };
+    entries.forEach(function (e) {
+      var t = (e.type || '').toLowerCase();
+      if (t.indexOf('race') >= 0) counts.race += 1;
+      else if (t.indexOf('mobility') >= 0) counts.mobility += 1;
+      else if (t.indexOf('plyo') >= 0) counts.plyo += 1;
+      else if (t.indexOf('strength') >= 0 || t.indexOf('lift') >= 0) counts.strength += 1;
+      else counts.run += 1;
+    });
+    var chips = [];
+    if (counts.run) chips.push('<span class="rv-chip rv-chip--who">' + counts.run + ' RUN</span>');
+    if (counts.mobility) chips.push('<span class="rv-chip rv-chip--who-support">' + counts.mobility + ' MOBILITY</span>');
+    if (counts.plyo) chips.push('<span class="rv-chip rv-chip--who-support">' + counts.plyo + ' PLYO</span>');
+    if (counts.strength) chips.push('<span class="rv-chip rv-chip--who-support">' + counts.strength + ' STRENGTH</span>');
+    if (counts.race) chips.push('<span class="rv-chip rv-chip--who-race">RACE</span>');
+    return (
+      '<div class="rv-planned-empty">' +
+      '<span class="rv-chart-sub">' + entries.length + ' planned sessions, nothing logged yet</span>' +
+      '<span class="rv-planned-empty-chips">' + chips.join('') + '</span></div>'
+    );
   }
 
   function renderList(data) {
     var el = document.getElementById('v2-list-body');
     var weeks = data.weeks || [];
     state.runIds = [];
+    var loggedCount = 0;
     weeks.forEach(function (wk) {
       (wk.entries || []).forEach(function (e) {
-        if (typeMatches(e) && e.id && String(e.id).indexOf('plan:') !== 0 && (e.type || '').toLowerCase().indexOf('run') >= 0) {
+        if (isLogged(e)) loggedCount += 1;
+        if (typeMatches(e) && isLogged(e) && isRunType(e)) {
           state.runIds.push(String(e.id));
         }
       });
     });
+    paintSubtitle(loggedCount);
     var html = [];
     var shown = 0;
-    weeks.forEach(function (wk, idx) {
-      var entries = (wk.entries || []).filter(function (e) {
-        if (!typeMatches(e)) return false;
-        if (state.search && (e.title || '').toLowerCase().indexOf(state.search.toLowerCase()) < 0) return false;
-        return true;
+    var today = todayISO();
+    var highlightId = null;
+    weeks.forEach(function (wk) {
+      (wk.entries || []).forEach(function (e) {
+        if (isLogged(e) && e.date === today && highlightId == null) highlightId = e.id;
       });
-      if (!entries.length) return;
-      var open = state.openWeeks[wk.week_start] || state.showAllWeeks || idx < 2;
-      var sum = wk.summary || {};
-      html.push('<section class="rv-week-block" id="week-' + esc(wk.week_start) + '" tabindex="-1">');
-      html.push('<button type="button" class="rv-week-head" data-week-toggle="' + esc(wk.week_start) + '">' +
-        '<strong>' + esc(wk.label || wk.week_start) + '</strong>' +
-        '<span class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' +
-        Math.round(sum.total_tss || 0) + ' TSS · ' + (sum.total_distance_km || 0) + ' km</span></button>');
-      if (open) {
-        entries.forEach(function (entry) {
-          var missed = entry.row_kind === 'missed_plan';
-          var rowCls = 'rv-session-row' + (missed ? ' rv-session-row--missed' : '');
-          var tpe = (entry.type || '').toLowerCase();
-          var run = tpe.indexOf('run') >= 0 && !missed;
-          var str = !missed && window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(tpe);
-          if (run || str) rowCls += ' rv-session-row--clickable';
-          var meta = [];
-          var dur = fmtDurationMin(entry.duration_minutes);
-          if (dur) meta.push(dur);
-          if (entry.distance_km != null) meta.push(entry.distance_km + ' km');
-          var pace = fmtPaceSpk(entry.average_pace_seconds_per_km);
-          if (pace) meta.push(pace);
-          if (entry.avg_power) meta.push(entry.avg_power + ' W');
-          if (entry.avg_hr) meta.push(entry.avg_hr + ' bpm');
-          html.push('<div class="' + rowCls + '"' + ((run || str) ? ' data-run-id="' + esc(entry.id) + '" data-workout-type="' + esc(entry.type || '') + '" tabindex="0" role="button"' : '') + '>');
-          html.push('<span class="rv-session-date">' + esc(entry.date.slice(-2)) + '</span>');
-          html.push('<div class="rv-session-main">');
-          html.push('<div class="rv-session-title-row">' + listTypeChip(entry) + '<strong class="rv-session-title">' + esc(entry.title || 'Session') + '</strong></div>');
-          if (meta.length) html.push('<div class="rv-session-metrics">' + esc(meta.join(' · ')) + '</div>');
-          html.push('<div class="rv-session-badges">' + badgeChips(entry) + '</div></div>');
-          html.push(
-            '<div class="rv-session-side">' +
-            '<span class="rv-session-tss">' + (entry.tss != null ? Math.round(entry.tss) + ' TSS' : '—') + '</span>' +
-            (run ? '<div class="rv-list-feel" data-feel-host="' + esc(entry.id) + '" data-feel-val="' + esc(entry.feeling || '') + '"></div>' : '') +
-            (missed
-              ? '<div class="rv-missed-actions">' +
-                '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-plan-open="' + esc((entry.plan_match && entry.plan_match.planned_id) || String(entry.id).replace('plan:', '')) + '">Review in Plan</button>' +
-                ((entry.type || '').toLowerCase() === 'mobility'
-                  ? '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-plan-skip="' + esc((entry.plan_match && entry.plan_match.planned_id) || String(entry.id).replace('plan:', '')) + '">Skip</button>'
-                  : '') +
-                '</div>'
-              : '') +
-            '</div>'
-          );
-          html.push('</div>');
+    });
+    if (highlightId == null) {
+      weeks.some(function (wk) {
+        return (wk.entries || []).some(function (e) {
+          if (isLogged(e)) { highlightId = e.id; return true; }
+          return false;
         });
+      });
+    }
+    var matchingWeeks = weeks.map(function (wk) {
+      return {
+        wk: wk,
+        entries: (wk.entries || []).filter(function (e) {
+          if (!typeMatches(e)) return false;
+          if (state.search && (e.title || '').toLowerCase().indexOf(state.search.toLowerCase()) < 0) return false;
+          return true;
+        }),
+      };
+    }).filter(function (row) { return row.entries.length; });
+    matchingWeeks.forEach(function (row, idx) {
+      var wk = row.wk;
+      var entries = row.entries;
+      if (!state.showAllWeeks && idx >= 2) {
+        shown += 1;
+        return;
+      }
+      var sum = wk.summary || {};
+      var roll = wk.rollup || {};
+      var phase = phaseLabel(roll.phase);
+      var range = fmtWeekRange(wk.week_start, wk.week_end);
+      var left = range + (phase ? ' · ' + phase : '');
+      var logged = entries.filter(isLogged);
+      var plannedOnly = !logged.length;
+      var plannedTss = sum.planned_tss != null ? sum.planned_tss : roll.planned_tss;
+      var target = sum.target_tss != null ? sum.target_tss : roll.target_tss;
+      var right;
+      if (plannedOnly && (plannedTss || wk.week_start > today)) {
+        right = '<a class="rv-week-plan-link" href="/v2/training/plan">' +
+          Math.round(plannedTss || sum.total_tss || 0) + ' TSS planned · open in Plan</a>';
+      } else {
+        var km = fmtKm(sum.total_distance_km);
+        right = '<span class="rv-week-stats">' + Math.round(sum.total_tss || 0) + ' TSS' +
+          (km ? ' · ' + km : '') +
+          (target != null ? '<span class="rv-week-target"> · target ' + Math.round(target) + '</span>' : '') +
+          '</span>';
+      }
+      html.push('<section class="rv-week-block" id="week-' + esc(wk.week_start) + '" tabindex="-1">');
+      html.push(
+        '<div class="rv-week-head">' +
+        '<span class="rv-week-range">' + esc(left) + '</span>' + right + '</div>'
+      );
+      if (plannedOnly) {
+        html.push(plannedEmptyCard(entries));
+      } else {
+        var expanded = !!state.expandedWeeks[wk.week_start];
+        var visible = expanded || entries.length <= 2 ? entries : entries.slice(0, 2);
+        html.push('<div class="rv-week-sessions">');
+        visible.forEach(function (entry) {
+          html.push(renderSessionRow(entry, entry.id === highlightId));
+        });
+        if (!expanded && entries.length > 2) {
+          var rest = entries.slice(2);
+          var restTss = 0;
+          var restKm = 0;
+          rest.forEach(function (e) {
+            restTss += Number(e.tss) || 0;
+            restKm += Number(e.distance_km) || 0;
+          });
+          html.push(
+            '<button type="button" class="rv-week-more" data-week-more="' + esc(wk.week_start) + '">' +
+            '<span>' + rest.length + ' more sessions this week</span>' +
+            '<span class="rv-week-more-meta">' + Math.round(restTss) + ' TSS' +
+            (restKm ? ' · ' + restKm.toFixed(1) + ' km' : '') + ' ›</span></button>'
+          );
+        }
+        html.push('</div>');
       }
       html.push('</section>');
       shown += 1;
@@ -429,8 +735,8 @@
       if (clr) clr.onclick = function () { state.filter = 'all'; state.search = ''; writeQuery(); renderFilters(); loadList(); };
       return;
     }
-    if (!state.showAllWeeks && shown > 2) {
-      html.push('<p style="text-align:center;margin:12px 0"><button type="button" class="rv-btn rv-btn--secondary" id="v2-show-older-weeks">Show older weeks</button></p>');
+    if (!state.showAllWeeks && matchingWeeks.length > 2) {
+      html.push('<p class="rv-older-wrap"><button type="button" class="rv-btn rv-btn--secondary" id="v2-show-older-weeks">Show older weeks</button></p>');
     }
     el.innerHTML = html.join('');
     el.querySelectorAll('[data-feel-host]').forEach(function (host) {
@@ -461,10 +767,9 @@
         loadList();
       });
     }
-    el.querySelectorAll('[data-week-toggle]').forEach(function (btn) {
+    el.querySelectorAll('[data-week-more]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var key = btn.getAttribute('data-week-toggle');
-        state.openWeeks[key] = !state.openWeeks[key];
+        state.expandedWeeks[btn.getAttribute('data-week-more')] = true;
         loadList();
       });
     });
@@ -487,14 +792,16 @@
     var el = document.getElementById('v2-list-filters');
     if (!el) return;
     var filters = ['all', 'runs', 'strength', 'plyo', 'mobility', 'missed'];
-    var labels = { all: 'All', runs: 'Run', strength: 'Strength', plyo: 'Plyo', mobility: 'Mobility', missed: 'Missed' };
+    var labels = { all: 'All', runs: 'Runs', strength: 'Strength', plyo: 'Plyo', mobility: 'Mobility', missed: 'Missed' };
     el.innerHTML =
       '<div class="rv-chip-row rv-list-filter-chips">' + filters.map(function (f) {
         var on = state.filter === f ? ' is-on' : '';
         return '<button type="button" class="rv-chip' + on + '" data-filter="' + f + '">' + labels[f] + '</button>';
       }).join('') + '</div>' +
       '<div class="rv-list-filter-tools">' +
+      '<label class="sr-only" for="v2-search">Search sessions</label>' +
       '<input type="search" class="rv-input rv-list-search" id="v2-search" placeholder="Search sessions" value="' + esc(state.search) + '"/>' +
+      '<label class="sr-only" for="v2-range">Date range</label>' +
       '<select id="v2-range" class="rv-input rv-list-range"><option value="8w">Last 8 weeks</option><option value="block">This block</option><option value="all">All time</option></select></div>';
     document.getElementById('v2-range').value = state.range;
     el.querySelectorAll('[data-filter]').forEach(function (btn) {
@@ -547,6 +854,8 @@
     readQuery();
     writeQuery();
     renderFilters();
+    paintSubtitle(null);
+    loadRaceLine();
     if (window.V2SyncToolbar) {
       window.V2SyncToolbar.mount(document.getElementById('v2-sync-toolbar'), { onRefresh: refreshAll });
     }

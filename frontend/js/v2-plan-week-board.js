@@ -10,26 +10,35 @@
   }
 
   function cardClass(item) {
-    if (item.kind === 'rest') return 'rv-session--rest';
-    if (item.kind === 'run') return 'rv-session--run';
-    return 'rv-session--support';
+    var kind = (item.kind || item.session_type || '').toLowerCase();
+    if (item.kind === 'rest') return 'rv-sess--rest';
+    if (kind.indexOf('race') >= 0) return 'rv-sess--race';
+    if (kind === 'quality_run') return 'rv-sess--quality';
+    if (kind === 'run') return 'rv-sess--run';
+    return 'rv-sess--support';
   }
 
   function sessionCard(item) {
     var locked = item.locked || item.plan_source === 'coach';
-    var cls = 'rv-session ' + cardClass(item) + (locked ? ' rv-session--locked' : '');
+    var kind = (item.kind || item.session_type || '').toLowerCase();
+    var isRace = kind.indexOf('race') >= 0;
+    var who = locked ? 'COACH · LOCKED' : (isRace ? 'RACE' : 'SUPPORT');
+    var whoCls = locked ? 'rv-sess-who--coach' : (isRace ? 'rv-sess-who--race' : 'rv-sess-who--support');
+    var cls = 'rv-sess rv-session ' + cardClass(item) + (locked ? ' rv-session--locked rv-sess--locked' : '');
     var drag = locked ? '' : ' draggable="true"';
-    var coach = locked ? '<span class="rv-coach-label">Coach · locked</span>' : '';
+    var meta = [];
+    if (item.estimated_tss != null) meta.push(Math.round(item.estimated_tss) + ' TSS');
     return (
       '<article class="' + cls + '"' + drag +
       ' data-id="' + esc(item.id) + '" data-date="' + esc(item.planned_date) + '"' +
       ' data-locked="' + (locked ? '1' : '0') + '" tabindex="0">' +
-      coach +
-      '<div class="rv-label">' + esc(item.name) + '</div>' +
-      (item.estimated_tss != null ? '<span class="rv-subtitle">' + esc(String(item.estimated_tss)) + ' TSS</span>' : '') +
+      '<span class="rv-sess-who ' + whoCls + '">' + esc(who) + '</span>' +
+      '<span class="rv-sess-title">' + esc(item.name) + '</span>' +
+      (meta.length ? '<span class="rv-sess-meta">' + esc(meta.join(' · ')) + '</span>' : '') +
       (!locked ? (
         '<div class="rv-week-card-actions">' +
-        '<label class="rv-subtitle">Move <select class="rv-move-select" data-move-id="' + esc(item.id) + '" aria-label="Move to day">' +
+        '<button type="button" class="rv-sess-edit" data-edit-id="' + esc(item.id) + '">Edit</button>' +
+        '<label class="sr-only">Move <select class="rv-move-select" data-move-id="' + esc(item.id) + '" aria-label="Move to day">' +
         '</select></label>' +
         '</div>'
       ) : '') +
@@ -58,36 +67,61 @@
         });
     }
 
+    function dayNum(iso) {
+      var p = String(iso || '').split('-');
+      return p.length === 3 ? String(parseInt(p[2], 10)) : iso;
+    }
+
+    function fmtWeekOf(start, end) {
+      var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      var a = String(start || '').split('-');
+      var b = String(end || start || '').split('-');
+      var ad = parseInt(a[2], 10);
+      var bd = parseInt(b[2], 10);
+      var am = parseInt(a[1], 10);
+      var bm = parseInt(b[1], 10);
+      if (!am) return start;
+      if (am === bm) return ad + ' – ' + bd + ' ' + months[am - 1];
+      return ad + ' ' + months[am - 1] + ' – ' + bd + ' ' + months[bm - 1];
+    }
+
     function render(data) {
       var head =
-        '<div class="rv-row" style="justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">' +
-        '<h2 class="rv-label">Week plan</h2>' +
-        '<div class="rv-row">' +
+        '<div class="rv-card rv-week-nav">' +
+        '<div class="rv-week-nav-left">' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-prev" aria-label="Previous week">‹</button>' +
-        '<span class="rv-subtitle" style="min-width:90px;text-align:center">' + esc(data.week_start) + '</span>' +
+        '<span class="rv-week-nav-title">Week of ' + esc(fmtWeekOf(data.week_start, data.week_end)) + '</span>' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-next" aria-label="Next week">›</button>' +
         '</div>' +
+        '<div class="rv-week-nav-actions">' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-open">Import coach week</button>' +
-        '</div>';
+        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-new">+ New session</button>' +
+        '</div></div>';
       var cols = data.days.map(function (day) {
         var colCls = 'rv-week-col' + (day.rest_placeholder ? ' rv-week-col--rest' : '');
         var body = day.items.map(sessionCard).join('');
         if (day.rest_placeholder && !day.items.length) {
-          body += '<div class="rv-session rv-session--rest">Rest</div>';
+          body += '<div class="rv-sess rv-sess--restday">Rest day</div>';
         }
         return (
           '<div class="' + colCls + '" data-date="' + esc(day.date) + '" data-weekday="' + day.weekday + '">' +
-          '<div class="rv-week-col-head"><span>' + esc(day.label) + '</span>' +
-          '<button type="button" class="rv-btn rv-btn--secondary rv-btn--small" data-add-date="' + esc(day.date) + '" title="Add session">+</button></div>' +
+          '<div class="rv-week-col-head"><span class="rv-week-dh">' + esc((day.label || '').toUpperCase()) +
+          ' <span class="rv-week-dn">' + esc(dayNum(day.date)) + '</span></span>' +
+          '<button type="button" class="rv-btn rv-btn--ghost-plus" data-add-date="' + esc(day.date) + '" title="Add session">+</button></div>' +
           '<div class="rv-week-col-body">' + body + '</div></div>'
         );
       }).join('');
       var suggestBar =
-        '<button type="button" class="rv-suggest-banner" id="v2-suggest-open" style="width:100%;margin-bottom:12px;padding:14px 16px;border-radius:12px;border:0;background:#0b1530;color:#fff;text-align:left;cursor:pointer">' +
-        '<span style="font-weight:700;display:block">Suggest sessions</span>' +
-        '<span class="rv-subtitle" style="color:#c9d5ef">Fill gap to target with mobility, drills, or templates · rules-aware</span></button>' +
+        '<button type="button" class="rv-suggest-banner" id="v2-suggest-open">' +
+        '<span class="rv-suggest-copy"><span class="rv-suggest-title">Suggest sessions</span>' +
+        '<span class="rv-suggest-sub">fill the gap to target · mobility and drills · respects rest days</span></span>' +
+        '<span class="rv-suggest-chevron" aria-hidden="true">›</span></button>' +
         '<div id="v2-suggest-panel" class="rv-card rv-stack" hidden></div>';
-      host.innerHTML = head + suggestBar + '<div class="rv-week-board">' + cols + '</div>';
+      host.innerHTML = head + suggestBar +
+        '<div class="rv-card rv-week-board-card">' +
+        '<div class="rv-week-board">' + cols + '</div>' +
+        '<p class="rv-week-board-note">Coach sessions are locked. Drag support sessions between days, or click one to edit its exercises — the totals above update as you go.</p>' +
+        '</div>';
 
       host.querySelectorAll('.rv-move-select').forEach(function (sel) {
         data.days.forEach(function (d) {
@@ -100,11 +134,31 @@
 
       host.querySelector('#v2-week-prev').onclick = function () { shiftWeek(-7); };
       host.querySelector('#v2-week-next').onclick = function () { shiftWeek(7); };
+      function openNew(d) {
+        if (window.V2SessionEditor && window.V2SessionEditor.openPlanned) {
+          window.V2SessionEditor.openPlanned({
+            plannedDate: d,
+            weekStart: data.week_start,
+            onSaved: refresh,
+          });
+        }
+      }
       host.querySelectorAll('[data-add-date]').forEach(function (btn) {
-        btn.onclick = function () {
-          var d = btn.getAttribute('data-add-date');
+        btn.onclick = function () { openNew(btn.getAttribute('data-add-date')); };
+      });
+      var newBtn = host.querySelector('#v2-week-new');
+      if (newBtn) {
+        newBtn.onclick = function () { openNew(data.week_start); };
+      }
+      host.querySelectorAll('[data-edit-id]').forEach(function (btn) {
+        btn.onclick = function (ev) {
+          ev.stopPropagation();
+          var id = btn.getAttribute('data-edit-id');
+          var card = host.querySelector('[data-id="' + id + '"]');
+          var d = card ? card.getAttribute('data-date') : data.week_start;
           if (window.V2SessionEditor && window.V2SessionEditor.openPlanned) {
             window.V2SessionEditor.openPlanned({
+              sessionId: id,
               plannedDate: d,
               weekStart: data.week_start,
               onSaved: refresh,
