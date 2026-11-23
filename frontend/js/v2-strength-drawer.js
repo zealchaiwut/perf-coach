@@ -16,6 +16,7 @@
     dry: null,
     versions: [],
     viewOnly: false,
+    plannedId: null,
   };
 
   function els() {
@@ -380,7 +381,8 @@
       var dateEl = document.getElementById('v2-str-date');
       var postBody = patchBody();
       postBody.workout_date = dateEl ? dateEl.value : state.workout.workout_date;
-      postBody.workout_type = 'strength';
+      postBody.workout_type = (state.workout && state.workout.workout_type) || 'strength';
+      var plannedId = state.plannedId || (state.workout && state.workout.planned_id);
       return fetch('/api/workouts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -390,7 +392,16 @@
         if (!r.ok) throw new Error('Save failed');
         return r.json();
       }).then(function (w) {
+        if (!plannedId) return w;
+        return fetch('/api/planned-sessions/' + encodeURIComponent(plannedId) + '/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ workout_id: w.id }),
+        }).then(function () { return w; });
+      }).then(function (w) {
         dirty = false;
+        state.plannedId = null;
         toast('Session saved');
         close();
         if (global.V2TrainingLogReload) global.V2TrainingLogReload();
@@ -456,6 +467,7 @@
     state.viewOnly = false;
     state.mode = 'edit';
     dirty = false;
+    state.plannedId = null;
     var chain = idOrNull
       ? loadWorkout(idOrNull).then(function (w) {
         state.workout = w;
@@ -467,7 +479,12 @@
       })
       : Promise.resolve().then(function () {
         state.workout = defaults || { name: 'Strength session', workout_date: global.AppCommon.todayISO(), session_effort: 7, duration_seconds: 52 * 60 };
-        state.jsonText = '[{"name":"Goblet squat","sets":[{"kg":24,"reps":10},{"kg":24,"reps":10},{"kg":24,"reps":10}]}]';
+        state.plannedId = defaults && defaults.planned_id ? defaults.planned_id : null;
+        if (defaults && defaults.exercises_json && defaults.exercises_json.length) {
+          state.jsonText = JSON.stringify(defaults.exercises_json, null, 2);
+        } else {
+          state.jsonText = '[{"name":"Goblet squat","sets":[{"kg":24,"reps":10},{"kg":24,"reps":10},{"kg":24,"reps":10}]}]';
+        }
         return runValidate();
       });
     chain.then(function () {

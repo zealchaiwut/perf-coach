@@ -88,19 +88,23 @@ def plan_kept_ratio(matched: int, missed: int) -> Optional[float]:
 
 
 def planned_item_status(row: PlannedSession, today) -> str:
+    """Missed only after the Bangkok calendar day ends (planned_date < today)."""
     st = (row.status or "planned").lower()
     if st in _SKIPPED:
         return "skipped"
     if row.matched_workout_id is not None or st in _MATCHED_DONE:
         return "done"
-    if st in _MISSED:
-        return "missed"
-    if row.planned_date < today:
+    if row.planned_date >= today:
+        return "planned"
+    if st in _MISSED or row.planned_date < today:
         return "missed"
     return "planned"
 
 
 def is_missed_planned(row: PlannedSession, today) -> bool:
+    """True only when planned_date is a Bangkok calendar day strictly before today."""
+    if row.planned_date >= today:
+        return False
     return planned_item_status(row, today) == "missed"
 
 

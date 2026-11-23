@@ -10959,6 +10959,14 @@ def get_training_log(
                 if not _is_missed_planned(p, today):
                     continue
                 planned_tss = _planned_tss_estimate(session, p)
+                planned_duration = None
+                try:
+                    from backend.services.training_load import _planned_duration_minutes as _pdm
+                    mins = _pdm(p.session_type, p.structure)
+                    if mins:
+                        planned_duration = int(round(float(mins) * 60))
+                except Exception:
+                    planned_duration = None
                 workout_entries.append(
                     {
                         "date": str(p.planned_date),
@@ -10966,8 +10974,8 @@ def get_training_log(
                         "run_subtype": None,
                         "id": f"plan:{p.id}",
                         "title": p.name or p.session_type.title(),
-                        "duration_seconds": None,
-                        "duration_minutes": None,
+                        "duration_seconds": planned_duration,
+                        "duration_minutes": round(planned_duration / 60, 2) if planned_duration else None,
                         "distance_km": None,
                         "avg_hr": None,
                         "elevation_m": None,
@@ -10994,6 +11002,7 @@ def get_training_log(
                         "avg_power": None,
                         "row_kind": "missed_plan",
                         "planned_status": _planned_item_status(p, today),
+                        "planned_structure": p.structure,
                     }
                 )
 

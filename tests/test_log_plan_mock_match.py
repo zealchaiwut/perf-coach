@@ -46,7 +46,7 @@ def test_log_list_drops_visible_sessions_title():
     assert "rv-session-row--today" in LOG_JS
     assert "rv-week-more" in LOG_JS
     assert "open in Plan" in LOG_JS
-    assert "Review in Plan" in LOG_JS
+    assert "Log it late" in LOG_JS
 
 
 def test_log_list_css_grid_and_week_header():
