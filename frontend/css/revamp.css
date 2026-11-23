@@ -3736,6 +3736,7 @@ body.rv-page .rv-log-wkbar-track {
   height: 8px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.16);
+  overflow: visible;
 }
 
 body.rv-page .rv-log-wkbar-fill {
@@ -3775,6 +3776,10 @@ body.rv-page .rv-log-wkbar-plan {
   color: #e4ff52;
   font-weight: 700;
   text-decoration: none;
+}
+
+body.rv-page .rv-log-wkbar-delta--down {
+  color: #ffb27a;
 }
 
 body.rv-page .rv-week-body {

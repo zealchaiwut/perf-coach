@@ -65,6 +65,7 @@ def test_weekly_rollups_sets_delta_on_empty_adjacent_weeks():
     assert rows[0]["tss_delta_prev"] is None
     assert rows[1]["tss_delta_prev"] == 0.0
     assert rows[2]["tss_delta_prev"] == 0.0
+    assert all(r["target_tss"] == 300.0 for r in rows)
 
 
 def test_week_bar_markup_covers_under_on_over_empty_no_target():
@@ -83,6 +84,9 @@ def test_week_bar_markup_covers_under_on_over_empty_no_target():
     assert "/v2/training/plan" in bar
     assert "tss_delta_prev" in bar
     assert "vs prev" in bar
+    assert "rv-log-wkbar-delta--down" in bar
+    assert "race_planned_tss" in bar
+    assert "race " in bar
     assert "headerPlannedTss" in bar
     assert "planned " in bar
     assert "This week" in bar
@@ -102,5 +106,6 @@ def test_week_bar_css_tokens_and_phone_stack():
     assert "rgba(255, 255, 255, 0.16)" in CSS
     assert "@media (max-width: 600px)" in CSS
     assert "rv-log-wkbar-meter" in CSS
+    assert "rv-log-wkbar-delta--down" in CSS
     assert "width: 100%" in CSS
     assert "border: 1px solid #e6ebf5" in CSS

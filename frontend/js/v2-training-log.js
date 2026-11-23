@@ -830,6 +830,8 @@
       var sc = roll.session_count != null ? Number(roll.session_count) : logged.length;
       if (sc) sub.push(sc + (sc === 1 ? ' session' : ' sessions'));
     }
+    var raceTss = Number(roll.race_planned_tss) || 0;
+    if (raceTss > 0) sub.push('race ' + Math.round(raceTss));
     if ((isCurrent || ws > thisMon) && planned > 0 && !emptyCurrent) {
       sub.push('planned ' + Math.round(planned));
     }
@@ -852,7 +854,9 @@
         label = '<b>' + pctOf + '%</b> of ' + Math.round(tnum) + ' target';
       }
       if (!emptyCurrent && roll.tss_delta_prev != null && isFinite(Number(roll.tss_delta_prev))) {
-        label += ' · <span class="rv-log-wkbar-delta">' + fmtSignedDelta(roll.tss_delta_prev) + ' vs prev</span>';
+        var delta = Number(roll.tss_delta_prev);
+        var deltaCls = 'rv-log-wkbar-delta' + (delta < 0 ? ' rv-log-wkbar-delta--down' : '');
+        label += ' · <span class="' + deltaCls + '">' + fmtSignedDelta(delta) + ' vs prev</span>';
       }
       meter =
         '<div class="rv-log-wkbar-meter">' +

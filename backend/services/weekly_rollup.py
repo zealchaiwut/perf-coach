@@ -107,6 +107,13 @@ def _estimate_planned_tss_remaining(
     return round(total, 2)
 
 
+def _target_or_chronic(plan_target: Any, chronic: Any) -> Any:
+    """A-race load-plan target when present, else chronic (Plan generic week)."""
+    if plan_target is not None:
+        return plan_target
+    return chronic
+
+
 def _assemble_week(
     *,
     ws: date,
@@ -248,6 +255,7 @@ def weekly_rollup(
         )
         phase_label = None
         target_tss_val = None
+        chronic = None
         try:
             from backend.services.revamp_load_plan import chronic_weekly_tss, week_target_and_phase
 
@@ -260,6 +268,7 @@ def weekly_rollup(
                 phase_label = meta.get("phase")
         except Exception:
             pass
+        target_tss_val = _target_or_chronic(target_tss_val, chronic)
 
         return _assemble_week(
             ws=ws,
@@ -438,6 +447,7 @@ def weekly_rollups(
                         phase_label = meta.get("phase")
                 except Exception:
                     pass
+            target_tss_val = _target_or_chronic(target_tss_val, chronic)
             out.append(
                 _assemble_week(
                     ws=week_monday,
