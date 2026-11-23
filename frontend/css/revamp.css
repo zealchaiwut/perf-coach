@@ -1226,9 +1226,14 @@ body.rv-page .rv-month-card--clickable:focus-visible {
   outline-offset: 1px;
 }
 
+body.rv-page .rv-chart-wrap {
+  overflow-x: hidden;
+  min-width: 0;
+}
+
 body.rv-page .rv-chart-wrap svg {
   width: 100%;
-  height: 240px;
+  height: auto;
   display: block;
 }
 
@@ -3540,9 +3545,18 @@ body.rv-page .rv-chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  font-size: 13px;
+  font-size: 12.5px;
   color: #56627f;
   align-items: center;
+  justify-content: flex-end;
+}
+
+body.rv-page .rv-swatch--target {
+  width: 18px;
+  height: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 2px dashed #0b1530;
 }
 
 body.rv-page .rv-chart-legend .rv-key {
@@ -4115,6 +4129,9 @@ body.rv-page .rv-training-page .rv-list-feel {
   }
   body.rv-page .rv-log-wkbar-meter {
     width: 100%;
+  }
+  body.rv-page .rv-vol-vallabel {
+    display: none;
   }
 }
 

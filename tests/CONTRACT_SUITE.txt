@@ -27,6 +27,7 @@ tests/test_log_plan_mock_match.py
 tests/test_log_week_bar__1943.py
 tests/test_log_session_row__1944.py
 tests/test_log_chips__1945.py
+tests/test_log_weekly_volume_tss_only.py
 tests/test_shared_css_gaps.py
 tests/test_v2_home_mock_parity.py
 tests/test_daily_basics__1885.py
