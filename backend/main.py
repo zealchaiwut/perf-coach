@@ -10958,6 +10958,11 @@ def get_training_log(
             for p in missed_rows:
                 if not _is_missed_planned(p, today):
                     continue
+                if search:
+                    term = search.lower()
+                    hay = ((p.name or "") + " " + (p.notes or "")).lower()
+                    if term not in hay:
+                        continue
                 planned_tss = _planned_tss_estimate(session, p)
                 planned_duration = None
                 try:
@@ -13840,9 +13845,20 @@ def get_weekly_rollup_endpoint(
             etag = range_etag(session, user.id, fw, we, today, params)
             if not_modified(request, etag):
                 return not_modified_response(etag)
+            from backend.services.revamp_plan_settings import plan_context
+
+            block_start = None
+            try:
+                ctx = plan_context(session, user.id, today=today)
+                bs = ctx.get("block_start") if ctx else None
+                if bs is not None:
+                    block_start = bs.isoformat() if hasattr(bs, "isoformat") else str(bs)
+            except Exception:
+                block_start = None
             body = {
                 "weeks": weekly_rollups(str(user.id), fw, tw, session=session, today=today),
                 "next_race": next_race_brief(session, user.id, today),
+                "block_start": block_start,
             }
         return JSONResponse(body, headers=etag_headers(etag))
 

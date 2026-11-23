@@ -77,6 +77,7 @@ def test_weekly_rollup_range_includes_next_race():
                 "backend.services.weekly_rollup.weekly_rollups",
                 return_value=[{"week_start": "2026-11-17", "tss_total": 0}],
             ),
+            patch("backend.services.revamp_plan_settings.plan_context", return_value=None),
         ):
             r = client.get("/api/weekly-rollup?from=2026-11-17&to=2026-11-23")
         assert r.status_code == 200, r.text
@@ -104,6 +105,7 @@ def test_weekly_rollup_range_next_race_null():
             patch("backend.services.log_etag.range_etag", return_value='"abc"'),
             patch("backend.services.log_etag.not_modified", return_value=False),
             patch("backend.services.weekly_rollup.weekly_rollups", return_value=[]),
+            patch("backend.services.revamp_plan_settings.plan_context", return_value=None),
         ):
             r = client.get("/api/weekly-rollup?from=2026-11-17&to=2026-11-23")
         assert r.status_code == 200, r.text
