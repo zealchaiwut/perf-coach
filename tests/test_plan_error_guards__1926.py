@@ -17,7 +17,7 @@ def test_section_renderers_accept_data_arguments():
     assert "function renderRoadChart(data, host)" in PLAN_JS
     assert "function renderWeekLoad(card, wl)" in PLAN_JS
     assert "function renderWarnings(host, w)" in PLAN_JS
-    assert "function renderRail(rail, ws, warnings, wl)" in PLAN_JS
+    assert "function renderRail(rail, data, warnings, wl)" in PLAN_JS
     assert "window.V2TrainingPlan" in PLAN_JS
     assert "sectionError:" in PLAN_JS
 
@@ -25,7 +25,7 @@ def test_section_renderers_accept_data_arguments():
 def test_section_error_and_retry():
     assert "function sectionError(host, title, message, onRetry)" in PLAN_JS
     assert "data-section-retry" in PLAN_JS
-    assert "loadRoad" in PLAN_JS
+    assert "loadAll" in PLAN_JS
     assert "Could not load this section. Try again." in PLAN_JS
     assert "HTTP 500" not in PLAN_JS
     assert "rv-plan-section-error" in CSS
@@ -39,9 +39,9 @@ def test_stale_week_nav_token():
 
 
 def test_board_and_week_load_have_error_handling():
-    assert "if (!r.ok) throw new Error(friendlyBoardError(r))" in BOARD_JS
+    assert "function friendlyBoardError" in BOARD_JS
     assert "showBoardError" in BOARD_JS
-    assert "loadWeekLoad" in BOARD_JS
+    assert "applyWeekLoad" in BOARD_JS
     assert ".catch(function (e)" in BOARD_JS
 
 

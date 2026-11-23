@@ -62,15 +62,13 @@
 
     function load() {
       var gen = ++loadGen;
-      return fetch('/api/plan/revamp-week-board' + weekQuery(), { credentials: 'include' })
-        .then(function (r) {
-          if (!r.ok) throw new Error(friendlyBoardError(r));
-          return r.json();
-        })
-        .then(function (data) {
-          if (gen !== loadGen) return null;
-          return data;
-        });
+      if (!options.fetchWeek) {
+        return Promise.reject(new Error(friendlyBoardError()));
+      }
+      return options.fetchWeek(state.weekStart, 'board,week_load').then(function (data) {
+        if (gen !== loadGen) return null;
+        return data;
+      });
     }
 
     function tssNavLine(wl) {
@@ -83,36 +81,20 @@
       return tot + ' / ' + tgt + ' TSS · ' + st;
     }
 
-    function loadWeekLoad() {
-      var gen = loadGen;
-      return fetch('/api/plan/revamp-week-load' + weekQuery(), { credentials: 'include' })
-        .then(function (r) {
-          if (r.status === 204) return null;
-          if (!r.ok) throw new Error(friendlyBoardError(r));
-          return r.json();
-        })
-        .then(function (wl) {
-          if (gen !== loadGen) return null;
-          state.lastWl = wl;
-          if (wl && options.weekLoadEl && options.renderWeekLoad) {
-            options.renderWeekLoad(options.weekLoadEl, wl);
-          }
-          var tssEl = document.getElementById('v2-week-nav-tss');
-          if (tssEl) tssEl.textContent = tssNavLine(wl);
-          return wl;
-        })
-        .catch(function (e) {
-          if (gen !== loadGen) return null;
-          if (options.weekLoadEl && window.V2TrainingPlan && window.V2TrainingPlan.sectionError) {
-            window.V2TrainingPlan.sectionError(
-              options.weekLoadEl,
-              "This week's load",
-              e.message || friendlyBoardError(),
-              loadWeekLoad
-            );
-          }
-          return null;
-        });
+    function applyWeekLoad(wl) {
+      state.lastWl = wl;
+      if (wl && options.weekLoadEl && options.renderWeekLoad) {
+        options.renderWeekLoad(options.weekLoadEl, wl);
+      }
+      var tssEl = document.getElementById('v2-week-nav-tss');
+      if (tssEl) tssEl.textContent = tssNavLine(wl);
+      return wl;
+    }
+
+    function applyPayload(payload) {
+      if (!payload) return;
+      if (payload.board) render(payload.board);
+      if (payload.week_load !== undefined) applyWeekLoad(payload.week_load);
     }
 
     function dayNum(iso) {
@@ -459,12 +441,17 @@
     function refresh() {
       load().then(function (data) {
         if (!data) return;
-        render(data);
-        return loadWeekLoad();
+        if (data.board) {
+          applyPayload(data);
+        } else {
+          render(data);
+        }
       }).catch(function (e) {
         showBoardError(e.message || friendlyBoardError());
       });
     }
+
+    host._applyWeek = applyPayload;
 
     function ruleEvaluate(id, targetDate, cb) {
       fetch('/api/plan/rule-evaluate', {
@@ -573,7 +560,11 @@
       });
     }
 
-    refresh();
+    if (options.initial && options.initial.board) {
+      applyPayload(options.initial);
+    } else if (!options.skipInitialFetch) {
+      refresh();
+    }
   }
 
   window.V2PlanWeekBoard = { mount: mount };

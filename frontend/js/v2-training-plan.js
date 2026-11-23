@@ -18,6 +18,14 @@
     return p.d + ' ' + MONTHS_SHORT[p.m - 1];
   }
 
+  function fmtNextUpDate(iso) {
+    var p = isoParts(iso);
+    if (!p.m) return iso || '';
+    var t = Date.UTC(p.y, p.m - 1, p.d);
+    var wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(t).getUTCDay()];
+    return wd + ' ' + p.d + ' ' + MONTHS_SHORT[p.m - 1];
+  }
+
   function fmtHeaderDate(iso) {
     var p = isoParts(iso);
     if (!p.m) return iso || '';
@@ -331,13 +339,15 @@
       left + '</div>';
   }
 
-  function mountWeekBoard(board, ws, weekEl, state) {
+  function mountWeekBoard(board, ws, weekEl, state, fetchWeek) {
     if (!board || !window.V2PlanWeekBoard) return;
     window.V2PlanWeekBoard.mount(board, {
       weekStart: ws,
       weekLoadEl: weekEl,
       renderWeekLoad: renderWeekLoad,
       onWeekChanged: function (w) { state.ws = w; },
+      fetchWeek: fetchWeek,
+      skipInitialFetch: true,
     });
   }
 
@@ -387,116 +397,83 @@
     });
   }
 
-  function renderRail(rail, ws, warnings, wl) {
+  function renderRail(rail, data, warnings, wl) {
     if (!rail) return;
-    rail.innerHTML = '<p class="rv-subtitle">Loading sidebar…</p>';
-    fetch('/api/plan/week-bundle?week_start=' + encodeURIComponent(ws), { credentials: 'include' })
-      .then(readOkJson)
-      .then(function (bundle) {
-        bundle = bundle || {};
-        var nextHtml = '<p class="rv-subtitle">No upcoming session in the next few days.</p>';
-        var days = (bundle.next_up && bundle.next_up.days) || [];
-        var imported = false;
-        function kindBar(it) {
-          var kind = String((it && (it.kind || it.session_type)) || '').toLowerCase();
-          if (kind.indexOf('race') >= 0) return '#c9d400';
-          if (kind.indexOf('quality') >= 0) return '#fca5a5';
-          if (kind === 'run') return '#86efac';
-          return '#c4b5fd';
-        }
-        for (var i = 0; i < days.length; i++) {
-          var items = days[i].items || days[i].sessions || [];
-          items.forEach(function (it) {
-            if (it.plan_source === 'coach' || it.locked) imported = true;
-          });
-          if (items.length && nextHtml.indexOf('rv-plan-next-title') < 0) {
-            var it = items[0];
-            nextHtml =
-              '<span class="rv-plan-next-bar" style="background:' + kindBar(it) + '"></span>' +
-              '<div><p class="rv-plan-next-title">' + esc(it.name || it.title || 'Session') + '</p>' +
-              '<p class="rv-subtitle">' + esc(days[i].date || days[i].label || '') + '</p></div>';
-          }
-        }
-        var ruleRows = [];
-        if (wl && wl.mode === 'generic') {
-          ruleRows.push('<p class="rv-subtitle">No race plan — rules stay quiet until an A race is set.</p>');
-        } else {
-          ruleRows.push(
-            '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--ok">OK</span>' +
-            '<span>Weekly training target excludes race-day load when a race is on the plan.</span></div>'
-          );
-          ((warnings && warnings.clashes) || []).forEach(function (c) {
-            ruleRows.push(
-              '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--warn">WARN</span>' +
-              '<span>' + esc(c.message) + '</span></div>'
-            );
-          });
-          if (warnings && warnings.layout_error) {
-            ruleRows.push(
-              '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--block">BLOCK</span>' +
-              '<span>' + esc(warnings.layout_error.message || 'Plan layout blocked') + '</span></div>'
-            );
-          }
-        }
-        var rules = ruleRows.join('');
-        return fetch('/api/performance/focus', { credentials: 'include' })
-          .then(function (r) {
-            if (!r.ok) return null;
-            return r.json();
-          })
-          .then(function (focus) {
-            var axis = focus && focus.focus ? esc(focus.focus.label) : '—';
-            var perf =
-              '<p class="rv-subtitle">Most room to grow: <strong>' + axis + '</strong>.</p>' +
-              '<p class="rv-subtitle">Queue mobility or drills from Performance when filling the week.</p>';
-            var coachChip = imported ? '<span class="rv-chip">IMPORTED</span>' : '';
-            var coachNote = wl && wl.mode === 'generic'
-              ? '<p class="rv-subtitle">Import coach sessions from the week board when your block is set up.</p>'
-              : '<p class="rv-subtitle">Use <strong>Import coach week</strong> on the board when your coach sends a week.</p>';
-            var reimport = '<a href="#v2-coach-import-open" class="rv-plan-settings-link" id="v2-rail-reimport">Re-import</a>';
-            rail.innerHTML =
-              '<section class="rv-card rv-stack rv-plan-rail-card"><span class="rv-label">Next up</span>' +
-              '<div class="rv-plan-next">' + nextHtml + '</div></section>' +
-              '<section class="rv-card rv-card--soft rv-stack rv-plan-rail-card"><div class="rv-row"><span class="rv-label">Coach week</span>' +
-              coachChip + reimport + '</div>' + coachNote + '</section>' +
-              '<section class="rv-card rv-stack rv-plan-rail-card"><div class="rv-row"><span class="rv-label">From Performance</span>' +
-              '<a href="/v2/performance" class="rv-plan-settings-link">Why</a></div>' + perf + '</section>' +
-              '<section class="rv-card rv-card--soft rv-stack rv-plan-rail-card"><span class="rv-label">Rules in play</span>' + rules + '</section>';
-            var re = document.getElementById('v2-rail-reimport');
-            if (re) {
-              re.onclick = function (ev) {
-                ev.preventDefault();
-                var open = document.getElementById('v2-coach-import-open');
-                if (open) open.click();
-              };
-            }
-          });
-      })
-      .catch(function (e) {
-        sectionError(rail, 'Sidebar', e.message || friendlySectionError(), function () {
-          renderRail(rail, ws, warnings, wl);
-        });
+    var railData = data || {};
+    var next = railData.next_up || [];
+    var nextHtml = '<p class="rv-subtitle">No upcoming session in the next few days.</p>';
+    function kindBar(it) {
+      var kind = String((it && (it.kind || it.session_type)) || '').toLowerCase();
+      if (kind.indexOf('race') >= 0) return '#c9d400';
+      if (kind.indexOf('quality') >= 0) return '#fca5a5';
+      if (kind === 'run') return '#86efac';
+      return '#c4b5fd';
+    }
+    if (next.length) {
+      var it = next[0];
+      nextHtml =
+        '<span class="rv-plan-next-bar" style="background:' + kindBar(it) + '"></span>' +
+        '<div><p class="rv-plan-next-title">' + esc(it.name || it.title || 'Session') + '</p>' +
+        '<p class="rv-subtitle">' + esc(fmtNextUpDate(it.date || it.planned_date || '')) + '</p></div>';
+    }
+    var ruleRows = [];
+    if (wl && wl.mode === 'generic') {
+      ruleRows.push('<p class="rv-subtitle">No race plan — rules stay quiet until an A race is set.</p>');
+    } else {
+      ruleRows.push(
+        '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--ok">OK</span>' +
+        '<span>Weekly training target excludes race-day load when a race is on the plan.</span></div>'
+      );
+      ((warnings && warnings.clashes) || []).forEach(function (c) {
+        ruleRows.push(
+          '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--warn">WARN</span>' +
+          '<span>' + esc(c.message) + '</span></div>'
+        );
       });
+      if (warnings && warnings.layout_error) {
+        ruleRows.push(
+          '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--block">BLOCK</span>' +
+          '<span>' + esc(warnings.layout_error.message || 'Plan layout blocked') + '</span></div>'
+        );
+      }
+    }
+    var axis = railData.focus_label ? esc(railData.focus_label) : '—';
+    var perf =
+      '<p class="rv-subtitle">Most room to grow: <strong>' + axis + '</strong>.</p>' +
+      '<p class="rv-subtitle">Queue mobility or drills from Performance when filling the week.</p>';
+    var coachChip = railData.coach_imported ? '<span class="rv-chip">IMPORTED</span>' : '';
+    var coachNote = wl && wl.mode === 'generic'
+      ? '<p class="rv-subtitle">Import coach sessions from the week board when your block is set up.</p>'
+      : '<p class="rv-subtitle">Use <strong>Import coach week</strong> on the board when your coach sends a week.</p>';
+    var reimport = '<a href="#v2-coach-import-open" class="rv-plan-settings-link" id="v2-rail-reimport">Re-import</a>';
+    rail.innerHTML =
+      '<section class="rv-card rv-stack rv-plan-rail-card"><span class="rv-label">Next up</span>' +
+      '<div class="rv-plan-next">' + nextHtml + '</div></section>' +
+      '<section class="rv-card rv-card--soft rv-stack rv-plan-rail-card"><div class="rv-row"><span class="rv-label">Coach week</span>' +
+      coachChip + reimport + '</div>' + coachNote + '</section>' +
+      '<section class="rv-card rv-stack rv-plan-rail-card"><div class="rv-row"><span class="rv-label">From Performance</span>' +
+      '<a href="/v2/performance" class="rv-plan-settings-link">Why</a></div>' + perf + '</section>' +
+      '<section class="rv-card rv-card--soft rv-stack rv-plan-rail-card"><span class="rv-label">Rules in play</span>' + ruleRows.join('') + '</section>';
+    var re = document.getElementById('v2-rail-reimport');
+    if (re) {
+      re.onclick = function (ev) {
+        ev.preventDefault();
+        var open = document.getElementById('v2-coach-import-open');
+        if (open) open.click();
+      };
+    }
   }
 
-  function loadHeaderSubtitle(ws) {
+  function renderUpcomingSubtitle(races) {
     var sub = document.getElementById('rv-training-subtitle');
     if (!sub) return;
     var ac = window.AppCommon || {};
     var today = ac.todayISO ? ac.todayISO() : new Date().toISOString().slice(0, 10);
     sub.textContent = fmtHeaderDate(today);
-    fetch('/api/races', { credentials: 'include' })
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(function (body) {
-        var races = (Array.isArray(body) ? body : (body.races || body.items || []))
-          .filter(function (race) { return (race.status || 'planned') === 'planned'; });
-        if (!races.length) return;
-        races.sort(function (a, b) { return (a.race_date || '').localeCompare(b.race_date || ''); });
-        var next = races[0];
-        var extra = races.length > 1 ? ' · ' + esc(races[1].name) + ' also planned' : '';
-        sub.textContent = fmtHeaderDate(today) + ' · ' + (next.name || 'Race') + extra;
-      })
-      .catch(function () { /* keep date only */ });
+    races = races || [];
+    if (!races.length) return;
+    var extra = races.length > 1 ? ' · ' + (races[1].name || '') + ' also planned' : '';
+    sub.textContent = fmtHeaderDate(today) + ' · ' + (races[0].name || 'Race') + extra;
   }
 
   function init() {
@@ -510,7 +487,7 @@
     var monOffset = dow === 0 ? -6 : 1 - dow;
     var state = { ws: ac.addDaysISO ? ac.addDaysISO(ac.todayISO(), monOffset) : ac.todayISO() };
 
-    loadHeaderSubtitle(state.ws);
+    renderUpcomingSubtitle([]);
 
     if (window.V2SyncToolbar) {
       window.V2SyncToolbar.mount(document.getElementById('v2-sync-toolbar'), {});
@@ -518,57 +495,45 @@
 
     var warnHost = document.getElementById('v2-plan-warnings');
     var rail = document.getElementById('v2-plan-rail');
-    var lastWl = null;
-    var lastWarnings = null;
 
-    mountWeekBoard(board, state.ws, week, state);
-
-    function loadRoad() {
-      return fetch('/api/plan/revamp-road-chart', { credentials: 'include' })
-        .then(readOkJson)
-        .then(function (data) { renderRoadChart(data, road); })
-        .catch(function (e) {
-          sectionError(road, 'Road to race', e.message || friendlySectionError(), loadRoad);
-        });
+    function fetchWeek(ws, sections) {
+      var q = '/api/plan/revamp-week?week_start=' + encodeURIComponent(ws);
+      if (sections) q += '&sections=' + encodeURIComponent(sections);
+      return fetch(q, { credentials: 'include' }).then(readOkJson);
     }
 
-    function loadWeekLoad() {
-      return fetch('/api/plan/revamp-week-load?week_start=' + encodeURIComponent(state.ws), { credentials: 'include' })
-        .then(readOkJson)
-        .then(function (data) {
-          lastWl = data;
-          renderWeekLoad(week, data);
-          return data;
-        })
-        .catch(function (e) {
-          sectionError(week, "This week's load", e.message || friendlySectionError(), loadWeekLoad);
-          return null;
-        });
+    function applyPage(data) {
+      if (!data) return;
+      if (data.road !== undefined) renderRoadChart(data.road, road);
+      if (data.week_load !== undefined) renderWeekLoad(week, data.week_load);
+      if (data.warnings !== undefined) renderWarnings(warnHost, data.warnings);
+      if (data.rail !== undefined) renderRail(rail, data.rail, data.warnings, data.week_load);
+      if (data.upcoming_races !== undefined) renderUpcomingSubtitle(data.upcoming_races);
+      if (board && board._applyWeek) board._applyWeek(data);
     }
 
-    function loadWarnings() {
-      return fetch('/api/plan/revamp-warnings', { credentials: 'include' })
-        .then(readOkJson)
-        .then(function (data) {
-          lastWarnings = data || {};
-          renderWarnings(warnHost, lastWarnings);
-          return lastWarnings;
-        })
-        .catch(function (e) {
-          if (warnHost) warnHost.hidden = false;
-          sectionError(warnHost, 'Warnings', e.message || friendlySectionError(), loadWarnings);
-          return null;
-        });
+    function navFetch(ws, sections) {
+      return fetchWeek(ws, sections || 'board,week_load').then(function (data) {
+        if (data && data.week_load !== undefined) renderWeekLoad(week, data.week_load);
+        return data;
+      });
     }
 
-    function loadRail(wl, warnings) {
-      renderRail(rail, state.ws, warnings, wl);
+    function loadAll() {
+      return fetchWeek(state.ws).then(applyPage).catch(function (e) {
+        var msg = e.message || friendlySectionError();
+        sectionError(road, 'Road to race', msg, loadAll);
+        sectionError(week, "This week's load", msg, loadAll);
+        if (warnHost) {
+          warnHost.hidden = false;
+          sectionError(warnHost, 'Warnings', msg, loadAll);
+        }
+        sectionError(rail, 'Sidebar', msg, loadAll);
+      });
     }
 
-    loadRoad();
-    Promise.all([loadWeekLoad(), loadWarnings()]).then(function (pair) {
-      loadRail(pair[0], pair[1]);
-    });
+    mountWeekBoard(board, state.ws, week, state, navFetch);
+    loadAll();
   }
 
   window.V2TrainingPlan = {

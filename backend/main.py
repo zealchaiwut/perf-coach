@@ -19568,6 +19568,35 @@ def get_plan_revamp_week_load(
     return JSONResponse(payload)
 
 
+@app.get("/api/plan/revamp-week")
+@_query_logged("/api/plan/revamp-week")
+def get_plan_revamp_week(
+    week_start: Optional[str] = Query(default=None),
+    sections: Optional[str] = Query(default=None),
+    user: User = Depends(resolve_user),
+):
+    """One Plan-tab boot: selected sections share one session and plan context (#1927)."""
+    from backend.services.revamp_week import UnknownSectionError, build_revamp_week, parse_sections
+
+    today = _today_bkk()
+    ws = today - _timedelta(days=today.weekday())
+    if week_start:
+        try:
+            ws = _date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
+        ws = ws - _timedelta(days=ws.weekday())
+    try:
+        wanted = parse_sections(sections)
+    except UnknownSectionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"unknown": exc.unknown, "allowed": exc.allowed},
+        )
+    with Session(engine) as db:
+        return JSONResponse(build_revamp_week(db, user.id, week_start=ws, sections=wanted, today=today))
+
+
 @app.get("/api/plan/revamp-planned-editor/context")
 def get_plan_revamp_planned_editor_context(
     planned_date: str = Query(...),
