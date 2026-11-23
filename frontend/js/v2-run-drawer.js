@@ -6,6 +6,37 @@
   var index = 0;
   var lastFocus = null;
   var currentId = null;
+  var prefsCache = null;
+  var shoesCache = null;
+  var prefsInflight = null;
+  var shoesInflight = null;
+
+  function fetchPrefs() {
+    if (prefsCache) return Promise.resolve(prefsCache);
+    if (prefsInflight) return prefsInflight;
+    prefsInflight = fetch('/api/user-preferences', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { row: {} }; })
+      .catch(function () { return { row: {} }; })
+      .then(function (data) { prefsCache = data; prefsInflight = null; return data; });
+    return prefsInflight;
+  }
+
+  function fetchShoes() {
+    if (shoesCache) return Promise.resolve(shoesCache);
+    if (shoesInflight) return shoesInflight;
+    shoesInflight = fetch('/api/athlete-shoes', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { shoes: [], default_shoe_id: null }; })
+      .catch(function () { return { shoes: [], default_shoe_id: null }; })
+      .then(function (data) { shoesCache = data; shoesInflight = null; return data; });
+    return shoesInflight;
+  }
+
+  function clearLookups() {
+    prefsCache = null;
+    shoesCache = null;
+    prefsInflight = null;
+    shoesInflight = null;
+  }
 
   function els() {
     return {
@@ -207,12 +238,8 @@
     Promise.all([
       fetch('/api/workouts/' + encodeURIComponent(id) + '/full?streams=none', { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) throw new Error('full'); return r.json(); }),
-      fetch('/api/user-preferences', { credentials: 'same-origin' })
-        .then(function (r) { return r.ok ? r.json() : { row: {} }; })
-        .catch(function () { return { row: {} }; }),
-      fetch('/api/athlete-shoes', { credentials: 'same-origin' })
-        .then(function (r) { return r.ok ? r.json() : { shoes: [], default_shoe_id: null }; })
-        .catch(function () { return { shoes: [], default_shoe_id: null }; }),
+      fetchPrefs(),
+      fetchShoes(),
     ])
       .then(function (pair) {
         var payload = normalizeRunFullPayload(pair[0]);
@@ -247,5 +274,5 @@
       });
   }
 
-  global.V2RunDrawer = { open: open, close: close };
+  global.V2RunDrawer = { open: open, close: close, clearLookups: clearLookups };
 })(window);
