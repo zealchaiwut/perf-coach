@@ -39,6 +39,7 @@ class _AnchorLiftsBody(BaseModel):
 
 
 @router.get("/api/performance/anchor-lifts")
+@_query_logged("/api/performance/anchor-lifts")
 def get_anchor_lifts(user: User = Depends(resolve_user)):
     from backend.services.axis_strength import get_anchor_lifts as _get
 
@@ -91,6 +92,7 @@ def _parse_iso_date(value: str | None, field: str):
 
 
 @router.get("/api/performance/mobility-tests")
+@_query_logged("/api/performance/mobility-tests")
 def list_mobility_tests(user: User = Depends(resolve_user)):
     from backend.models import MobilityTest
     from backend.services import axis_mobility as _mob
@@ -167,6 +169,7 @@ def _a_race_distance_km(db, user_id, as_of):
 
 
 @router.get("/api/performance/radar")
+@_query_logged("/api/performance/radar")
 def get_performance_radar(size: str = "large", user: User = Depends(resolve_user)):
     """One payload (and its rendered inline SVG) for the Home and Performance radars."""
     from backend.services.focus_ranking import rank_axes
@@ -304,6 +307,7 @@ def get_performance_bundle(user: User = Depends(resolve_user)):
 # ── A-race hero + after-the-race card (P4-8) ─────────────────────────────────
 
 @router.get("/api/performance/hero")
+@_query_logged("/api/performance/hero")
 def get_performance_hero(user: User = Depends(resolve_user)):
     from backend.services.race_hero import build_hero
     from backend.utils.time import today_bangkok
@@ -313,6 +317,7 @@ def get_performance_hero(user: User = Depends(resolve_user)):
 
 
 @router.get("/api/performance/a-race-readiness")
+@_query_logged("/api/performance/a-race-readiness")
 def get_a_race_readiness_checklist(user: User = Depends(resolve_user)):
     from backend.services.a_race_readiness_checklist import build_checklist
     from backend.utils.time import today_bangkok
@@ -324,6 +329,7 @@ def get_a_race_readiness_checklist(user: User = Depends(resolve_user)):
 # ── Endurance and Speed score cards (P4-9) ───────────────────────────────────
 
 @router.get("/api/performance/score-cards")
+@_query_logged("/api/performance/score-cards")
 def get_performance_score_cards(user: User = Depends(resolve_user)):
     from backend.services.score_cards import build_cards
     from backend.utils.time import today_bangkok
@@ -334,6 +340,7 @@ def get_performance_score_cards(user: User = Depends(resolve_user)):
 # ── Races and projections (P4-10) ────────────────────────────────────────────
 
 @router.get("/api/performance/projection")
+@_query_logged("/api/performance/projection")
 def get_performance_projection(user: User = Depends(resolve_user)):
     from backend.services.projection_view import build_projection
     from backend.utils.time import today_bangkok
@@ -345,6 +352,7 @@ def get_performance_projection(user: User = Depends(resolve_user)):
 # ── Race list (P4-11) ────────────────────────────────────────────────────────
 
 @router.get("/api/performance/races")
+@_query_logged("/api/performance/races")
 def get_performance_races(user: User = Depends(resolve_user)):
     from backend.services.race_list import build_race_list
     from backend.utils.time import today_bangkok
@@ -367,6 +375,7 @@ def get_performance_season_road(user: User = Depends(resolve_user)):
 # ── Coach block (P4-12) ──────────────────────────────────────────────────────
 
 @router.get("/api/performance/coach-block")
+@_query_logged("/api/performance/coach-block")
 def get_performance_coach_block(user: User = Depends(resolve_user)):
     from backend.services.coach_block import fetch_coach_block
     from backend.utils.time import today_bangkok
