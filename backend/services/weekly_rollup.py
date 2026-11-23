@@ -332,7 +332,6 @@ def weekly_rollups(
         try:
             from backend.services.revamp_load_plan import (
                 chronic_weekly_tss,
-                ensure_snapshots,
                 week_target_and_phase,
             )
             from backend.services.revamp_plan_settings import (
@@ -369,27 +368,6 @@ def weekly_rollups(
                     .all()
                 )
                 snap_map = {s.week_start: s for s in snaps}
-                missing_past = [d for d in mondays if d <= current_ws and d not in snap_map]
-                if missing_past:
-                    ensure_snapshots(
-                        session,
-                        uid,
-                        block_start=block_start,
-                        race_date=race.race_date,
-                        chronic_baseline=chronic,
-                        settings=settings,
-                        today=today,
-                    )
-                    session.flush()
-                    snaps = (
-                        session.query(LoadPlanWeekSnapshot)
-                        .filter(
-                            LoadPlanWeekSnapshot.user_id == uid,
-                            LoadPlanWeekSnapshot.week_start.in_(mondays),
-                        )
-                        .all()
-                    )
-                    snap_map = {s.week_start: s for s in snaps}
         except Exception:
             ctx = None
 

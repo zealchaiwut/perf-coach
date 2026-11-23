@@ -329,6 +329,25 @@ def _run_axis_snapshot_batch() -> None:
         logger.error("job finish: axis_snapshot status=error: %s", exc, exc_info=True)
 
 
+def _run_load_plan_snapshots_batch() -> None:
+    """Once-per-week freeze of started-week load-plan targets (#1924)."""
+    from backend.services.revamp_load_plan import ensure_snapshots_for_users
+
+    recorder = DbRecorder(job_type="load_plan_snapshots", user_id=None, triggered_by="schedule")
+    try:
+        results = ensure_snapshots_for_users()
+        ok_count = sum(1 for v in results.values() if v == "ok")
+        recorder.mark_success(None, stats={"ok": ok_count, "total": len(results)})
+        logger.info(
+            "job finish: load_plan_snapshots status=success ok=%d/%d",
+            ok_count,
+            len(results),
+        )
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: load_plan_snapshots status=error: %s", exc, exc_info=True)
+
+
 def _daily_coach_message_exists(db, user_id, today) -> bool:
     """Return True if a WeeklyCoachMessage row already exists for (user_id, today).
 
@@ -485,6 +504,10 @@ def _h_axis_snapshot(p: dict) -> None:
     _run_axis_snapshot_batch()
 
 
+def _h_load_plan_snapshots(p: dict) -> None:
+    _run_load_plan_snapshots_batch()
+
+
 def _h_daily_coach(p: dict) -> None:
     today = None
     raw = p.get("today") or p.get("as_of")
@@ -601,6 +624,7 @@ _DISPATCH = {
     "form_metrics_backfill": _h_form_metrics_backfill,
     "banister_refit": _h_banister_refit,
     "axis_snapshot": _h_axis_snapshot,
+    "load_plan_snapshots": _h_load_plan_snapshots,
     "daily_coach": _h_daily_coach,
     "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
@@ -1592,6 +1616,19 @@ def _scheduler_loop() -> None:
             )
         except Exception as exc:
             logger.error("scheduled axis_snapshot failed to enqueue: %s", exc, exc_info=True)
+
+        # Weekly load-plan snapshots: freeze started-week targets. Dedupe by
+        # ISO week so twice-daily wakes enqueue it once (#1924).
+        try:
+            iso = datetime.now(BANGKOK_TZ).isocalendar()
+            job_queue.enqueue(
+                "load_plan_snapshots",
+                {},
+                enqueued_by="schedule",
+                dedupe_key=f"load_plan_snapshots:{iso[0]}-W{iso[1]:02d}",
+            )
+        except Exception as exc:
+            logger.error("scheduled load_plan_snapshots failed to enqueue: %s", exc, exc_info=True)
 
         # Daily Home Coach — once per calendar day (Asia/Bangkok), enqueued at
         # the same wake times as the sync sweep. Dedupe key is the date so

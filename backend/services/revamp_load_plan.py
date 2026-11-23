@@ -233,6 +233,70 @@ def ensure_snapshots(
             )
 
 
+def _live_week_target(
+    *,
+    block_start: date,
+    race_date: date,
+    week_start: date,
+    chronic_baseline: float,
+    settings: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Derive target/phase from the current series without writing snapshots."""
+    _peak, series = validate_block_layout(
+        chronic_baseline=chronic_baseline,
+        block_start=block_start,
+        race_date=race_date,
+        settings=settings,
+    )
+    week_dates = week_starts_in_block(block_start, race_date)
+    try:
+        idx = week_dates.index(week_start)
+    except ValueError:
+        return None
+    spec = series[idx]
+    return {"target_tss": spec["target_tss"], "phase": spec["phase"], "peak_tss": _peak}
+
+
+def ensure_snapshots_for_users(
+    *,
+    today: Optional[date] = None,
+    user_id: Optional[uuid.UUID] = None,
+) -> dict[str, str]:
+    """Commit started-week snapshots for active users (weekly worker job)."""
+    from backend.models import User
+    from backend.services.revamp_plan_settings import plan_context
+
+    today = today or today_bangkok()
+    results: dict[str, str] = {}
+    with Session(engine) as session:
+        q = session.query(User.id).filter(User.is_active.is_(True))
+        if user_id is not None:
+            q = q.filter(User.id == user_id)
+        ids = [r[0] for r in q.all()]
+    for uid in ids:
+        key = str(uid)
+        try:
+            with Session(engine) as session:
+                ctx = plan_context(session, uid, today=today)
+                if ctx is None:
+                    results[key] = "skip_no_plan"
+                    continue
+                ensure_snapshots(
+                    session,
+                    uid,
+                    block_start=ctx["block_start"],
+                    race_date=ctx["race"].race_date,
+                    chronic_baseline=ctx["chronic_baseline"],
+                    settings=ctx["settings"],
+                    today=today,
+                )
+                session.commit()
+                results[key] = "ok"
+        except Exception as exc:
+            results[key] = f"error:{exc}"
+    return results
+
+
 def week_target_and_phase(
     user_id: uuid.UUID | str,
     week_start: date,
@@ -290,42 +354,21 @@ def week_target_and_phase(
                 )
                 .first()
             )
-            if row is None:
-                ensure_snapshots(
-                    session,
-                    uid,
-                    block_start=block_start,
-                    race_date=race.race_date,
-                    chronic_baseline=chronic_baseline,
-                    settings=settings,
-                    today=today,
-                )
-                session.flush()
-                row = (
-                    session.query(LoadPlanWeekSnapshot)
-                    .filter(
-                        LoadPlanWeekSnapshot.user_id == uid,
-                        LoadPlanWeekSnapshot.week_start == ws,
-                    )
-                    .first()
-                )
-            if row:
-                return {"target_tss": float(row.target_tss), "phase": row.phase, "peak_tss": row.peak_tss}
-            return None
+            if row is not None:
+                return {
+                    "target_tss": float(row.target_tss),
+                    "phase": row.phase,
+                    "peak_tss": row.peak_tss,
+                }
+            # Missing snapshot: live-derive. GETs must not write (#1924).
 
-        _peak, series = validate_block_layout(
-            chronic_baseline=chronic_baseline,
+        return _live_week_target(
             block_start=block_start,
             race_date=race.race_date,
+            week_start=ws,
+            chronic_baseline=chronic_baseline,
             settings=settings,
         )
-        week_dates = week_starts_in_block(block_start, race.race_date)
-        try:
-            idx = week_dates.index(ws)
-        except ValueError:
-            return None
-        spec = series[idx]
-        return {"target_tss": spec["target_tss"], "phase": spec["phase"], "peak_tss": _peak}
     finally:
         if own:
             session.close()
