@@ -180,12 +180,18 @@
       var next = q('#v2-week-next');
       if (prev) prev.onclick = function () { shiftWeek(-7); };
       if (next) next.onclick = function () { shiftWeek(7); };
+      function afterSave() {
+        if (window.V2TrainingPlan && window.V2TrainingPlan.weekCacheInvalidate) {
+          window.V2TrainingPlan.weekCacheInvalidate(state.weekStart);
+        }
+        refresh();
+      }
       function openNew(d) {
         if (window.V2SessionEditor && window.V2SessionEditor.openPlanned) {
           window.V2SessionEditor.openPlanned({
             plannedDate: d,
             weekStart: data.week_start,
-            onSaved: refresh,
+            onSaved: afterSave,
           });
         }
       }
@@ -221,7 +227,7 @@
               sessionId: id,
               plannedDate: d,
               weekStart: data.week_start,
-              onSaved: refresh,
+              onSaved: afterSave,
             });
           }
         };

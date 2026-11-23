@@ -113,6 +113,14 @@
     }
     if (payload.warnings !== undefined) renderWarnings(warnHost, payload.warnings);
     if (board && board._applyWeek) board._applyWeek(payload);
+    var ws = (payload.board && payload.board.week_start)
+      || (payload.week_load && payload.week_load.week_start);
+    if (window.V2TrainingPlan.weekCacheInvalidate) {
+      window.V2TrainingPlan.weekCacheInvalidate(ws);
+    }
+    if (window.V2TrainingPlan.weekCachePut && (payload.board || payload.week_load)) {
+      window.V2TrainingPlan.weekCachePut(ws, payload);
+    }
   }
 
   function renderRoadChart(data, host, wl) {
@@ -526,6 +534,23 @@
     var warnHost = document.getElementById('v2-plan-warnings');
     var rail = document.getElementById('v2-plan-rail');
 
+    var weekCache = {};
+    var prefetchOnce = false;
+
+    function cachePut(ws, data) {
+      if (!ws || !data) return;
+      weekCache[ws] = { board: data.board, week_load: data.week_load };
+    }
+    function cacheGet(ws) {
+      return weekCache[ws] || null;
+    }
+    function cacheInvalidate(ws) {
+      if (ws) delete weekCache[ws];
+      else weekCache = {};
+    }
+    window.V2TrainingPlan.weekCachePut = cachePut;
+    window.V2TrainingPlan.weekCacheInvalidate = cacheInvalidate;
+
     function fetchWeek(ws, sections) {
       var q = '/api/plan/revamp-week?week_start=' + encodeURIComponent(ws);
       if (sections) q += '&sections=' + encodeURIComponent(sections);
@@ -544,14 +569,41 @@
     }
 
     function navFetch(ws, sections) {
-      return fetchWeek(ws, sections || 'board,week_load').then(function (data) {
+      var cached = cacheGet(ws);
+      var req = fetchWeek(ws, sections || 'board,week_load').then(function (data) {
+        cachePut(ws, data);
         if (data && data.week_load !== undefined) renderWeekLoad(week, data.week_load);
+        if (cached && board && board._applyWeek && state.ws === ws) board._applyWeek(data);
         return data;
+      });
+      if (cached) {
+        if (cached.week_load !== undefined) renderWeekLoad(week, cached.week_load);
+        return Promise.resolve(cached);
+      }
+      return req;
+    }
+
+    function prefetchAdj(ws) {
+      if (prefetchOnce) return;
+      prefetchOnce = true;
+      var idle = window.requestIdleCallback || function (cb) { setTimeout(cb, 1); };
+      idle(function () {
+        var prev = ac.addDaysISO ? ac.addDaysISO(ws, -7) : ws;
+        var next = ac.addDaysISO ? ac.addDaysISO(ws, 7) : ws;
+        [prev, next].forEach(function (w) {
+          if (w && !cacheGet(w)) {
+            fetchWeek(w, 'board,week_load').then(function (d) { cachePut(w, d); });
+          }
+        });
       });
     }
 
     function loadAll() {
-      return fetchWeek(state.ws).then(applyPage).catch(function (e) {
+      return fetchWeek(state.ws).then(function (data) {
+        cachePut(state.ws, data);
+        applyPage(data);
+        prefetchAdj(state.ws);
+      }).catch(function (e) {
         var msg = e.message || friendlySectionError();
         sectionError(road, 'Road to race', msg, loadAll);
         sectionError(week, "This week's load", msg, loadAll);
