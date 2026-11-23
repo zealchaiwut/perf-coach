@@ -3315,6 +3315,7 @@ body.rv-page .rv-plan-main { display: flex; flex-direction: column; gap: 16px; m
 body.rv-page .rv-plan-rail-card { margin: 0; }
 body.rv-page .rv-plan-warnings:empty,
 body.rv-page .rv-plan-warnings[hidden] { display: none; }
+body.rv-page .rv-plan-section-error .rv-btn { margin-top: 8px; }
 body.rv-page .rv-plan-road-head,
 body.rv-page .rv-plan-week-head {
   display: flex;

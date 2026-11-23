@@ -48,14 +48,29 @@
 
   function mount(host, options) {
     var state = { weekStart: options.weekStart, dragId: null, onWeekChanged: options.onWeekChanged };
+    var loadGen = 0;
 
     function weekQuery() {
       return '?week_start=' + encodeURIComponent(state.weekStart);
     }
 
+    function friendlyBoardError(r) {
+      if (!r) return 'Could not load this week. Check your connection.';
+      if (r.status === 401 || r.status === 403) return 'Session expired — refresh and try again.';
+      return 'Could not load this week. Try again.';
+    }
+
     function load() {
+      var gen = ++loadGen;
       return fetch('/api/plan/revamp-week-board' + weekQuery(), { credentials: 'include' })
-        .then(function (r) { return r.json(); });
+        .then(function (r) {
+          if (!r.ok) throw new Error(friendlyBoardError(r));
+          return r.json();
+        })
+        .then(function (data) {
+          if (gen !== loadGen) return null;
+          return data;
+        });
     }
 
     function tssNavLine(wl) {
@@ -69,9 +84,15 @@
     }
 
     function loadWeekLoad() {
+      var gen = loadGen;
       return fetch('/api/plan/revamp-week-load' + weekQuery(), { credentials: 'include' })
-        .then(function (r) { return r.status === 204 ? null : r.json(); })
+        .then(function (r) {
+          if (r.status === 204) return null;
+          if (!r.ok) throw new Error(friendlyBoardError(r));
+          return r.json();
+        })
         .then(function (wl) {
+          if (gen !== loadGen) return null;
           state.lastWl = wl;
           if (wl && options.weekLoadEl && options.renderWeekLoad) {
             options.renderWeekLoad(options.weekLoadEl, wl);
@@ -79,6 +100,18 @@
           var tssEl = document.getElementById('v2-week-nav-tss');
           if (tssEl) tssEl.textContent = tssNavLine(wl);
           return wl;
+        })
+        .catch(function (e) {
+          if (gen !== loadGen) return null;
+          if (options.weekLoadEl && window.V2TrainingPlan && window.V2TrainingPlan.sectionError) {
+            window.V2TrainingPlan.sectionError(
+              options.weekLoadEl,
+              "This week's load",
+              e.message || friendlyBoardError(),
+              loadWeekLoad
+            );
+          }
+          return null;
         });
     }
 
@@ -252,11 +285,15 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ proposed: payload.proposed }),
             }).then(function (r) {
-              if (!r.ok) throw new Error('Apply failed');
+              if (!r.ok) throw new Error('Could not apply suggestions. Try again.');
               return r.json();
             }).then(function () {
               panel.hidden = true;
               refresh();
+            }).catch(function (e) {
+              panel.hidden = false;
+              panel.innerHTML = '<p class="rv-subtitle" role="alert">' + esc(e.message || 'Could not apply suggestions.') + '</p>';
+              toast(e.message || 'Could not apply suggestions');
             });
           };
         }).catch(function (e) {
@@ -375,7 +412,13 @@
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ week_start: data.week_start, text: text ? text.value : '' }),
-          }).then(function (r) { return r.json(); }).then(renderPreview);
+          }).then(function (r) {
+            if (!r.ok) throw new Error('Could not parse coach week. Try again.');
+            return r.json();
+          }).then(renderPreview).catch(function (e) {
+            if (preview) preview.innerHTML = '<p class="rv-subtitle" role="alert">' + esc(e.message || 'Could not parse coach week.') + '</p>';
+            toast(e.message || 'Could not parse coach week');
+          });
         };
       }
       if (commitBtn) {
@@ -403,8 +446,24 @@
       refresh();
     }
 
+    function showBoardError(msg) {
+      var boardHost = document.getElementById('v2-plan-week-board') || host;
+      boardHost.innerHTML =
+        '<div class="rv-card rv-plan-section-error" role="alert">' +
+        '<p class="rv-subtitle">' + esc(msg) + '</p>' +
+        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-board-retry">Retry</button></div>';
+      var btn = boardHost.querySelector('#v2-board-retry');
+      if (btn) btn.onclick = refresh;
+    }
+
     function refresh() {
-      load().then(render).then(loadWeekLoad);
+      load().then(function (data) {
+        if (!data) return;
+        render(data);
+        return loadWeekLoad();
+      }).catch(function (e) {
+        showBoardError(e.message || friendlyBoardError());
+      });
     }
 
     function ruleEvaluate(id, targetDate, cb) {
