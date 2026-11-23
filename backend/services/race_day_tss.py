@@ -39,11 +39,18 @@ def intensity_factor_for_distance(distance_km: float, override: Optional[float] 
     return 0.84
 
 
-def _duration_minutes(session: Session, race: Race) -> Optional[float]:
+def _duration_minutes(
+    session: Session,
+    race: Race,
+    *,
+    allow_finish_estimate: bool = True,
+) -> Optional[float]:
     if race.status == "done" and race.actual_time_seconds:
         return race.actual_time_seconds / 60.0
     if race.goal_time_seconds:
         return race.goal_time_seconds / 60.0
+    if not allow_finish_estimate:
+        return None
     est = estimate_race_finish(race.user_id, race, db=session)
     if est and not est.get("unavailable") and est.get("est_sec"):
         return est["est_sec"] / 60.0
@@ -53,6 +60,8 @@ def _duration_minutes(session: Session, race: Race) -> Optional[float]:
 def compute_race_day_tss(
     session: Session,
     race: Race,
+    *,
+    allow_finish_estimate: bool = True,
 ) -> dict[str, Any]:
     """Estimate race TSS from duration × IF² × 100, rounded to nearest 5."""
     if race.distance_km is None or float(race.distance_km) <= 0:
@@ -61,7 +70,9 @@ def compute_race_day_tss(
     if override is not None:
         override = float(override)
     if_val = intensity_factor_for_distance(float(race.distance_km), override)
-    dur_min = _duration_minutes(session, race)
+    dur_min = _duration_minutes(
+        session, race, allow_finish_estimate=allow_finish_estimate
+    )
     if dur_min is None or dur_min <= 0:
         return {"tss": None, "reason": "duration unknown", "if": if_val}
     raw = (dur_min / 60.0) * (if_val**2) * 100.0
@@ -130,12 +141,13 @@ def race_week_payload(
     *,
     races: Optional[list[Race]] = None,
     workouts: Optional[list[Workout]] = None,
+    allow_finish_estimate: bool = True,
 ) -> list[dict[str, Any]]:
     """Race items kept separate from training planned TSS.
 
     Prefetch ``races`` / ``workouts`` on the range path so each table is
-    queried once; compute_race_day_tss → estimate_race_finish still hits
-    the DB when duration is unknown (unavoidable per-race, rare).
+    queried once. Rollups pass ``allow_finish_estimate=False`` so a missing
+    goal/actual time does not run the performance finish estimator.
     """
     if races is None:
         race_rows = races_in_week(session, user_id, week_start, week_end)
@@ -151,7 +163,9 @@ def race_week_payload(
         if race.status == "done":
             actual = logged_race_tss(session, user_id, race, workouts=workouts)
             if actual is None:
-                est = compute_race_day_tss(session, race)
+                est = compute_race_day_tss(
+                    session, race, allow_finish_estimate=allow_finish_estimate
+                )
                 tss = est.get("tss")
                 source = "estimate"
             else:
@@ -169,7 +183,9 @@ def race_week_payload(
                 }
             )
         else:
-            est = compute_race_day_tss(session, race)
+            est = compute_race_day_tss(
+                session, race, allow_finish_estimate=allow_finish_estimate
+            )
             out.append(
                 {
                     "race_id": str(race.id),

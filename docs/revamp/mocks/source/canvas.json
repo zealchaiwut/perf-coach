@@ -97,6 +97,14 @@
       "h": 1500,
       "expand": "fill",
       "title": "Training \u00b7 Log \u00b7 strength session (view)"
+    },
+    "LogListD.dc.html": {
+      "x": 7600,
+      "y": 6660,
+      "w": 1440,
+      "h": 1900,
+      "expand": "fill",
+      "title": "Log list \u00b7 D \u00b7 dark week bar + target progress"
     }
   },
   "order": [
@@ -105,6 +113,7 @@
     "TrainingWeek.dc.html",
     "TrainingPlanEdit.dc.html",
     "TrainingLog.dc.html",
+    "LogListD.dc.html",
     "TrainingCalendar.dc.html",
     "TrainingSession.dc.html",
     "TrainingLiftView.dc.html",
@@ -132,7 +141,7 @@
       "y": 6390,
       "text": "Training \u00b7 Log",
       "kind": "title1",
-      "maxW": 7520
+      "maxW": 9040
     },
     "rowTrends": {
       "x": 0,

@@ -34,6 +34,8 @@ REVAMP_PHASES = frozenset(
     {"build", "peak_hold", "taper", "race_week", "recover", "rebuild"}
 )
 
+_SNAPSHOT_UNSET = object()
+
 
 class LoadPlanLayoutError(ValueError):
     """Raised when phase lengths cannot fit the weeks to the A race (P3-11)."""
@@ -233,6 +235,70 @@ def ensure_snapshots(
             )
 
 
+def _live_week_target(
+    *,
+    block_start: date,
+    race_date: date,
+    week_start: date,
+    chronic_baseline: float,
+    settings: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Derive target/phase from the current series without writing snapshots."""
+    _peak, series = validate_block_layout(
+        chronic_baseline=chronic_baseline,
+        block_start=block_start,
+        race_date=race_date,
+        settings=settings,
+    )
+    week_dates = week_starts_in_block(block_start, race_date)
+    try:
+        idx = week_dates.index(week_start)
+    except ValueError:
+        return None
+    spec = series[idx]
+    return {"target_tss": spec["target_tss"], "phase": spec["phase"], "peak_tss": _peak}
+
+
+def ensure_snapshots_for_users(
+    *,
+    today: Optional[date] = None,
+    user_id: Optional[uuid.UUID] = None,
+) -> dict[str, str]:
+    """Commit started-week snapshots for active users (weekly worker job)."""
+    from backend.models import User
+    from backend.services.revamp_plan_settings import plan_context
+
+    today = today or today_bangkok()
+    results: dict[str, str] = {}
+    with Session(engine) as session:
+        q = session.query(User.id).filter(User.is_active.is_(True))
+        if user_id is not None:
+            q = q.filter(User.id == user_id)
+        ids = [r[0] for r in q.all()]
+    for uid in ids:
+        key = str(uid)
+        try:
+            with Session(engine) as session:
+                ctx = plan_context(session, uid, today=today)
+                if ctx is None:
+                    results[key] = "skip_no_plan"
+                    continue
+                ensure_snapshots(
+                    session,
+                    uid,
+                    block_start=ctx["block_start"],
+                    race_date=ctx["race"].race_date,
+                    chronic_baseline=ctx["chronic_baseline"],
+                    settings=ctx["settings"],
+                    today=today,
+                )
+                session.commit()
+                results[key] = "ok"
+        except Exception as exc:
+            results[key] = f"error:{exc}"
+    return results
+
+
 def week_target_and_phase(
     user_id: uuid.UUID | str,
     week_start: date,
@@ -242,22 +308,24 @@ def week_target_and_phase(
     settings: Optional[dict[str, Any]] = None,
     today: Optional[date] = None,
     ctx: Optional[dict[str, Any]] = None,
-    snapshot: Any = None,
+    snapshot: Any = _SNAPSHOT_UNSET,
 ) -> Optional[dict[str, Any]]:
     """Return target_tss + phase for a week inside the A-race block, else None.
 
     ``ctx`` / ``snapshot`` skip the per-week plan_context and snapshot queries
-    used by batched ``weekly_rollups()``.
+    used by batched ``weekly_rollups()``. Pass ``snapshot=None`` when the batch
+    already looked up the row and missed — that live-derives without a write.
     """
     uid = uuid.UUID(str(user_id))
     ws = normalize_week_start(week_start)
     today = today or today_bangkok()
-    if snapshot is not None:
+    if snapshot is not _SNAPSHOT_UNSET and snapshot is not None:
         return {
             "target_tss": float(snapshot.target_tss),
             "phase": snapshot.phase,
             "peak_tss": snapshot.peak_tss,
         }
+    prefetched_miss = snapshot is not _SNAPSHOT_UNSET and snapshot is None
     own = session is None
     if own:
         session = Session(engine)
@@ -281,7 +349,7 @@ def week_target_and_phase(
         if chronic_baseline is None:
             chronic_baseline = 300.0  # fallback for tests without DB context
 
-        if ws <= current_ws:
+        if ws <= current_ws and not prefetched_miss:
             row = (
                 session.query(LoadPlanWeekSnapshot)
                 .filter(
@@ -290,42 +358,21 @@ def week_target_and_phase(
                 )
                 .first()
             )
-            if row is None:
-                ensure_snapshots(
-                    session,
-                    uid,
-                    block_start=block_start,
-                    race_date=race.race_date,
-                    chronic_baseline=chronic_baseline,
-                    settings=settings,
-                    today=today,
-                )
-                session.flush()
-                row = (
-                    session.query(LoadPlanWeekSnapshot)
-                    .filter(
-                        LoadPlanWeekSnapshot.user_id == uid,
-                        LoadPlanWeekSnapshot.week_start == ws,
-                    )
-                    .first()
-                )
-            if row:
-                return {"target_tss": float(row.target_tss), "phase": row.phase, "peak_tss": row.peak_tss}
-            return None
+            if row is not None:
+                return {
+                    "target_tss": float(row.target_tss),
+                    "phase": row.phase,
+                    "peak_tss": row.peak_tss,
+                }
+            # Missing snapshot: live-derive. GETs must not write (#1924).
 
-        _peak, series = validate_block_layout(
-            chronic_baseline=chronic_baseline,
+        return _live_week_target(
             block_start=block_start,
             race_date=race.race_date,
+            week_start=ws,
+            chronic_baseline=chronic_baseline,
             settings=settings,
         )
-        week_dates = week_starts_in_block(block_start, race.race_date)
-        try:
-            idx = week_dates.index(ws)
-        except ValueError:
-            return None
-        spec = series[idx]
-        return {"target_tss": spec["target_tss"], "phase": spec["phase"], "peak_tss": _peak}
     finally:
         if own:
             session.close()
@@ -364,48 +411,101 @@ def phase_overrun_summary(columns: list[dict[str, Any]]) -> list[dict[str, Any]]
     return out
 
 
+def _chart_column(
+    *,
+    ws: date,
+    current_ws: date,
+    rollup: dict[str, Any],
+    target: Any,
+    phase: Any,
+) -> dict[str, Any]:
+    actual = rollup.get("tss_total")
+    if ws < current_ws:
+        state = "done"
+    elif ws == current_ws:
+        state = "current"
+    else:
+        state = "future"
+    over = False
+    if state == "done" and target and actual is not None and actual > target * 1.05:
+        over = True
+    return {
+        "week_start": ws.isoformat(),
+        "phase": phase,
+        "target_tss": target,
+        "actual_tss": actual if state == "done" else None,
+        "planned_tss": rollup.get("planned_tss_training") if state != "done" else None,
+        "race_tss": rollup.get("race_planned_tss"),
+        "race_items": rollup.get("race_items") or [],
+        "state": state,
+        "over_target": over,
+        "on_target": bool(target and actual is not None and actual <= target * 1.05),
+    }
+
+
+def empty_generic_road(chronic: Optional[float] = None) -> dict[str, Any]:
+    """No-A-race Plan payload: no history columns, no weekly_rollup (#1932)."""
+    target = round(chronic, 1) if chronic is not None else None
+    subtitle = (
+        f"Reference {target:.0f} TSS/wk from your 28-day chronic"
+        if target is not None
+        else "Add a planned A race to unlock the road-to-race chart."
+    )
+    return {
+        "mode": "generic",
+        "title": "Recent training load",
+        "subtitle": subtitle,
+        "chronic_baseline": chronic,
+        "plan_hint": "Add a planned A race in Settings → Plan to unlock the full road-to-race chart.",
+        "columns": [],
+        "phase_overruns": [],
+    }
+
+
 def generic_road_chart(
     user_id: uuid.UUID,
     *,
     session: Session,
     today: Optional[date] = None,
     span_weeks: int = 14,
+    chronic: Optional[float] = None,
 ) -> dict[str, Any]:
     """Rolling weekly load when no A-race plan context (still shows real logged/planned TSS)."""
-    from backend.services.weekly_rollup import weekly_rollup
+    from backend.services.weekly_rollup import weekly_rollups
 
     uid = uuid.UUID(str(user_id))
     today = today or today_bangkok()
     ws = normalize_week_start(today)
-    chronic = chronic_weekly_tss(session, uid, today)
+    if chronic is None:
+        chronic = chronic_weekly_tss(session, uid, today)
     target = round(chronic, 1)
+    oldest = ws - timedelta(weeks=max(span_weeks, 1) - 1)
+    rolls = weekly_rollups(
+        uid,
+        oldest,
+        ws,
+        session=session,
+        today=today,
+        plan_ctx={"chronic_baseline": chronic},
+    )
+    by_start = {r["week_start"]: r for r in rolls}
     columns: list[dict[str, Any]] = []
     for i in range(span_weeks - 1, -1, -1):
         w = ws - timedelta(weeks=i)
-        rollup = weekly_rollup(uid, w, session=session, today=today)
+        rollup = by_start.get(w.isoformat()) or {}
         logged = float(rollup.get("tss_total") or 0)
-        planned = float(rollup.get("planned_tss_training") or 0)
-        if w < ws:
-            state = "done"
-        elif w == ws:
-            state = "current"
-        else:
-            state = "future"
-        over = bool(state == "done" and target and logged > target * 1.05)
-        columns.append(
-            {
-                "week_start": w.isoformat(),
-                "phase": "this week" if state == "current" else None,
-                "target_tss": target,
-                "actual_tss": logged if state == "done" else None,
-                "planned_tss": planned if state != "done" else None,
-                "race_tss": rollup.get("race_planned_tss"),
-                "race_items": rollup.get("race_items") or [],
-                "state": state,
-                "over_target": over,
-                "on_target": bool(state == "done" and logged <= target * 1.05),
-            }
+        col = _chart_column(
+            ws=w,
+            current_ws=ws,
+            rollup=rollup,
+            target=target,
+            phase="this week" if w == ws else None,
         )
+        # Generic chart used chronic as the target; keep on_target vs logged.
+        if col["state"] == "done":
+            col["on_target"] = bool(logged <= target * 1.05)
+            col["over_target"] = bool(target and logged > target * 1.05)
+        columns.append(col)
     return {
         "mode": "generic",
         "title": "Recent training load",
@@ -423,6 +523,7 @@ def generic_week_load(
     *,
     session: Session,
     today: Optional[date] = None,
+    chronic: Optional[float] = None,
 ) -> dict[str, Any]:
     """This-week load card without an A-race block — uses chronic as the training target."""
     from backend.services.load_plan import ACWR_CEILING_MULT
@@ -431,7 +532,8 @@ def generic_week_load(
     uid = uuid.UUID(str(user_id))
     today = today or today_bangkok()
     ws = normalize_week_start(week_start)
-    chronic = chronic_weekly_tss(session, uid, today)
+    if chronic is None:
+        chronic = chronic_weekly_tss(session, uid, today)
     target = round(chronic, 1)
     rollup = weekly_rollup(uid, ws, session=session, today=today)
     ceiling = round(ACWR_CEILING_MULT * chronic, 1)
@@ -472,9 +574,10 @@ def road_to_chart(
     *,
     session: Optional[Session] = None,
     today: Optional[date] = None,
+    ctx: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
     """Block weeks with target/actual/planned/race stacks for the revamp chart."""
-    from backend.services.weekly_rollup import weekly_rollup
+    from backend.services.weekly_rollup import weekly_rollups
 
     uid = uuid.UUID(str(user_id))
     today = today or today_bangkok()
@@ -485,47 +588,32 @@ def road_to_chart(
     try:
         from backend.services import revamp_plan_settings as _rps
 
-        ctx = _rps.plan_context(session, uid, today=today)
+        if ctx is None:
+            ctx = _rps.plan_context(session, uid, today=today)
         if ctx is None:
             return None
         race = ctx["race"]
         block_start = ctx["block_start"]
-        chronic = ctx["chronic_baseline"]
         settings = ctx["settings"]
         weeks = week_starts_in_block(block_start, race.race_date)
+        if not weeks:
+            rolls: list[dict[str, Any]] = []
+        else:
+            rolls = weekly_rollups(
+                uid, weeks[0], weeks[-1], session=session, today=today, plan_ctx=ctx
+            )
+        by_start = {r["week_start"]: r for r in rolls}
         columns: list[dict[str, Any]] = []
         for ws in weeks:
-            rollup = weekly_rollup(uid, ws, session=session, today=today)
-            meta = (
-                week_target_and_phase(
-                    uid, ws, session=session, chronic_baseline=chronic, settings=settings, today=today
-                )
-                or {}
-            )
-            target = meta.get("target_tss")
-            actual = rollup.get("tss_total")
-            if ws < current_ws:
-                state = "done"
-            elif ws == current_ws:
-                state = "current"
-            else:
-                state = "future"
-            over = False
-            if state == "done" and target and actual is not None and actual > target * 1.05:
-                over = True
+            rollup = by_start.get(ws.isoformat()) or {}
             columns.append(
-                {
-                    "week_start": ws.isoformat(),
-                    "phase": meta.get("phase") or rollup.get("phase"),
-                    "target_tss": target,
-                    "actual_tss": actual if state == "done" else None,
-                    "planned_tss": rollup.get("planned_tss_training") if state != "done" else None,
-                    "race_tss": rollup.get("race_planned_tss"),
-                    "race_items": rollup.get("race_items") or [],
-                    "state": state,
-                    "over_target": over,
-                    "on_target": bool(target and actual is not None and actual <= target * 1.05),
-                }
+                _chart_column(
+                    ws=ws,
+                    current_ws=current_ws,
+                    rollup=rollup,
+                    target=rollup.get("target_tss"),
+                    phase=rollup.get("phase"),
+                )
             )
         return {
             "race_name": race.name,
@@ -547,6 +635,7 @@ def revamp_week_load(
     *,
     session: Optional[Session] = None,
     today: Optional[date] = None,
+    ctx: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
     """This-week load card payload (P3-4)."""
     from backend.services.load_plan import ACWR_CEILING_MULT
@@ -561,12 +650,19 @@ def revamp_week_load(
     try:
         from backend.services import revamp_plan_settings as _rps
 
-        ctx = _rps.plan_context(session, uid, today=today)
+        if ctx is None:
+            ctx = _rps.plan_context(session, uid, today=today)
         if ctx is None:
             return None
         chronic = ctx["chronic_baseline"]
         meta = week_target_and_phase(
-            uid, ws, session=session, chronic_baseline=chronic, settings=ctx["settings"], today=today
+            uid,
+            ws,
+            session=session,
+            chronic_baseline=chronic,
+            settings=ctx["settings"],
+            today=today,
+            ctx=ctx,
         )
         if not meta:
             return None

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from backend.auth import resolve_user
 from backend.db import engine
 from backend.models import User, UserPreferences
+from backend.utils.query_log import logged as _query_logged
 
 router = APIRouter()
 _log = logging.getLogger(__name__)
@@ -196,6 +197,7 @@ class _QueueBody(BaseModel):
 
 
 @router.get("/api/performance/focus")
+@_query_logged("/api/performance/focus")
 def get_performance_focus(user: User = Depends(resolve_user)):
     from backend.services import focus_ranking as fr
     from backend.services.radar_cache import get_radar_payload

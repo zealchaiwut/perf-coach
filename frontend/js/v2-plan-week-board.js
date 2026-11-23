@@ -48,14 +48,27 @@
 
   function mount(host, options) {
     var state = { weekStart: options.weekStart, dragId: null, onWeekChanged: options.onWeekChanged };
+    var loadGen = 0;
 
     function weekQuery() {
       return '?week_start=' + encodeURIComponent(state.weekStart);
     }
 
+    function friendlyBoardError(r) {
+      if (!r) return 'Could not load this week. Check your connection.';
+      if (r.status === 401 || r.status === 403) return 'Session expired — refresh and try again.';
+      return 'Could not load this week. Try again.';
+    }
+
     function load() {
-      return fetch('/api/plan/revamp-week-board' + weekQuery(), { credentials: 'include' })
-        .then(function (r) { return r.json(); });
+      var gen = ++loadGen;
+      if (!options.fetchWeek) {
+        return Promise.reject(new Error(friendlyBoardError()));
+      }
+      return options.fetchWeek(state.weekStart, 'board,week_load').then(function (data) {
+        if (gen !== loadGen) return null;
+        return data;
+      });
     }
 
     function tssNavLine(wl) {
@@ -68,18 +81,20 @@
       return tot + ' / ' + tgt + ' TSS · ' + st;
     }
 
-    function loadWeekLoad() {
-      return fetch('/api/plan/revamp-week-load' + weekQuery(), { credentials: 'include' })
-        .then(function (r) { return r.status === 204 ? null : r.json(); })
-        .then(function (wl) {
-          state.lastWl = wl;
-          if (wl && options.weekLoadEl && options.renderWeekLoad) {
-            options.renderWeekLoad(options.weekLoadEl, wl);
-          }
-          var tssEl = document.getElementById('v2-week-nav-tss');
-          if (tssEl) tssEl.textContent = tssNavLine(wl);
-          return wl;
-        });
+    function applyWeekLoad(wl) {
+      state.lastWl = wl;
+      if (wl && options.weekLoadEl && options.renderWeekLoad) {
+        options.renderWeekLoad(options.weekLoadEl, wl);
+      }
+      var tssEl = document.getElementById('v2-week-nav-tss');
+      if (tssEl) tssEl.textContent = tssNavLine(wl);
+      return wl;
+    }
+
+    function applyPayload(payload) {
+      if (!payload) return;
+      if (payload.board) render(payload.board);
+      if (payload.week_load !== undefined) applyWeekLoad(payload.week_load);
     }
 
     function dayNum(iso) {
@@ -165,12 +180,18 @@
       var next = q('#v2-week-next');
       if (prev) prev.onclick = function () { shiftWeek(-7); };
       if (next) next.onclick = function () { shiftWeek(7); };
+      function afterSave() {
+        if (window.V2TrainingPlan && window.V2TrainingPlan.weekCacheInvalidate) {
+          window.V2TrainingPlan.weekCacheInvalidate(state.weekStart);
+        }
+        refresh();
+      }
       function openNew(d) {
         if (window.V2SessionEditor && window.V2SessionEditor.openPlanned) {
           window.V2SessionEditor.openPlanned({
             plannedDate: d,
             weekStart: data.week_start,
-            onSaved: refresh,
+            onSaved: afterSave,
           });
         }
       }
@@ -206,7 +227,7 @@
               sessionId: id,
               plannedDate: d,
               weekStart: data.week_start,
-              onSaved: refresh,
+              onSaved: afterSave,
             });
           }
         };
@@ -246,17 +267,21 @@
             '<ul class="rv-subtitle">' + rows + '</ul>' +
             '<button type="button" class="rv-btn" id="v2-suggest-apply">Apply suggestions</button>';
           panel.querySelector('#v2-suggest-apply').onclick = function () {
-            post('/api/plan/revamp-suggest/apply', {
+            post('/api/plan/revamp-suggest/apply?return=sections', {
               method: 'POST',
               credentials: 'include',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ proposed: payload.proposed }),
             }).then(function (r) {
-              if (!r.ok) throw new Error('Apply failed');
+              if (!r.ok) throw new Error('Could not apply suggestions. Try again.');
               return r.json();
-            }).then(function () {
+            }).then(function (json) {
               panel.hidden = true;
-              refresh();
+              applyReturned(json);
+            }).catch(function (e) {
+              panel.hidden = false;
+              panel.innerHTML = '<p class="rv-subtitle" role="alert">' + esc(e.message || 'Could not apply suggestions.') + '</p>';
+              toast(e.message || 'Could not apply suggestions');
             });
           };
         }).catch(function (e) {
@@ -375,12 +400,18 @@
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ week_start: data.week_start, text: text ? text.value : '' }),
-          }).then(function (r) { return r.json(); }).then(renderPreview);
+          }).then(function (r) {
+            if (!r.ok) throw new Error('Could not parse coach week. Try again.');
+            return r.json();
+          }).then(renderPreview).catch(function (e) {
+            if (preview) preview.innerHTML = '<p class="rv-subtitle" role="alert">' + esc(e.message || 'Could not parse coach week.') + '</p>';
+            toast(e.message || 'Could not parse coach week');
+          });
         };
       }
       if (commitBtn) {
         commitBtn.onclick = function () {
-          fetch('/api/plan/coach-week-import/commit', {
+          fetch('/api/plan/coach-week-import/commit?return=sections', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -388,9 +419,9 @@
           }).then(function (r) {
             if (!r.ok) return r.json().then(function (d) { throw d; });
             return r.json();
-          }).then(function () {
+          }).then(function (json) {
             close();
-            refresh();
+            applyReturned(json);
           }).catch(function () { toast('Import blocked — fix unparsed rows.'); });
         };
       }
@@ -403,11 +434,46 @@
       refresh();
     }
 
+    function showBoardError(msg) {
+      var boardHost = document.getElementById('v2-plan-week-board') || host;
+      boardHost.innerHTML =
+        '<div class="rv-card rv-plan-section-error" role="alert">' +
+        '<p class="rv-subtitle">' + esc(msg) + '</p>' +
+        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-board-retry">Retry</button></div>';
+      var btn = boardHost.querySelector('#v2-board-retry');
+      if (btn) btn.onclick = refresh;
+    }
+
     function refresh() {
-      load().then(render).then(loadWeekLoad);
+      load().then(function (data) {
+        if (!data) return;
+        if (data.board) {
+          applyPayload(data);
+        } else {
+          render(data);
+        }
+      }).catch(function (e) {
+        showBoardError(e.message || friendlyBoardError());
+      });
+    }
+
+    host._applyWeek = applyPayload;
+
+    function applyReturned(payload) {
+      if (payload && (payload.board || payload.week_load || payload.road_column || payload.warnings)) {
+        if (window.V2TrainingPlan && window.V2TrainingPlan.applyMutation) {
+          window.V2TrainingPlan.applyMutation(payload);
+          return;
+        }
+        applyPayload(payload);
+        return;
+      }
+      refresh();
     }
 
     function ruleEvaluate(id, targetDate, cb) {
+      // PATCH already evaluates; skip this call if the client will treat 422/409
+      // from PATCH as the source of truth. Kept so a blocked drop does not write.
       fetch('/api/plan/rule-evaluate', {
         method: 'POST',
         credentials: 'include',
@@ -418,7 +484,7 @@
     }
 
     function patchMove(id, targetDate, confirmWarnings, cb) {
-      fetch('/api/planned-sessions/' + id, {
+      fetch('/api/planned-sessions/' + id + '?return=sections', {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -448,7 +514,7 @@
               refresh();
               return;
             }
-            refresh();
+            applyReturned(res.body);
           });
         }
         doPatch(ev.body.level !== 'warn');
@@ -514,7 +580,11 @@
       });
     }
 
-    refresh();
+    if (options.initial && options.initial.board) {
+      applyPayload(options.initial);
+    } else if (!options.skipInitialFetch) {
+      refresh();
+    }
   }
 
   window.V2PlanWeekBoard = { mount: mount };

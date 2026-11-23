@@ -58,12 +58,14 @@ def layout_error(
     settings: Optional[dict[str, Any]] = None,
     *,
     today: Optional[date] = None,
+    ctx: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
     today = today or today_bangkok()
-    if settings is not None:
-        ctx = _rps.plan_context(session, user_id, today=today, draft=settings)
-    else:
-        ctx = _rps.plan_context(session, user_id, today=today)
+    if ctx is None:
+        if settings is not None:
+            ctx = _rps.plan_context(session, user_id, today=today, draft=settings)
+        else:
+            ctx = _rps.plan_context(session, user_id, today=today)
     if ctx is None:
         return None
     race = ctx["race"]
@@ -201,9 +203,10 @@ def revamp_warnings_payload(
     settings: Optional[dict[str, Any]] = None,
     *,
     today: Optional[date] = None,
+    ctx: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     today = today or today_bangkok()
-    layout = layout_error(session, user_id, settings, today=today)
+    layout = layout_error(session, user_id, settings, today=today, ctx=ctx)
     clashes = post_race_clashes(session, user_id, today=today)
     race_week_note = (
         "Weekly training target excludes race-day load; race TSS is counted separately."

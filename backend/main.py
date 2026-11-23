@@ -8312,8 +8312,33 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
         return JSONResponse(status_code=201, content=[_planned_session_dict(r) for r in created])
 
 
+def _attach_mutation_sections(
+    payload: dict,
+    session: Session,
+    user_id,
+    week_start: _date,
+    *,
+    today: Optional[_date] = None,
+    return_mode: Optional[str] = None,
+) -> dict:
+    """Merge `{board, week_load, road_column, warnings}` when `?return=sections` (#1929)."""
+    from backend.services.revamp_week import mutation_sections, wants_sections
+
+    if not wants_sections(return_mode):
+        return payload
+    extra = mutation_sections(session, user_id, week_start=week_start, today=today)
+    out = dict(payload)
+    out.update(extra)
+    return out
+
+
 @app.patch("/api/planned-sessions/{ps_id}")
-def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = Depends(resolve_user)):
+def patch_planned_session(
+    ps_id: str,
+    body: PlannedSessionPatch,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     from backend.services.plan_rules_engine import evaluate, summarize
 
     with Session(engine) as session:
@@ -8364,7 +8389,12 @@ def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = De
         session.commit()
         session.refresh(row)
         matched = session.get(Workout, row.matched_workout_id) if row.matched_workout_id else None
-        return JSONResponse(_planned_session_dict(row, matched))
+        payload = _planned_session_dict(row, matched)
+        ws = row.planned_date - _timedelta(days=row.planned_date.weekday())
+        payload = _attach_mutation_sections(
+            payload, session, user.id, ws, today=_today_bkk(), return_mode=return_mode
+        )
+        return JSONResponse(payload)
 
 
 @app.delete("/api/planned-sessions/{ps_id}", status_code=204)
@@ -19333,6 +19363,7 @@ def put_plan_revamp_settings(body: RevampPlanSettingsIn, user: User = Depends(re
 
 
 @app.get("/api/plan/revamp-road-chart")
+@_query_logged("/api/plan/revamp-road-chart")
 def get_plan_revamp_road_chart(user: User = Depends(resolve_user)):
     """Revamp Road-to chart: weekly target vs actual through the A race (P3-3)."""
     from backend.services.revamp_load_plan import road_to_chart
@@ -19350,17 +19381,12 @@ class PlanWarningApplyIn(BaseModel):
     warning_id: str
 
 
-@app.get("/api/plan/revamp-warnings")
-def get_plan_revamp_warnings(user: User = Depends(resolve_user)):
-    """Layout errors, post-race clashes, and race-week copy (P3-11)."""
-    from backend.services.plan_warnings import revamp_warnings_payload
-
-    with Session(engine) as db:
-        return JSONResponse(revamp_warnings_payload(db, user.id))
-
-
 @app.post("/api/plan/revamp-warnings/apply")
-def post_plan_revamp_warning_apply(body: PlanWarningApplyIn, user: User = Depends(resolve_user)):
+def post_plan_revamp_warning_apply(
+    body: PlanWarningApplyIn,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     """One-click reschedule for a post-race clash warning."""
     from backend.services.plan_warnings import apply_clash_suggestion, revamp_warnings_payload
 
@@ -19372,6 +19398,15 @@ def post_plan_revamp_warning_apply(body: PlanWarningApplyIn, user: User = Depend
         db.commit()
         payload = revamp_warnings_payload(db, user.id)
         payload["applied"] = applied
+        raw = (applied or {}).get("planned_date")
+        try:
+            d = _date.fromisoformat(str(raw)[:10])
+        except (TypeError, ValueError):
+            d = _today_bkk()
+        ws = d - _timedelta(days=d.weekday())
+        payload = _attach_mutation_sections(
+            payload, db, user.id, ws, today=_today_bkk(), return_mode=return_mode
+        )
         return JSONResponse(payload)
 
 
@@ -19440,7 +19475,11 @@ def post_plan_coach_week_import_parse(body: CoachWeekImportParseIn, user: User =
 
 
 @app.post("/api/plan/coach-week-import/commit")
-def post_plan_coach_week_import_commit(body: CoachWeekImportCommitIn, user: User = Depends(resolve_user)):
+def post_plan_coach_week_import_commit(
+    body: CoachWeekImportCommitIn,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     from backend.services.coach_week_import import apply_coach_week_import, row_from_commit_payload
 
     today = _today_bkk()
@@ -19457,6 +19496,9 @@ def post_plan_coach_week_import_commit(body: CoachWeekImportCommitIn, user: User
         except ValueError as exc:
             db.rollback()
             raise HTTPException(status_code=422, detail=str(exc))
+        out = _attach_mutation_sections(
+            out, db, user.id, ws, today=today, return_mode=return_mode
+        )
     return JSONResponse(out)
 
 
@@ -19484,12 +19526,28 @@ def post_plan_revamp_suggest_preview(
 
 
 @app.post("/api/plan/revamp-suggest/apply")
-def post_plan_revamp_suggest_apply(body: RevampSuggestApplyIn, user: User = Depends(resolve_user)):
+def post_plan_revamp_suggest_apply(
+    body: RevampSuggestApplyIn,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     from backend.services.revamp_suggest_sessions import apply_week_suggestions
 
+    today = _today_bkk()
+    ws = today - _timedelta(days=today.weekday())
+    proposed = body.proposed or []
+    if proposed:
+        try:
+            d = _date.fromisoformat(str(proposed[0].get("planned_date") or "")[:10])
+            ws = d - _timedelta(days=d.weekday())
+        except (TypeError, ValueError):
+            pass
     with Session(engine) as db:
-        out = apply_week_suggestions(db, user.id, body.proposed or [])
+        out = apply_week_suggestions(db, user.id, proposed)
         db.commit()
+        out = _attach_mutation_sections(
+            out, db, user.id, ws, today=today, return_mode=return_mode
+        )
     return JSONResponse(out)
 
 
@@ -19519,13 +19577,17 @@ def get_training_trends_revamp(
         return JSONResponse(trends_payload(db, user.id, range_key=rk, today=today))
 
 
-@app.get("/api/plan/revamp-week-board")
-def get_plan_revamp_week_board(
+@app.get("/api/plan/revamp-week")
+@_query_logged("/api/plan/revamp-week")
+def get_plan_revamp_week(
+    request: Request,
     week_start: Optional[str] = Query(default=None),
+    sections: Optional[str] = Query(default=None),
     user: User = Depends(resolve_user),
 ):
-    """Seven-day plan board for v2 Training plan (P3-5)."""
-    from backend.services.revamp_week_board import week_board
+    """One Plan-tab boot: selected sections share one session and plan context (#1927)."""
+    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, revamp_week_etag
+    from backend.services.revamp_week import UnknownSectionError, build_revamp_week, parse_sections
 
     today = _today_bkk()
     ws = today - _timedelta(days=today.weekday())
@@ -19535,33 +19597,19 @@ def get_plan_revamp_week_board(
         except ValueError:
             raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
         ws = ws - _timedelta(days=ws.weekday())
+    try:
+        wanted = parse_sections(sections)
+    except UnknownSectionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"unknown": exc.unknown, "allowed": exc.allowed},
+        )
     with Session(engine) as db:
-        return JSONResponse(week_board(user.id, ws, session=db, today=today))
-
-
-@app.get("/api/plan/revamp-week-load")
-def get_plan_revamp_week_load(
-    week_start: Optional[str] = Query(default=None),
-    user: User = Depends(resolve_user),
-):
-    """Revamp this-week load card (P3-4)."""
-    from backend.services.revamp_load_plan import revamp_week_load
-
-    today = _today_bkk()
-    ws = today - _timedelta(days=today.weekday())
-    if week_start:
-        try:
-            ws = _date.fromisoformat(week_start)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        ws = ws - _timedelta(days=ws.weekday())
-    with Session(engine) as db:
-        from backend.services.revamp_load_plan import generic_week_load
-
-        payload = revamp_week_load(user.id, ws, session=db, today=today)
-        if payload is None:
-            payload = generic_week_load(user.id, ws, session=db, today=today)
-    return JSONResponse(payload)
+        etag = revamp_week_etag(db, user.id, today, ws, wanted)
+        if not_modified(request, etag):
+            return not_modified_response(etag)
+        body = build_revamp_week(db, user.id, week_start=ws, sections=wanted, today=today)
+        return JSONResponse(body, headers=etag_headers(etag))
 
 
 @app.get("/api/plan/revamp-planned-editor/context")
@@ -19849,6 +19897,7 @@ def _resp_json_or_none(resp):
 
 
 @app.get("/api/plan/week-bundle")
+@_query_logged("/api/plan/week-bundle")
 def get_plan_week_bundle(
     week_start: Optional[str] = Query(default=None),
     include_load_plan: bool = Query(default=False),

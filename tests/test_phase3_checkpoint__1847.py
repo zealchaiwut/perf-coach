@@ -12,8 +12,7 @@ def test_phase3_mock_previews_exist():
 def test_phase3_plan_routes_registered():
     src = Path("backend/main.py").read_text(encoding="utf-8")
     routes = [
-        "/api/plan/revamp-week-board",
-        "/api/plan/revamp-week-load",
+        "/api/plan/revamp-week",
         "/api/plan/coach-week-import/parse",
         "/api/plan/coach-week-import/photo-capabilities",
         "/api/plan/revamp-suggest/preview",

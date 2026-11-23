@@ -12,7 +12,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import PlannedSession, Race, UserPreferences, Workout
+from backend.models import PlannedSession, Race, Workout
 from backend.utils.time import today_bangkok, to_bangkok
 
 _RUN_RE = re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", re.IGNORECASE)
@@ -204,7 +204,6 @@ def weekly_rollup(
         session = Session(engine)
 
     try:
-        session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
         # Buffer workout_date so Sunday-late / Monday-early start_time rows are included.
         buffer_start = ws - timedelta(days=1)
         buffer_end = we + timedelta(days=1)
@@ -230,7 +229,9 @@ def weekly_rollup(
         planned_tss_training = _estimate_planned_tss_remaining(session, uid, ws, we, today)
         from backend.services.race_day_tss import race_week_payload
 
-        race_items = race_week_payload(session, uid, ws, we)
+        race_items = race_week_payload(
+            session, uid, ws, we, allow_finish_estimate=False
+        )
         phase_label = None
         target_tss_val = None
         try:
@@ -269,6 +270,7 @@ def weekly_rollups(
     *,
     session: Optional[Session] = None,
     today: Optional[date] = None,
+    plan_ctx: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     """Inclusive range of Monday week starts. One query per table for the span."""
     start = normalize_week_start(from_week)
@@ -290,7 +292,6 @@ def weekly_rollups(
         lookback = today - timedelta(days=90)
         buffer_start = min(start - timedelta(days=1), lookback)
         buffer_end = we_last + timedelta(days=1)
-        session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
         workouts = (
             session.query(Workout)
             .filter(
@@ -324,42 +325,48 @@ def weekly_rollups(
         )
         baseline = estimate_historical_pace_and_tss(str(uid), session, workouts=workouts)
 
-        chronic = None
-        ctx = None
-        settings = None
+        chronic = None if plan_ctx is None else plan_ctx.get("chronic_baseline")
+        ctx = plan_ctx
+        settings = None if plan_ctx is None else plan_ctx.get("settings")
         snap_map: dict[date, Any] = {}
         current_ws = normalize_week_start(today)
+        has_race = bool(ctx and ctx.get("race"))
         try:
             from backend.services.revamp_load_plan import (
                 chronic_weekly_tss,
-                ensure_snapshots,
                 week_target_and_phase,
             )
-            from backend.services.revamp_plan_settings import (
-                get_row,
-                merged_phase_settings,
-                resolve_a_race,
-                resolve_block_start,
-            )
 
-            chronic = chronic_weekly_tss(session, uid, today)
-            row = get_row(session, uid)
-            a_race_id = getattr(row, "a_race_id", None) if row is not None else None
-            race = resolve_a_race(session, uid, today, a_race_id=a_race_id)
-            settings = merged_phase_settings(row)
-            if race is not None:
-                block_start = resolve_block_start(
-                    race.race_date,
-                    settings,
-                    block_start_override=getattr(row, "block_start", None) if row else None,
+            if ctx is None:
+                from backend.services.revamp_plan_settings import (
+                    get_row,
+                    merged_phase_settings,
+                    resolve_a_race,
+                    resolve_block_start,
                 )
-                ctx = {
-                    "race": race,
-                    "block_start": block_start,
-                    "settings": settings,
-                    "chronic_baseline": chronic,
-                    "row": row,
-                }
+
+                chronic = chronic_weekly_tss(session, uid, today)
+                row = get_row(session, uid)
+                a_race_id = getattr(row, "a_race_id", None) if row is not None else None
+                race = resolve_a_race(session, uid, today, a_race_id=a_race_id)
+                settings = merged_phase_settings(row)
+                if race is not None:
+                    block_start = resolve_block_start(
+                        race.race_date,
+                        settings,
+                        block_start_override=getattr(row, "block_start", None) if row else None,
+                    )
+                    ctx = {
+                        "race": race,
+                        "block_start": block_start,
+                        "settings": settings,
+                        "chronic_baseline": chronic,
+                        "row": row,
+                    }
+            elif chronic is None:
+                chronic = chronic_weekly_tss(session, uid, today)
+            has_race = bool(ctx and ctx.get("race"))
+            if has_race:
                 snaps = (
                     session.query(LoadPlanWeekSnapshot)
                     .filter(
@@ -369,29 +376,12 @@ def weekly_rollups(
                     .all()
                 )
                 snap_map = {s.week_start: s for s in snaps}
-                missing_past = [d for d in mondays if d <= current_ws and d not in snap_map]
-                if missing_past:
-                    ensure_snapshots(
-                        session,
-                        uid,
-                        block_start=block_start,
-                        race_date=race.race_date,
-                        chronic_baseline=chronic,
-                        settings=settings,
-                        today=today,
-                    )
-                    session.flush()
-                    snaps = (
-                        session.query(LoadPlanWeekSnapshot)
-                        .filter(
-                            LoadPlanWeekSnapshot.user_id == uid,
-                            LoadPlanWeekSnapshot.week_start.in_(mondays),
-                        )
-                        .all()
-                    )
-                    snap_map = {s.week_start: s for s in snaps}
+                settings = settings or ctx.get("settings")
+                if chronic is None:
+                    chronic = ctx.get("chronic_baseline")
         except Exception:
             ctx = None
+            has_race = False
 
         out: list[dict[str, Any]] = []
         for week_monday in mondays:
@@ -412,10 +402,11 @@ def weekly_rollups(
                 week_end,
                 races=races,
                 workouts=workouts,
+                allow_finish_estimate=False,
             )
             target_tss_val = None
             phase_label = None
-            if ctx is not None:
+            if has_race:
                 try:
                     snap = snap_map.get(week_monday) if week_monday <= current_ws else None
                     meta = week_target_and_phase(
