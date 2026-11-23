@@ -14,6 +14,11 @@ from backend.utils.log import get_logger
 _log = get_logger(__name__)
 T = TypeVar("T")
 
+DERIVED_SCORE_CARDS = "derived:score_cards"
+DERIVED_HERO = "derived:hero"
+DERIVED_PROJECTION = "derived:projection"
+DERIVED_RACE_LIST = "derived:race_list"
+
 
 def derived_signature(session: Session, user_id: uuid.UUID, as_of: date) -> str:
     return f"dv:{get_data_version(session, user_id)}|{as_of.isoformat()}"

@@ -331,10 +331,16 @@ def get_a_race_readiness_checklist(user: User = Depends(resolve_user)):
 @router.get("/api/performance/score-cards")
 @_query_logged("/api/performance/score-cards")
 def get_performance_score_cards(user: User = Depends(resolve_user)):
+    from backend.services.derived_cache import DERIVED_SCORE_CARDS, get_or_compute
     from backend.services.score_cards import build_cards
     from backend.utils.time import today_bangkok
 
-    return JSONResponse(build_cards(user.id, as_of=today_bangkok()))
+    today = today_bangkok()
+    with Session(engine) as db:
+        return JSONResponse(get_or_compute(
+            db, user.id, DERIVED_SCORE_CARDS, today,
+            lambda: build_cards(user.id, as_of=today),
+        ))
 
 
 # ── Races and projections (P4-10) ────────────────────────────────────────────
