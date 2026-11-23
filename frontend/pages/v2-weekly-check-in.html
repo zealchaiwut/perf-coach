@@ -16,13 +16,14 @@
       </div>
       <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
     </header>
-    <ol class="wci-steps" aria-label="Check-in steps">
-      <li class="wci-step is-on" data-step="1">1 Last week's changes</li>
-      <li class="wci-step" data-step="2">2 Check the week</li>
-      <li class="wci-step" data-step="3">3 Three quick scores</li>
-      <li class="wci-step" data-step="4">4 Copy, talk, paste back</li>
-    </ol>
-    <div class="wci-layout" id="wci-root"><p class="rv-subtitle">Loading check-in…</p></div>
+    <nav class="wci-steps" aria-label="Check-in steps">
+      <a class="wci-step is-on" href="#step-1" aria-current="step"><span class="wci-step-num">1</span><span class="wci-step-lbl">Last week's changes</span></a>
+      <a class="wci-step" href="#step-2"><span class="wci-step-num">2</span><span class="wci-step-lbl">Check the week</span></a>
+      <a class="wci-step" href="#step-3"><span class="wci-step-num">3</span><span class="wci-step-lbl">Three quick scores</span></a>
+      <a class="wci-step" href="#step-4"><span class="wci-step-num">4</span><span class="wci-step-lbl">Copy · talk · paste back</span></a>
+    </nav>
+    <p id="wci-live-status" class="sr-only" aria-live="polite"></p>
+    <div class="wci-layout" id="wci-root" aria-busy="true"><p class="rv-subtitle">Loading check-in…</p></div>
   </div>
   <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
   <script src="/js/lib/app-common.js"></script>
