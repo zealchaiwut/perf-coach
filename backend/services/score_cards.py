@@ -27,6 +27,7 @@ from typing import Any, Optional
 from backend.services import performance_scores as _performance_scores
 from backend.services import score_reader
 from backend.services.revamp_home import format_pace_seconds_per_km
+from backend.services.score_format import display_score
 
 EPS = 0.005
 AXES = ("endurance", "speed")
@@ -139,6 +140,9 @@ def build_card(axis: str, reader_block: dict[str, Any], perf_block: Optional[dic
         "axis": axis,
         "label": AXIS_LABELS[axis],
         "score": reader_block.get("score"),
+        "score_display": display_score(
+            None if reader_block.get("score") is None else round(float(reader_block["score"]), 1)
+        ),
         "delta_28d": reader_block.get("delta_28d"),
         "stale": bool(reader_block.get("stale")),
         "sparkline": {"dates": list(dates), "values": list(values)} if dates and values else None,

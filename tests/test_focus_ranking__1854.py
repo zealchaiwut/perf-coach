@@ -68,10 +68,14 @@ def test_half_distance_changes_winner():
 def test_why_not_reasons():
     out = fr.rank_axes([ax("economy", 40), ax("mobility", 10), ax("strength", 80), ax("durability", 50, stale=True)], 42.2)
     reasons = {w["axis"]: w["reason"] for w in out["why_not"]}
-    assert "matters less for this distance" in reasons["mobility"] or "weighted" in reasons["mobility"]
-    assert "weighted gap" in reasons["strength"]
-    assert "stale" in reasons["durability"]
+    assert reasons["mobility"] == "Lower priority for this distance"
+    assert reasons["strength"] == "Smaller weighted gap"
+    assert reasons["durability"] == "Not ranked · anchor stale"
     assert len(out["why_not"]) == 6
+    for w in out["why_not"]:
+        assert not w["reason"].startswith(w["label"])
+        if w["score_display"] is not None:
+            assert str(w["score_display"]) not in w["reason"]
 
 
 def test_never_measured_and_all_stale_have_no_focus():
