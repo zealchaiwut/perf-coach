@@ -261,7 +261,7 @@
             '<ul class="rv-subtitle">' + rows + '</ul>' +
             '<button type="button" class="rv-btn" id="v2-suggest-apply">Apply suggestions</button>';
           panel.querySelector('#v2-suggest-apply').onclick = function () {
-            post('/api/plan/revamp-suggest/apply', {
+            post('/api/plan/revamp-suggest/apply?return=sections', {
               method: 'POST',
               credentials: 'include',
               headers: { 'Content-Type': 'application/json' },
@@ -269,9 +269,9 @@
             }).then(function (r) {
               if (!r.ok) throw new Error('Could not apply suggestions. Try again.');
               return r.json();
-            }).then(function () {
+            }).then(function (json) {
               panel.hidden = true;
-              refresh();
+              applyReturned(json);
             }).catch(function (e) {
               panel.hidden = false;
               panel.innerHTML = '<p class="rv-subtitle" role="alert">' + esc(e.message || 'Could not apply suggestions.') + '</p>';
@@ -405,7 +405,7 @@
       }
       if (commitBtn) {
         commitBtn.onclick = function () {
-          fetch('/api/plan/coach-week-import/commit', {
+          fetch('/api/plan/coach-week-import/commit?return=sections', {
             method: 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
@@ -413,9 +413,9 @@
           }).then(function (r) {
             if (!r.ok) return r.json().then(function (d) { throw d; });
             return r.json();
-          }).then(function () {
+          }).then(function (json) {
             close();
-            refresh();
+            applyReturned(json);
           }).catch(function () { toast('Import blocked — fix unparsed rows.'); });
         };
       }
@@ -453,7 +453,21 @@
 
     host._applyWeek = applyPayload;
 
+    function applyReturned(payload) {
+      if (payload && (payload.board || payload.week_load || payload.road_column || payload.warnings)) {
+        if (window.V2TrainingPlan && window.V2TrainingPlan.applyMutation) {
+          window.V2TrainingPlan.applyMutation(payload);
+          return;
+        }
+        applyPayload(payload);
+        return;
+      }
+      refresh();
+    }
+
     function ruleEvaluate(id, targetDate, cb) {
+      // PATCH already evaluates; skip this call if the client will treat 422/409
+      // from PATCH as the source of truth. Kept so a blocked drop does not write.
       fetch('/api/plan/rule-evaluate', {
         method: 'POST',
         credentials: 'include',
@@ -464,7 +478,7 @@
     }
 
     function patchMove(id, targetDate, confirmWarnings, cb) {
-      fetch('/api/planned-sessions/' + id, {
+      fetch('/api/planned-sessions/' + id + '?return=sections', {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -494,7 +508,7 @@
               refresh();
               return;
             }
-            refresh();
+            applyReturned(res.body);
           });
         }
         doPatch(ev.body.level !== 'warn');

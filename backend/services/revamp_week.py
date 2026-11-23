@@ -189,3 +189,41 @@ def build_revamp_week(
     if "upcoming_races" in wanted:
         out["upcoming_races"] = upcoming_races_section(session, uid, today)
     return out
+
+
+def road_column_for_week(road: Optional[dict[str, Any]], week_start: date) -> Optional[dict[str, Any]]:
+    """One `road.columns[]` item for the affected week (#1929)."""
+    if not road:
+        return None
+    key = normalize_week_start(week_start).isoformat()
+    for col in road.get("columns") or []:
+        if col.get("week_start") == key:
+            return col
+    return None
+
+
+def mutation_sections(
+    session: Session,
+    user_id: uuid.UUID,
+    *,
+    week_start: date,
+    today: Optional[date] = None,
+) -> dict[str, Any]:
+    """Board + load + current-week road column + warnings after a Plan write."""
+    full = build_revamp_week(
+        session,
+        user_id,
+        week_start=week_start,
+        sections=["board", "week_load", "road", "warnings"],
+        today=today,
+    )
+    return {
+        "board": full.get("board"),
+        "week_load": full.get("week_load"),
+        "road_column": road_column_for_week(full.get("road"), week_start),
+        "warnings": full.get("warnings"),
+    }
+
+
+def wants_sections(return_mode: Optional[str]) -> bool:
+    return (return_mode or "").strip().lower() == "sections"

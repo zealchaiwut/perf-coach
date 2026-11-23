@@ -14,7 +14,7 @@ def test_board_mounted_exactly_once():
 
 
 def test_section_renderers_accept_data_arguments():
-    assert "function renderRoadChart(data, host)" in PLAN_JS
+    assert "function renderRoadChart(data, host" in PLAN_JS
     assert "function renderWeekLoad(card, wl)" in PLAN_JS
     assert "function renderWarnings(host, w)" in PLAN_JS
     assert "function renderRail(rail, data, warnings, wl)" in PLAN_JS

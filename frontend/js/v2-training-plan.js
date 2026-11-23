@@ -91,8 +91,34 @@
     return r.json();
   }
 
-  function renderRoadChart(data, host) {
+  function patchRoadColumn(col) {
+    var host = document.getElementById('v2-plan-road');
+    if (!host || !col || !host._roadData || !host._roadData.columns) return;
+    host._roadData.columns = host._roadData.columns.map(function (c) {
+      return c.week_start === col.week_start ? col : c;
+    });
+    renderRoadChart(host._roadData, host, host._weekLoad);
+  }
+
+  function applyMutation(payload) {
+    if (!payload) return;
+    var road = document.getElementById('v2-plan-road');
+    var week = document.getElementById('v2-plan-week-load');
+    var warnHost = document.getElementById('v2-plan-warnings');
+    var board = document.getElementById('v2-plan-week-board');
+    if (payload.road_column) patchRoadColumn(payload.road_column);
+    if (payload.week_load !== undefined) {
+      if (road) road._weekLoad = payload.week_load;
+      renderWeekLoad(week, payload.week_load);
+    }
+    if (payload.warnings !== undefined) renderWarnings(warnHost, payload.warnings);
+    if (board && board._applyWeek) board._applyWeek(payload);
+  }
+
+  function renderRoadChart(data, host, wl) {
     if (!host) return;
+    host._roadData = data;
+    if (wl) host._weekLoad = wl;
     if (!data || !data.columns || !data.columns.length) {
       emptyPlanCard(host, 'Road to race', 'Add a planned A race to see the load plan.');
       return;
@@ -377,7 +403,7 @@
     host.hidden = !parts.length;
     host.querySelectorAll('[data-apply-warning]').forEach(function (btn) {
       btn.onclick = function () {
-        fetch('/api/plan/revamp-warnings/apply', {
+        fetch('/api/plan/revamp-warnings/apply?return=sections', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -386,7 +412,11 @@
           if (!r.ok) throw new Error('Could not reschedule. Try again.');
           return r.json();
         }).then(function (json) {
-          renderWarnings(host, json);
+          if (json.board || json.week_load || json.road_column) {
+            applyMutation(json);
+          } else {
+            renderWarnings(host, json);
+          }
           if (window.RevampUI && window.RevampUI.showToast) window.RevampUI.showToast('Rescheduled');
         }).catch(function (e) {
           if (window.RevampUI && window.RevampUI.showToast) {
@@ -504,7 +534,8 @@
 
     function applyPage(data) {
       if (!data) return;
-      if (data.road !== undefined) renderRoadChart(data.road, road);
+      if (data.week_load !== undefined && road) road._weekLoad = data.week_load;
+      if (data.road !== undefined) renderRoadChart(data.road, road, data.week_load);
       if (data.week_load !== undefined) renderWeekLoad(week, data.week_load);
       if (data.warnings !== undefined) renderWarnings(warnHost, data.warnings);
       if (data.rail !== undefined) renderRail(rail, data.rail, data.warnings, data.week_load);
@@ -542,6 +573,8 @@
     renderWarnings: renderWarnings,
     renderRail: renderRail,
     sectionError: sectionError,
+    applyMutation: applyMutation,
+    patchRoadColumn: patchRoadColumn,
   };
 
   document.addEventListener('DOMContentLoaded', init);

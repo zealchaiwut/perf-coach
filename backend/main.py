@@ -8312,8 +8312,33 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
         return JSONResponse(status_code=201, content=[_planned_session_dict(r) for r in created])
 
 
+def _attach_mutation_sections(
+    payload: dict,
+    session: Session,
+    user_id,
+    week_start: _date,
+    *,
+    today: Optional[_date] = None,
+    return_mode: Optional[str] = None,
+) -> dict:
+    """Merge `{board, week_load, road_column, warnings}` when `?return=sections` (#1929)."""
+    from backend.services.revamp_week import mutation_sections, wants_sections
+
+    if not wants_sections(return_mode):
+        return payload
+    extra = mutation_sections(session, user_id, week_start=week_start, today=today)
+    out = dict(payload)
+    out.update(extra)
+    return out
+
+
 @app.patch("/api/planned-sessions/{ps_id}")
-def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = Depends(resolve_user)):
+def patch_planned_session(
+    ps_id: str,
+    body: PlannedSessionPatch,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     from backend.services.plan_rules_engine import evaluate, summarize
 
     with Session(engine) as session:
@@ -8364,7 +8389,12 @@ def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = De
         session.commit()
         session.refresh(row)
         matched = session.get(Workout, row.matched_workout_id) if row.matched_workout_id else None
-        return JSONResponse(_planned_session_dict(row, matched))
+        payload = _planned_session_dict(row, matched)
+        ws = row.planned_date - _timedelta(days=row.planned_date.weekday())
+        payload = _attach_mutation_sections(
+            payload, session, user.id, ws, today=_today_bkk(), return_mode=return_mode
+        )
+        return JSONResponse(payload)
 
 
 @app.delete("/api/planned-sessions/{ps_id}", status_code=204)
@@ -19362,7 +19392,11 @@ def get_plan_revamp_warnings(user: User = Depends(resolve_user)):
 
 
 @app.post("/api/plan/revamp-warnings/apply")
-def post_plan_revamp_warning_apply(body: PlanWarningApplyIn, user: User = Depends(resolve_user)):
+def post_plan_revamp_warning_apply(
+    body: PlanWarningApplyIn,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     """One-click reschedule for a post-race clash warning."""
     from backend.services.plan_warnings import apply_clash_suggestion, revamp_warnings_payload
 
@@ -19374,6 +19408,15 @@ def post_plan_revamp_warning_apply(body: PlanWarningApplyIn, user: User = Depend
         db.commit()
         payload = revamp_warnings_payload(db, user.id)
         payload["applied"] = applied
+        raw = (applied or {}).get("planned_date")
+        try:
+            d = _date.fromisoformat(str(raw)[:10])
+        except (TypeError, ValueError):
+            d = _today_bkk()
+        ws = d - _timedelta(days=d.weekday())
+        payload = _attach_mutation_sections(
+            payload, db, user.id, ws, today=_today_bkk(), return_mode=return_mode
+        )
         return JSONResponse(payload)
 
 
@@ -19442,7 +19485,11 @@ def post_plan_coach_week_import_parse(body: CoachWeekImportParseIn, user: User =
 
 
 @app.post("/api/plan/coach-week-import/commit")
-def post_plan_coach_week_import_commit(body: CoachWeekImportCommitIn, user: User = Depends(resolve_user)):
+def post_plan_coach_week_import_commit(
+    body: CoachWeekImportCommitIn,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     from backend.services.coach_week_import import apply_coach_week_import, row_from_commit_payload
 
     today = _today_bkk()
@@ -19459,6 +19506,9 @@ def post_plan_coach_week_import_commit(body: CoachWeekImportCommitIn, user: User
         except ValueError as exc:
             db.rollback()
             raise HTTPException(status_code=422, detail=str(exc))
+        out = _attach_mutation_sections(
+            out, db, user.id, ws, today=today, return_mode=return_mode
+        )
     return JSONResponse(out)
 
 
@@ -19486,12 +19536,28 @@ def post_plan_revamp_suggest_preview(
 
 
 @app.post("/api/plan/revamp-suggest/apply")
-def post_plan_revamp_suggest_apply(body: RevampSuggestApplyIn, user: User = Depends(resolve_user)):
+def post_plan_revamp_suggest_apply(
+    body: RevampSuggestApplyIn,
+    return_mode: Optional[str] = Query(default=None, alias="return"),
+    user: User = Depends(resolve_user),
+):
     from backend.services.revamp_suggest_sessions import apply_week_suggestions
 
+    today = _today_bkk()
+    ws = today - _timedelta(days=today.weekday())
+    proposed = body.proposed or []
+    if proposed:
+        try:
+            d = _date.fromisoformat(str(proposed[0].get("planned_date") or "")[:10])
+            ws = d - _timedelta(days=d.weekday())
+        except (TypeError, ValueError):
+            pass
     with Session(engine) as db:
-        out = apply_week_suggestions(db, user.id, body.proposed or [])
+        out = apply_week_suggestions(db, user.id, proposed)
         db.commit()
+        out = _attach_mutation_sections(
+            out, db, user.id, ws, today=today, return_mode=return_mode
+        )
     return JSONResponse(out)
 
 
