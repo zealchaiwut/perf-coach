@@ -10879,6 +10879,7 @@ def get_training_log(
                     TrainingLoadSnapshot.snapshot_date == today,
                 ).first()
 
+        rollup_by_week: dict = {}
         splits_by_workout: dict = {}
         run_ids = [w.id for w in workouts if "run" in (w.workout_type or "").lower()]
         if run_ids:
@@ -10957,6 +10958,7 @@ def get_training_log(
             for p in missed_rows:
                 if not _is_missed_planned(p, today):
                     continue
+                planned_tss = _planned_tss_estimate(session, p)
                 workout_entries.append(
                     {
                         "date": str(p.planned_date),
@@ -10970,7 +10972,7 @@ def get_training_log(
                         "avg_hr": None,
                         "elevation_m": None,
                         "average_pace_seconds_per_km": None,
-                        "tss": _planned_tss_estimate(session, p),
+                        "tss": planned_tss,
                         "source": _planned_source(p.session_type),
                         "strava_activity_url": None,
                         "is_stryd_synced": False,
@@ -10982,7 +10984,7 @@ def get_training_log(
                         "plan_match": {
                             "planned_id": str(p.id),
                             "planned_name": p.name,
-                            "planned_tss": _planned_tss_estimate(session, p),
+                            "planned_tss": planned_tss,
                             "source": _planned_source(p.session_type),
                         },
                         "speed_signal": None,
@@ -10994,6 +10996,18 @@ def get_training_log(
                         "planned_status": _planned_item_status(p, today),
                     }
                 )
+
+        if canonical_week_totals:
+            from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups as _weekly_rollups
+
+            for r in _weekly_rollups(
+                str(uid),
+                bangkok_week_start(from_d),
+                bangkok_week_start(to_d),
+                session=session,
+                today=today,
+            ):
+                rollup_by_week[r["week_start"]] = r
 
     all_entries = workout_entries + rest_entries
     all_entries.sort(key=lambda e: e["date"], reverse=True)
@@ -11037,9 +11051,9 @@ def get_training_log(
             },
         }
         if canonical_week_totals:
-            from backend.services.weekly_rollup import weekly_rollup as _weekly_rollup
-
-            rollup = _weekly_rollup(str(uid), _date.fromisoformat(key), today=today)
+            rollup = rollup_by_week.get(key)
+            if rollup is None:
+                rollup = {}
             week_row["rollup"] = rollup
             week_row["summary"] = {
                 "workout_count": rollup.get("session_count", len(ws)),
