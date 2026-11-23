@@ -30,7 +30,13 @@ def get_or_compute(
     cached = summary_cache_get(user_id, cache_key, sig)
     if cached is not None:
         _log.info("derived cache hit key=%s user=%s sig=%s", cache_key, user_id, sig)
+        from backend.utils.query_log import note_radar_cache
+
+        note_radar_cache(hit=True, key=cache_key)
         return cached
+    from backend.utils.query_log import note_radar_cache
+
+    note_radar_cache(hit=False, key=cache_key)
     payload = compute()
     summary_cache_put(user_id, cache_key, sig, payload)
     _log.info("derived cache store key=%s user=%s sig=%s", cache_key, user_id, sig)
