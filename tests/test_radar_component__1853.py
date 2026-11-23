@@ -119,22 +119,39 @@ def _client():
     from backend.auth import resolve_user
     from backend.models import User
 
-    app.dependency_overrides[resolve_user] = lambda: User(id=uuid.uuid4(), name="t")
+    uid = uuid.uuid4()
+    app.dependency_overrides[resolve_user] = lambda uid=uid: User(id=uid, name="t")
     return app, resolve_user, TestClient(app)
 
 
 def test_home_and_performance_get_identical_numbers_from_one_endpoint():
     app, dep, c = _client()
     payload = {k: v for k, v in PAYLOAD.items()}
+    store = {}
+
+    def fake_get(user_id, key, sig):
+        return store.get((str(user_id), key, sig))
+
+    def fake_put(user_id, key, sig, body):
+        store[(str(user_id), key, sig)] = body
+
     try:
-        with patch("backend.services.radar_payload.build_radar", return_value=dict(payload)) as build:
+        with (
+            patch("backend.services.radar_payload.build_radar", return_value=dict(payload)) as build,
+            patch("backend.services.derived_cache.get_data_version", return_value=1),
+            patch("backend.services.derived_cache.summary_cache_get", side_effect=fake_get),
+            patch("backend.services.derived_cache.summary_cache_put", side_effect=fake_put),
+            patch("backend.services.focus_ranking.rank_axes", return_value={"focus": {"axis": "economy"}}),
+            patch("backend.routers.performance_axes._a_race_distance_km", return_value=None),
+        ):
             big = c.get("/api/performance/radar?size=large").json()
             small = c.get("/api/performance/radar?size=small").json()
-        assert build.call_count == 2
+            huge = c.get("/api/performance/radar?size=huge")
+        assert build.call_count == 1
         assert big["axes"] == small["axes"] == PAYLOAD["axes"]
         assert big["summary"] == small["summary"]
         assert big["svg"] != small["svg"] and 'data-size="large"' in big["svg"]
-        assert c.get("/api/performance/radar?size=huge").status_code == 422
+        assert huge.status_code == 422
     finally:
         app.dependency_overrides.pop(dep, None)
 

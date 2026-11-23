@@ -150,3 +150,16 @@ def build_radar(
         "legend": flags,
         "summary": summary_sentence(axes, past=flags["past"]),
     }
+
+
+def apply_focus_ranker(payload: dict[str, Any], focus_ranker) -> dict[str, Any]:
+    """Mark the ranker's focus axis on ``payload`` (mutates). Cached rows stay unflagged."""
+    axes = payload.get("axes") or []
+    picked = focus_ranker(axes) if focus_ranker is not None else None
+    for a in axes:
+        a["focus"] = bool(picked) and (a.get("axis") == picked) and not a.get("never_measured")
+        a["status"] = axis_status(a)
+    flags = legend_flags(axes)
+    payload["legend"] = flags
+    payload["summary"] = summary_sentence(axes, past=flags["past"])
+    return payload
