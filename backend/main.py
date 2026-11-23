@@ -13789,12 +13789,14 @@ def get_training_load_weekly(
 @app.get("/api/weekly-rollup")
 @_query_logged("/api/weekly-rollup")
 def get_weekly_rollup_endpoint(
+    request: Request,
     week_start: Optional[str] = Query(default=None),
     from_week: Optional[str] = Query(default=None, alias="from"),
     to_week: Optional[str] = Query(default=None, alias="to"),
     user: User = Depends(resolve_user),
 ):
     """Canonical week totals for plan/log headers (revamp P0-4)."""
+    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, range_etag
     from backend.services.weekly_rollup import normalize_week_start, weekly_rollup, weekly_rollups
 
     today = _today_bkk()
@@ -13803,7 +13805,14 @@ def get_weekly_rollup_endpoint(
             ws = normalize_week_start(_date.fromisoformat(week_start))
         except ValueError:
             raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
+        we = ws + _timedelta(days=6)
+        params = f"week_start={ws.isoformat()}"
+        with Session(engine) as session:
+            etag = range_etag(session, user.id, ws, we, today, params)
+            if not_modified(request, etag):
+                return not_modified_response(etag)
+            body = weekly_rollup(str(user.id), ws, session=session, today=today)
+        return JSONResponse(body, headers=etag_headers(etag))
 
     if from_week is not None and to_week is not None:
         try:
@@ -13811,19 +13820,37 @@ def get_weekly_rollup_endpoint(
             tw = normalize_week_start(_date.fromisoformat(to_week))
         except ValueError:
             raise HTTPException(status_code=422, detail="from/to must be YYYY-MM-DD")
-        return JSONResponse({"weeks": weekly_rollups(str(user.id), fw, tw, today=today)})
+        we = tw + _timedelta(days=6)
+        params = f"from={fw.isoformat()}&to={tw.isoformat()}"
+        with Session(engine) as session:
+            etag = range_etag(session, user.id, fw, we, today, params)
+            if not_modified(request, etag):
+                return not_modified_response(etag)
+            body = {"weeks": weekly_rollups(str(user.id), fw, tw, session=session, today=today)}
+        return JSONResponse(body, headers=etag_headers(etag))
 
     ws = normalize_week_start(today)
-    return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
+    we = ws + _timedelta(days=6)
+    params = "default"
+    with Session(engine) as session:
+        etag = range_etag(session, user.id, ws, we, today, params)
+        if not_modified(request, etag):
+            return not_modified_response(etag)
+        body = weekly_rollup(str(user.id), ws, session=session, today=today)
+    return JSONResponse(body, headers=etag_headers(etag))
 
 
 @app.get("/api/training/month")
 @_query_logged("/api/training/month")
 def get_training_month(
+    request: Request,
     month: str = Query(..., description="YYYY-MM"),
     user: User = Depends(resolve_user),
 ):
     """Month board grid (revamp P1-3): full Mon–Sun weeks overlapping the month."""
+    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, range_etag
+    from backend.services.training_month import grid_range
+
     try:
         parts = month.strip().split("-")
         if len(parts) != 2:
@@ -13832,9 +13859,15 @@ def get_training_month(
         anchor = _date(y, m, 1)
     except (ValueError, TypeError):
         raise HTTPException(status_code=422, detail="month must be YYYY-MM")
+    today = _today_bkk()
+    grid_start, grid_end = grid_range(anchor)
+    params = f"month={month.strip()}"
     with Session(engine) as session:
-        payload = _training_month(session, user.id, anchor, today=_today_bkk())
-    return JSONResponse(payload)
+        etag = range_etag(session, user.id, grid_start, grid_end, today, params)
+        if not_modified(request, etag):
+            return not_modified_response(etag)
+        payload = _training_month(session, user.id, anchor, today=today)
+    return JSONResponse(payload, headers=etag_headers(etag))
 
 
 @app.post("/api/training-load/recompute")
