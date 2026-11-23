@@ -269,6 +269,7 @@ def weekly_rollups(
     *,
     session: Optional[Session] = None,
     today: Optional[date] = None,
+    plan_ctx: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
     """Inclusive range of Monday week starts. One query per table for the span."""
     start = normalize_week_start(from_week)
@@ -324,9 +325,9 @@ def weekly_rollups(
         )
         baseline = estimate_historical_pace_and_tss(str(uid), session, workouts=workouts)
 
-        chronic = None
-        ctx = None
-        settings = None
+        chronic = None if plan_ctx is None else plan_ctx.get("chronic_baseline")
+        ctx = plan_ctx
+        settings = None if plan_ctx is None else plan_ctx.get("settings")
         snap_map: dict[date, Any] = {}
         current_ws = normalize_week_start(today)
         try:
@@ -334,31 +335,36 @@ def weekly_rollups(
                 chronic_weekly_tss,
                 week_target_and_phase,
             )
-            from backend.services.revamp_plan_settings import (
-                get_row,
-                merged_phase_settings,
-                resolve_a_race,
-                resolve_block_start,
-            )
 
-            chronic = chronic_weekly_tss(session, uid, today)
-            row = get_row(session, uid)
-            a_race_id = getattr(row, "a_race_id", None) if row is not None else None
-            race = resolve_a_race(session, uid, today, a_race_id=a_race_id)
-            settings = merged_phase_settings(row)
-            if race is not None:
-                block_start = resolve_block_start(
-                    race.race_date,
-                    settings,
-                    block_start_override=getattr(row, "block_start", None) if row else None,
+            if ctx is None:
+                from backend.services.revamp_plan_settings import (
+                    get_row,
+                    merged_phase_settings,
+                    resolve_a_race,
+                    resolve_block_start,
                 )
-                ctx = {
-                    "race": race,
-                    "block_start": block_start,
-                    "settings": settings,
-                    "chronic_baseline": chronic,
-                    "row": row,
-                }
+
+                chronic = chronic_weekly_tss(session, uid, today)
+                row = get_row(session, uid)
+                a_race_id = getattr(row, "a_race_id", None) if row is not None else None
+                race = resolve_a_race(session, uid, today, a_race_id=a_race_id)
+                settings = merged_phase_settings(row)
+                if race is not None:
+                    block_start = resolve_block_start(
+                        race.race_date,
+                        settings,
+                        block_start_override=getattr(row, "block_start", None) if row else None,
+                    )
+                    ctx = {
+                        "race": race,
+                        "block_start": block_start,
+                        "settings": settings,
+                        "chronic_baseline": chronic,
+                        "row": row,
+                    }
+            elif chronic is None:
+                chronic = chronic_weekly_tss(session, uid, today)
+            if ctx is not None:
                 snaps = (
                     session.query(LoadPlanWeekSnapshot)
                     .filter(
@@ -368,6 +374,9 @@ def weekly_rollups(
                     .all()
                 )
                 snap_map = {s.week_start: s for s in snaps}
+                settings = settings or ctx.get("settings")
+                if chronic is None:
+                    chronic = ctx.get("chronic_baseline")
         except Exception:
             ctx = None
 
