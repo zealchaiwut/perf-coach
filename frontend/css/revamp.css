@@ -3573,7 +3573,8 @@ body.rv-page .rv-training-page .rv-week-block {
   overflow: visible;
 }
 
-body.rv-page .rv-training-page .rv-week-head {
+body.rv-page .rv-training-page .rv-week-head,
+body.rv-page .rv-training-page .rv-week-collapsed {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -3587,6 +3588,19 @@ body.rv-page .rv-training-page .rv-week-head {
   box-shadow: none;
   min-height: 0;
   cursor: default;
+}
+
+body.rv-page .rv-training-page .rv-week-collapsed {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 44px;
+  border-bottom: 1px solid var(--rv-hairline);
+}
+
+body.rv-page .rv-training-page .rv-week-collapsed[aria-expanded="false"] .rv-week-stats {
+  color: #56627f;
 }
 
 body.rv-page .rv-week-range {
