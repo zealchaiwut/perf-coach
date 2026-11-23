@@ -21,13 +21,25 @@
         legend.className = "perf-radar-legend";
         legend.setAttribute("aria-hidden", "true");
         var compact = opts && opts.compactLegend;
-        var pastLabel = compact ? "4 wk ago" : "4 weeks ago";
-        var staleLabel = compact ? "Stale" : "Stale · needs a test effort";
-        legend.innerHTML =
-          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--now"></span>Now</span>' +
-          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--past"></span>' + pastLabel + "</span>" +
-          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--stale"></span>' + staleLabel + "</span>" +
-          '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--focus"></span>Focus</span>';
+        var flags = payload.legend || {};
+        var hasPast = flags.past;
+        if (hasPast == null) hasPast = !!host.querySelector(".perf-radar-past");
+        var hasStale = flags.stale;
+        if (hasStale == null) hasStale = !!host.querySelector(".perf-radar-point--stale");
+        var hasFocus = flags.focus;
+        if (hasFocus == null) hasFocus = !!host.querySelector(".perf-radar-point--focus");
+        var html = '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--now"></span>Now</span>';
+        if (hasPast) {
+          html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--past"></span>' +
+            (compact ? "4 wk ago" : "4 weeks ago") + "</span>";
+        }
+        if (hasStale) {
+          html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--stale"></span>Stale</span>';
+        }
+        if (hasFocus) {
+          html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--focus"></span>Focus</span>';
+        }
+        legend.innerHTML = html;
         host.appendChild(legend);
         host.removeAttribute("aria-busy");
         host.dispatchEvent(new CustomEvent("perf-radar:loaded", { detail: payload, bubbles: true }));

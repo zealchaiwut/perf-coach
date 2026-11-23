@@ -4,8 +4,13 @@
 
   var FAST_MS = 3000;
   var SLOW_MS = 60000;
+  var REUSE_MS = 5000;
+  var FOCUS_MIN_MS = 30000;
   var timer = null;
   var lastPayload = null;
+  var inflight = null;
+  var lastFetchAt = 0;
+  var lastFocusPollAt = 0;
 
   function dotFromProvider(p) {
     p = p || {};
@@ -158,13 +163,25 @@
   }
 
   function poll() {
-    fetch("/api/sync/status", { credentials: "same-origin" })
+    var now = Date.now();
+    if (lastPayload && lastFetchAt && (now - lastFetchAt) < REUSE_MS) {
+      return Promise.resolve(lastPayload);
+    }
+    if (inflight) return inflight;
+    inflight = fetch("/api/sync/status", { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
+        lastFetchAt = Date.now();
         if (data) emit(data);
+        return lastPayload;
       })
-      .catch(function () {})
-      .then(schedule);
+      .catch(function () { return lastPayload; })
+      .then(function (detail) {
+        inflight = null;
+        schedule();
+        return detail;
+      });
+    return inflight;
   }
 
   function onVisibility() {
@@ -175,6 +192,16 @@
       }
       return;
     }
+    maybeFocusPoll();
+  }
+
+  function maybeFocusPoll() {
+    var now = Date.now();
+    if (lastFocusPollAt && (now - lastFocusPollAt) < FOCUS_MIN_MS) {
+      schedule();
+      return;
+    }
+    lastFocusPollAt = now;
     poll();
   }
 
@@ -182,8 +209,9 @@
     ensureDot();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", function () {
-      if (!document.hidden) poll();
+      if (!document.hidden) maybeFocusPoll();
     });
+    lastFocusPollAt = Date.now();
     poll();
   }
 

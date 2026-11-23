@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
+from backend.utils.query_log import logged as _query_logged
 from backend.utils.time import today_bangkok as _today_bangkok
 from backend.models import (
     AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
@@ -10787,6 +10788,7 @@ def _workout_list_tss(w, splits, prefs) -> float | None:
 
 
 @app.get("/api/training-log")
+@_query_logged("/api/training-log")
 def get_training_log(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
@@ -10877,6 +10879,7 @@ def get_training_log(
                     TrainingLoadSnapshot.snapshot_date == today,
                 ).first()
 
+        rollup_by_week: dict = {}
         splits_by_workout: dict = {}
         run_ids = [w.id for w in workouts if "run" in (w.workout_type or "").lower()]
         if run_ids:
@@ -10955,6 +10958,20 @@ def get_training_log(
             for p in missed_rows:
                 if not _is_missed_planned(p, today):
                     continue
+                if search:
+                    term = search.lower()
+                    hay = ((p.name or "") + " " + (p.notes or "")).lower()
+                    if term not in hay:
+                        continue
+                planned_tss = _planned_tss_estimate(session, p)
+                planned_duration = None
+                try:
+                    from backend.services.training_load import _planned_duration_minutes as _pdm
+                    mins = _pdm(p.session_type, p.structure)
+                    if mins:
+                        planned_duration = int(round(float(mins) * 60))
+                except Exception:
+                    planned_duration = None
                 workout_entries.append(
                     {
                         "date": str(p.planned_date),
@@ -10962,13 +10979,13 @@ def get_training_log(
                         "run_subtype": None,
                         "id": f"plan:{p.id}",
                         "title": p.name or p.session_type.title(),
-                        "duration_seconds": None,
-                        "duration_minutes": None,
+                        "duration_seconds": planned_duration,
+                        "duration_minutes": round(planned_duration / 60, 2) if planned_duration else None,
                         "distance_km": None,
                         "avg_hr": None,
                         "elevation_m": None,
                         "average_pace_seconds_per_km": None,
-                        "tss": _planned_tss_estimate(session, p),
+                        "tss": planned_tss,
                         "source": _planned_source(p.session_type),
                         "strava_activity_url": None,
                         "is_stryd_synced": False,
@@ -10980,7 +10997,7 @@ def get_training_log(
                         "plan_match": {
                             "planned_id": str(p.id),
                             "planned_name": p.name,
-                            "planned_tss": _planned_tss_estimate(session, p),
+                            "planned_tss": planned_tss,
                             "source": _planned_source(p.session_type),
                         },
                         "speed_signal": None,
@@ -10990,8 +11007,21 @@ def get_training_log(
                         "avg_power": None,
                         "row_kind": "missed_plan",
                         "planned_status": _planned_item_status(p, today),
+                        "planned_structure": p.structure,
                     }
                 )
+
+        if canonical_week_totals:
+            from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups as _weekly_rollups
+
+            for r in _weekly_rollups(
+                str(uid),
+                bangkok_week_start(from_d),
+                bangkok_week_start(to_d),
+                session=session,
+                today=today,
+            ):
+                rollup_by_week[r["week_start"]] = r
 
     all_entries = workout_entries + rest_entries
     all_entries.sort(key=lambda e: e["date"], reverse=True)
@@ -11035,9 +11065,9 @@ def get_training_log(
             },
         }
         if canonical_week_totals:
-            from backend.services.weekly_rollup import weekly_rollup as _weekly_rollup
-
-            rollup = _weekly_rollup(str(uid), _date.fromisoformat(key), today=today)
+            rollup = rollup_by_week.get(key)
+            if rollup is None:
+                rollup = {}
             week_row["rollup"] = rollup
             week_row["summary"] = {
                 "workout_count": rollup.get("session_count", len(ws)),
@@ -13771,14 +13801,22 @@ def get_training_load_weekly(
 
 
 @app.get("/api/weekly-rollup")
+@_query_logged("/api/weekly-rollup")
 def get_weekly_rollup_endpoint(
+    request: Request,
     week_start: Optional[str] = Query(default=None),
     from_week: Optional[str] = Query(default=None, alias="from"),
     to_week: Optional[str] = Query(default=None, alias="to"),
     user: User = Depends(resolve_user),
 ):
     """Canonical week totals for plan/log headers (revamp P0-4)."""
-    from backend.services.weekly_rollup import normalize_week_start, weekly_rollup, weekly_rollups
+    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, range_etag
+    from backend.services.weekly_rollup import (
+        next_race_brief,
+        normalize_week_start,
+        weekly_rollup,
+        weekly_rollups,
+    )
 
     today = _today_bkk()
     if week_start is not None:
@@ -13786,7 +13824,14 @@ def get_weekly_rollup_endpoint(
             ws = normalize_week_start(_date.fromisoformat(week_start))
         except ValueError:
             raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
+        we = ws + _timedelta(days=6)
+        params = f"week_start={ws.isoformat()}"
+        with Session(engine) as session:
+            etag = range_etag(session, user.id, ws, we, today, params)
+            if not_modified(request, etag):
+                return not_modified_response(etag)
+            body = weekly_rollup(str(user.id), ws, session=session, today=today)
+        return JSONResponse(body, headers=etag_headers(etag))
 
     if from_week is not None and to_week is not None:
         try:
@@ -13794,18 +13839,51 @@ def get_weekly_rollup_endpoint(
             tw = normalize_week_start(_date.fromisoformat(to_week))
         except ValueError:
             raise HTTPException(status_code=422, detail="from/to must be YYYY-MM-DD")
-        return JSONResponse({"weeks": weekly_rollups(str(user.id), fw, tw, today=today)})
+        we = tw + _timedelta(days=6)
+        params = f"from={fw.isoformat()}&to={tw.isoformat()}"
+        with Session(engine) as session:
+            etag = range_etag(session, user.id, fw, we, today, params)
+            if not_modified(request, etag):
+                return not_modified_response(etag)
+            from backend.services.revamp_plan_settings import plan_context
+
+            block_start = None
+            try:
+                ctx = plan_context(session, user.id, today=today)
+                bs = ctx.get("block_start") if ctx else None
+                if bs is not None:
+                    block_start = bs.isoformat() if hasattr(bs, "isoformat") else str(bs)
+            except Exception:
+                block_start = None
+            body = {
+                "weeks": weekly_rollups(str(user.id), fw, tw, session=session, today=today),
+                "next_race": next_race_brief(session, user.id, today),
+                "block_start": block_start,
+            }
+        return JSONResponse(body, headers=etag_headers(etag))
 
     ws = normalize_week_start(today)
-    return JSONResponse(weekly_rollup(str(user.id), ws, today=today))
+    we = ws + _timedelta(days=6)
+    params = "default"
+    with Session(engine) as session:
+        etag = range_etag(session, user.id, ws, we, today, params)
+        if not_modified(request, etag):
+            return not_modified_response(etag)
+        body = weekly_rollup(str(user.id), ws, session=session, today=today)
+    return JSONResponse(body, headers=etag_headers(etag))
 
 
 @app.get("/api/training/month")
+@_query_logged("/api/training/month")
 def get_training_month(
+    request: Request,
     month: str = Query(..., description="YYYY-MM"),
     user: User = Depends(resolve_user),
 ):
     """Month board grid (revamp P1-3): full Mon–Sun weeks overlapping the month."""
+    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, range_etag
+    from backend.services.training_month import grid_range
+
     try:
         parts = month.strip().split("-")
         if len(parts) != 2:
@@ -13814,9 +13892,15 @@ def get_training_month(
         anchor = _date(y, m, 1)
     except (ValueError, TypeError):
         raise HTTPException(status_code=422, detail="month must be YYYY-MM")
+    today = _today_bkk()
+    grid_start, grid_end = grid_range(anchor)
+    params = f"month={month.strip()}"
     with Session(engine) as session:
-        payload = _training_month(session, user.id, anchor, today=_today_bkk())
-    return JSONResponse(payload)
+        etag = range_etag(session, user.id, grid_start, grid_end, today, params)
+        if not_modified(request, etag):
+            return not_modified_response(etag)
+        payload = _training_month(session, user.id, anchor, today=today)
+    return JSONResponse(payload, headers=etag_headers(etag))
 
 
 @app.post("/api/training-load/recompute")

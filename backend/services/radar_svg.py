@@ -2,11 +2,13 @@
 
 Pure function of the radar payload: same payload -> same SVG at either size.
 
-- Axes sit at fixed angles (P4-1 order, clockwise from top); a never-measured axis
-  is omitted from the polygon, which closes over the remaining axes.
+- Axes sit at fixed angles (P4-1 order, clockwise from top). A never-measured
+  axis plots at the centre so the outline runs in and back out; its label stays —.
 - Rings at 25 / 50 / 75 (plus the 100 outer edge).
-- Stale axes draw hollow dashed points; the focus axis gets the amber point and label.
-- A dashed outline shows the 28-days-ago polygon.
+- Stale axes draw a hollow white point with a solid blue ring and a grey core;
+  the focus axis gets the amber point and label.
+- A thin solid grey outline shows the 28-days-ago polygon when at least two
+  axes have a 28-day score.
 - ``<title>``/``<desc>`` carry the accessible summary sentence.
 """
 from __future__ import annotations
@@ -43,12 +45,19 @@ def _points(pts: list[tuple[float, float]]) -> str:
 
 
 def _polygon(axes: list[dict[str, Any]], key: str) -> list[tuple[float, float]]:
+    """One vertex per axis. Missing values (never-measured now, or no 28-day
+    score) sit at the centre so the outline passes through them. Display only:
+    the payload score stays null.
+    """
     n = len(axes)
-    return [
-        _pt(i, n, R * max(0.0, min(100.0, float(a[key]))) / 100.0)
-        for i, a in enumerate(axes)
-        if a.get(key) is not None and not a["never_measured"]
-    ]
+    pts: list[tuple[float, float]] = []
+    for i, a in enumerate(axes):
+        val = a.get(key)
+        if val is None:
+            pts.append((CX, CY))
+            continue
+        pts.append(_pt(i, n, R * max(0.0, min(100.0, float(val))) / 100.0))
+    return pts
 
 
 def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
@@ -86,25 +95,24 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
         x, y = _pt(i, n, R)
         out.append(f'<line x1="{_fmt(CX)}" y1="{_fmt(CY)}" x2="{_fmt(x)}" y2="{_fmt(y)}" stroke="#e6ebf5"/>')
 
-    # 28-days-ago outline
+    # 28-days-ago outline — only when at least two axes actually have a past score
     past = _polygon(axes, "score_28d_ago")
-    if len(past) >= 3:
+    past_n = sum(1 for a in axes if a.get("score_28d_ago") is not None)
+    if past_n >= 2:
+        tag = "polygon" if len(past) >= 3 else "polyline"
         out.append(
-            f'<polygon class="perf-radar-past" points="{_points(past)}" fill="none" stroke="#8792a8" '
-            f'stroke-width="2" stroke-dasharray="6 5"/>'
+            f'<{tag} class="perf-radar-past" points="{_points(past)}" fill="none" stroke="#a3adc2" '
+            f'stroke-width="1.5"/>'
         )
-    elif len(past) == 2:
-        out.append(
-            f'<polyline class="perf-radar-past" points="{_points(past)}" fill="none" stroke="#8792a8" '
-            f'stroke-width="2" stroke-dasharray="6 5"/>'
-        )
-    for x, y in past:
-        out.append(
-            f'<circle class="perf-radar-past-point" cx="{_fmt(x)}" cy="{_fmt(y)}" r="4" '
-            f'fill="#ffffff" stroke="#8792a8" stroke-width="2" stroke-dasharray="3 2"/>'
-        )
+        for i, (x, y) in enumerate(past):
+            if axes[i].get("score_28d_ago") is None:
+                continue
+            out.append(
+                f'<circle class="perf-radar-past-point" cx="{_fmt(x)}" cy="{_fmt(y)}" r="3" '
+                f'fill="#a3adc2"/>'
+            )
 
-    # now polygon (measured axes only)
+    # now polygon (never-measured axes sit at the centre)
     now = _polygon(axes, "score")
     if len(now) >= 3:
         out.append(
@@ -136,7 +144,11 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
             out.append(
                 f'<circle class="perf-radar-point perf-radar-point--stale" data-axis="{a["axis"]}" '
                 f'cx="{_fmt(x)}" cy="{_fmt(y)}" r="7" fill="#ffffff" stroke="{COLOR_BLUE}" '
-                f'stroke-width="3" stroke-dasharray="3 2"/>'
+                f'stroke-width="3"/>'
+            )
+            out.append(
+                f'<circle class="perf-radar-point-stale-core" data-axis="{a["axis"]}" '
+                f'cx="{_fmt(x)}" cy="{_fmt(y)}" r="2.5" fill="#94a3b8"/>'
             )
         else:
             out.append(

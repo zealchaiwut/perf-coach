@@ -86,8 +86,13 @@
    "test_due": false
   }
  ],
+ "legend": {
+  "focus": true,
+  "past": true,
+  "stale": true
+ },
  "not_yet_measured": [
   "Mobility"
  ],
- "summary": "Performance radar. Endurance 41 (stale), Speed 45, Economy 44 (focus), Strength 58, Power/wt 61, Durability 52. Not yet measured: Mobility. Dashed outline is four weeks ago."
+ "summary": "Performance radar. Endurance 41 (stale), Speed 45, Economy 44 (focus), Strength 58, Power/wt 61, Durability 52. Not yet measured: Mobility. Grey outline is four weeks ago."
 }

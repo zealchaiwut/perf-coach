@@ -12,7 +12,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import PlannedSession, UserPreferences, Workout
+from backend.models import PlannedSession, Race, UserPreferences, Workout
 from backend.utils.time import today_bangkok, to_bangkok
 
 _RUN_RE = re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", re.IGNORECASE)
@@ -53,31 +53,50 @@ def _tss_bucket(workout_type: Optional[str], *, distance_km) -> str:
     return "support"
 
 
+def _remaining_planned_row(p: Any, week_start: date, week_end: date) -> bool:
+    if p.planned_date < week_start or p.planned_date > week_end:
+        return False
+    if getattr(p, "matched_workout_id", None) is not None:
+        return False
+    if (p.status or "") in ("missed", "skipped"):
+        return False
+    if p.session_type == "mobility":
+        return False
+    return True
+
+
 def _estimate_planned_tss_remaining(
     session: Session,
     user_id: uuid.UUID,
     week_start: date,
     week_end: date,
     today: date,
+    *,
+    planned_rows: Optional[list] = None,
+    baseline: Optional[dict[str, Any]] = None,
 ) -> float:
     from backend.services.training_load import (
         estimate_historical_pace_and_tss,
         estimate_planned_session_metrics,
     )
 
-    baseline = estimate_historical_pace_and_tss(str(user_id), session)
-    rows = (
-        session.query(PlannedSession)
-        .filter(
-            PlannedSession.user_id == user_id,
-            PlannedSession.planned_date >= week_start,
-            PlannedSession.planned_date <= week_end,
-            PlannedSession.matched_workout_id.is_(None),
-            PlannedSession.status.notin_(("missed", "skipped")),
-            PlannedSession.session_type != "mobility",
+    if baseline is None:
+        baseline = estimate_historical_pace_and_tss(str(user_id), session)
+    if planned_rows is None:
+        rows = (
+            session.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == user_id,
+                PlannedSession.planned_date >= week_start,
+                PlannedSession.planned_date <= week_end,
+                PlannedSession.matched_workout_id.is_(None),
+                PlannedSession.status.notin_(("missed", "skipped")),
+                PlannedSession.session_type != "mobility",
+            )
+            .all()
         )
-        .all()
-    )
+    else:
+        rows = [p for p in planned_rows if _remaining_planned_row(p, week_start, week_end)]
     total = 0.0
     for p in rows:
         if p.planned_date < today:
@@ -86,6 +105,85 @@ def _estimate_planned_tss_remaining(
         if est.get("estimated_tss"):
             total += float(est["estimated_tss"])
     return round(total, 2)
+
+
+def _assemble_week(
+    *,
+    ws: date,
+    we: date,
+    today: date,
+    workouts: list,
+    planned_rows: list,
+    planned_tss_training: float,
+    race_items: list[dict[str, Any]],
+    target_tss_val: Any,
+    phase_label: Any,
+) -> dict[str, Any]:
+    in_week = [w for w in workouts if ws <= session_local_date(w) <= we]
+    tss_total = 0.0
+    tss_run = 0.0
+    tss_strength = 0.0
+    tss_support_other = 0.0
+    distance_km = 0.0
+    duration_seconds = 0.0
+
+    for w in in_week:
+        val = float(w.tss) if w.tss is not None else None
+        if val is not None:
+            tss_total += val
+            bucket = _tss_bucket(w.workout_type, distance_km=w.distance_km)
+            if bucket == "run":
+                tss_run += val
+            elif bucket == "strength":
+                tss_strength += val
+            else:
+                tss_support_other += val
+        if w.distance_km is not None:
+            distance_km += float(w.distance_km)
+        if w.duration_seconds is not None:
+            duration_seconds += float(w.duration_seconds)
+
+    week_planned = [p for p in planned_rows if ws <= p.planned_date <= we]
+    counts = {"done": len(in_week), "planned": 0, "missed": 0, "skipped": 0}
+    for p in week_planned:
+        st = (p.status or "").lower()
+        if st == "planned":
+            counts["planned"] += 1
+        elif st == "skipped":
+            counts["skipped"] += 1
+        elif st in _MISSED:
+            counts["missed"] += 1
+        elif st in _DONE_PLANNED:
+            pass
+
+    race_planned_tss = sum(int(r["tss"] or 0) for r in race_items if r.get("tss") is not None)
+    planned_tss = round(planned_tss_training + race_planned_tss, 2)
+    runs = sum(1 for w in in_week if _tss_bucket(w.workout_type, distance_km=w.distance_km) == "run")
+    strength = sum(
+        1 for w in in_week if _tss_bucket(w.workout_type, distance_km=w.distance_km) == "strength"
+    )
+    partial = ws <= today <= we
+    return {
+        "week_start": ws.isoformat(),
+        "week_end": we.isoformat(),
+        "tss_total": round(tss_total, 2),
+        "tss_run": round(tss_run, 2),
+        "tss_strength": round(tss_strength, 2),
+        "tss_support_other": round(tss_support_other, 2),
+        "distance_km": round(distance_km, 2),
+        "hours": round(duration_seconds / 3600.0, 2) if duration_seconds else 0.0,
+        "session_count": len(in_week),
+        "runs": runs,
+        "strength": strength,
+        "counts": counts,
+        "planned_tss": planned_tss,
+        "planned_tss_training": planned_tss_training,
+        "race_planned_tss": race_planned_tss,
+        "race_items": race_items,
+        "target_tss": round(float(target_tss_val), 1) if target_tss_val is not None else None,
+        "phase": phase_label,
+        "partial": partial,
+    }
 
 
 def weekly_rollup(
@@ -100,14 +198,13 @@ def weekly_rollup(
     ws = normalize_week_start(week_start)
     we = ws + timedelta(days=6)
     today = today or today_bangkok()
-    partial = ws <= today <= we
 
     own = session is None
     if own:
         session = Session(engine)
 
     try:
-        prefs = session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
         # Buffer workout_date so Sunday-late / Monday-early start_time rows are included.
         buffer_start = ws - timedelta(days=1)
         buffer_end = we + timedelta(days=1)
@@ -120,34 +217,6 @@ def weekly_rollup(
             )
             .all()
         )
-        in_week = [w for w in workouts if ws <= session_local_date(w) <= we]
-
-        tss_total = 0.0
-        tss_run = 0.0
-        tss_strength = 0.0
-        tss_support_other = 0.0
-        distance_km = 0.0
-        duration_seconds = 0.0
-
-        for w in in_week:
-            if w.tss is not None:
-                val = float(w.tss)
-            else:
-                val = None
-            if val is not None:
-                tss_total += val
-                bucket = _tss_bucket(w.workout_type, distance_km=w.distance_km)
-                if bucket == "run":
-                    tss_run += val
-                elif bucket == "strength":
-                    tss_strength += val
-                else:
-                    tss_support_other += val
-            if w.distance_km is not None:
-                distance_km += float(w.distance_km)
-            if w.duration_seconds is not None:
-                duration_seconds += float(w.duration_seconds)
-
         planned_rows = (
             session.query(PlannedSession)
             .filter(
@@ -157,29 +226,11 @@ def weekly_rollup(
             )
             .all()
         )
-        counts = {"done": len(in_week), "planned": 0, "missed": 0, "skipped": 0}
-        for p in planned_rows:
-            st = (p.status or "").lower()
-            if st == "planned":
-                counts["planned"] += 1
-            elif st == "skipped":
-                counts["skipped"] += 1
-            elif st in _MISSED:
-                counts["missed"] += 1
-            elif st in _DONE_PLANNED:
-                pass  # fulfillment reflected in workout count
-
+        planned_rows = [p for p in planned_rows if ws <= p.planned_date <= we]
         planned_tss_training = _estimate_planned_tss_remaining(session, uid, ws, we, today)
         from backend.services.race_day_tss import race_week_payload
 
         race_items = race_week_payload(session, uid, ws, we)
-        race_planned_tss = sum(int(r["tss"] or 0) for r in race_items if r.get("tss") is not None)
-        planned_tss = round(planned_tss_training + race_planned_tss, 2)
-        runs = sum(1 for w in in_week if _tss_bucket(w.workout_type, distance_km=w.distance_km) == "run")
-        strength = sum(
-            1 for w in in_week if _tss_bucket(w.workout_type, distance_km=w.distance_km) == "strength"
-        )
-
         phase_label = None
         target_tss_val = None
         try:
@@ -195,27 +246,17 @@ def weekly_rollup(
         except Exception:
             pass
 
-        return {
-            "week_start": ws.isoformat(),
-            "week_end": we.isoformat(),
-            "tss_total": round(tss_total, 2),
-            "tss_run": round(tss_run, 2),
-            "tss_strength": round(tss_strength, 2),
-            "tss_support_other": round(tss_support_other, 2),
-            "distance_km": round(distance_km, 2),
-            "hours": round(duration_seconds / 3600.0, 2) if duration_seconds else 0.0,
-            "session_count": len(in_week),
-            "runs": runs,
-            "strength": strength,
-            "counts": counts,
-            "planned_tss": planned_tss,
-            "planned_tss_training": planned_tss_training,
-            "race_planned_tss": race_planned_tss,
-            "race_items": race_items,
-            "target_tss": round(float(target_tss_val), 1) if target_tss_val is not None else None,
-            "phase": phase_label,
-            "partial": partial,
-        }
+        return _assemble_week(
+            ws=ws,
+            we=we,
+            today=today,
+            workouts=workouts,
+            planned_rows=planned_rows,
+            planned_tss_training=planned_tss_training,
+            race_items=race_items,
+            target_tss_val=target_tss_val,
+            phase_label=phase_label,
+        )
     finally:
         if own:
             session.close()
@@ -229,27 +270,208 @@ def weekly_rollups(
     session: Optional[Session] = None,
     today: Optional[date] = None,
 ) -> list[dict[str, Any]]:
-    """Inclusive range of Monday week starts."""
+    """Inclusive range of Monday week starts. One query per table for the span."""
     start = normalize_week_start(from_week)
     end = normalize_week_start(to_week)
     if start > end:
         start, end = end, start
     today = today or today_bangkok()
-    out: list[dict[str, Any]] = []
+    mondays: list[date] = []
     ws = start
+    while ws <= end:
+        mondays.append(ws)
+        ws += timedelta(weeks=1)
+    we_last = end + timedelta(days=6)
+    uid = uuid.UUID(str(user_id))
     own = session is None
     if own:
         session = Session(engine)
     try:
-        while ws <= end:
-            out.append(
-                weekly_rollup(user_id, ws, session=session, today=today)
+        lookback = today - timedelta(days=90)
+        buffer_start = min(start - timedelta(days=1), lookback)
+        buffer_end = we_last + timedelta(days=1)
+        session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
+        workouts = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= buffer_start,
+                Workout.workout_date <= buffer_end,
             )
-            ws += timedelta(weeks=1)
+            .all()
+        )
+        planned_rows = (
+            session.query(PlannedSession)
+            .filter(
+                PlannedSession.user_id == uid,
+                PlannedSession.planned_date >= start,
+                PlannedSession.planned_date <= we_last,
+            )
+            .all()
+        )
+        from backend.models import LoadPlanWeekSnapshot, Race
+        from backend.services.race_day_tss import race_week_payload
+        from backend.services.training_load import estimate_historical_pace_and_tss
+
+        races = (
+            session.query(Race)
+            .filter(
+                Race.user_id == uid,
+                Race.status.in_(("planned", "done")),
+            )
+            .order_by(Race.race_date)
+            .all()
+        )
+        baseline = estimate_historical_pace_and_tss(str(uid), session, workouts=workouts)
+
+        chronic = None
+        ctx = None
+        settings = None
+        snap_map: dict[date, Any] = {}
+        current_ws = normalize_week_start(today)
+        try:
+            from backend.services.revamp_load_plan import (
+                chronic_weekly_tss,
+                ensure_snapshots,
+                week_target_and_phase,
+            )
+            from backend.services.revamp_plan_settings import (
+                get_row,
+                merged_phase_settings,
+                resolve_a_race,
+                resolve_block_start,
+            )
+
+            chronic = chronic_weekly_tss(session, uid, today)
+            row = get_row(session, uid)
+            a_race_id = getattr(row, "a_race_id", None) if row is not None else None
+            race = resolve_a_race(session, uid, today, a_race_id=a_race_id)
+            settings = merged_phase_settings(row)
+            if race is not None:
+                block_start = resolve_block_start(
+                    race.race_date,
+                    settings,
+                    block_start_override=getattr(row, "block_start", None) if row else None,
+                )
+                ctx = {
+                    "race": race,
+                    "block_start": block_start,
+                    "settings": settings,
+                    "chronic_baseline": chronic,
+                    "row": row,
+                }
+                snaps = (
+                    session.query(LoadPlanWeekSnapshot)
+                    .filter(
+                        LoadPlanWeekSnapshot.user_id == uid,
+                        LoadPlanWeekSnapshot.week_start.in_(mondays),
+                    )
+                    .all()
+                )
+                snap_map = {s.week_start: s for s in snaps}
+                missing_past = [d for d in mondays if d <= current_ws and d not in snap_map]
+                if missing_past:
+                    ensure_snapshots(
+                        session,
+                        uid,
+                        block_start=block_start,
+                        race_date=race.race_date,
+                        chronic_baseline=chronic,
+                        settings=settings,
+                        today=today,
+                    )
+                    session.flush()
+                    snaps = (
+                        session.query(LoadPlanWeekSnapshot)
+                        .filter(
+                            LoadPlanWeekSnapshot.user_id == uid,
+                            LoadPlanWeekSnapshot.week_start.in_(mondays),
+                        )
+                        .all()
+                    )
+                    snap_map = {s.week_start: s for s in snaps}
+        except Exception:
+            ctx = None
+
+        out: list[dict[str, Any]] = []
+        for week_monday in mondays:
+            week_end = week_monday + timedelta(days=6)
+            planned_tss_training = _estimate_planned_tss_remaining(
+                session,
+                uid,
+                week_monday,
+                week_end,
+                today,
+                planned_rows=planned_rows,
+                baseline=baseline,
+            )
+            race_items = race_week_payload(
+                session,
+                uid,
+                week_monday,
+                week_end,
+                races=races,
+                workouts=workouts,
+            )
+            target_tss_val = None
+            phase_label = None
+            if ctx is not None:
+                try:
+                    snap = snap_map.get(week_monday) if week_monday <= current_ws else None
+                    meta = week_target_and_phase(
+                        uid,
+                        week_monday,
+                        session=session,
+                        chronic_baseline=chronic,
+                        settings=settings,
+                        today=today,
+                        ctx=ctx,
+                        snapshot=snap,
+                    )
+                    if meta:
+                        target_tss_val = meta.get("target_tss")
+                        phase_label = meta.get("phase")
+                except Exception:
+                    pass
+            out.append(
+                _assemble_week(
+                    ws=week_monday,
+                    we=week_end,
+                    today=today,
+                    workouts=workouts,
+                    planned_rows=planned_rows,
+                    planned_tss_training=planned_tss_training,
+                    race_items=race_items,
+                    target_tss_val=target_tss_val,
+                    phase_label=phase_label,
+                )
+            )
         return out
     finally:
         if own:
             session.close()
+
+
+def next_race_brief(session: Session, user_id, today: date) -> Optional[dict[str, Any]]:
+    """Compact next planned race for Log subtitle; None when none upcoming."""
+    row = (
+        session.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.status == "planned",
+            Race.race_date >= today,
+        )
+        .order_by(Race.race_date.asc())
+        .first()
+    )
+    if row is None:
+        return None
+    race_date = row.race_date.isoformat() if getattr(row, "race_date", None) else None
+    return {
+        "name": row.name,
+        "race_date": race_date,
+        "priority": row.priority,
+    }
 
 
 def rollup_for_export(week: dict[str, Any]) -> dict[str, Any]:

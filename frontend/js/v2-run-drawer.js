@@ -6,6 +6,37 @@
   var index = 0;
   var lastFocus = null;
   var currentId = null;
+  var prefsCache = null;
+  var shoesCache = null;
+  var prefsInflight = null;
+  var shoesInflight = null;
+
+  function fetchPrefs() {
+    if (prefsCache) return Promise.resolve(prefsCache);
+    if (prefsInflight) return prefsInflight;
+    prefsInflight = fetch('/api/user-preferences', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { row: {} }; })
+      .catch(function () { return { row: {} }; })
+      .then(function (data) { prefsCache = data; prefsInflight = null; return data; });
+    return prefsInflight;
+  }
+
+  function fetchShoes() {
+    if (shoesCache) return Promise.resolve(shoesCache);
+    if (shoesInflight) return shoesInflight;
+    shoesInflight = fetch('/api/athlete-shoes', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { shoes: [], default_shoe_id: null }; })
+      .catch(function () { return { shoes: [], default_shoe_id: null }; })
+      .then(function (data) { shoesCache = data; shoesInflight = null; return data; });
+    return shoesInflight;
+  }
+
+  function clearLookups() {
+    prefsCache = null;
+    shoesCache = null;
+    prefsInflight = null;
+    shoesInflight = null;
+  }
 
   function els() {
     return {
@@ -153,14 +184,30 @@
       .catch(function () { toast('Could not build consult prompt'); });
   }
 
+  function loadHtml2Canvas() {
+    if (typeof global.html2canvas === 'function') {
+      return Promise.resolve(global.html2canvas);
+    }
+    if (global._html2canvasPromise) return global._html2canvasPromise;
+    global._html2canvasPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = '/js/lib/html2canvas.min.js';
+      s.onload = function () {
+        if (typeof global.html2canvas === 'function') resolve(global.html2canvas);
+        else reject(new Error('html2canvas missing'));
+      };
+      s.onerror = function () { reject(new Error('html2canvas failed')); };
+      document.head.appendChild(s);
+    });
+    return global._html2canvasPromise;
+  }
+
   function screenshot() {
     var e = els();
-    if (typeof global.html2canvas !== 'function') {
-      toast('Screenshot tool not loaded');
-      return;
-    }
     if (!e.drawer) return;
-    global.html2canvas(e.drawer, { backgroundColor: '#f5f7fc', scale: 2 }).then(function (canvas) {
+    loadHtml2Canvas().then(function (h2c) {
+      return h2c(e.drawer, { backgroundColor: '#f5f7fc', scale: 2 });
+    }).then(function (canvas) {
       canvas.toBlob(function (blob) {
         if (!blob) { toast('Screenshot failed'); return; }
         var url = URL.createObjectURL(blob);
@@ -191,12 +238,8 @@
     Promise.all([
       fetch('/api/workouts/' + encodeURIComponent(id) + '/full?streams=none', { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) throw new Error('full'); return r.json(); }),
-      fetch('/api/user-preferences', { credentials: 'same-origin' })
-        .then(function (r) { return r.ok ? r.json() : { row: {} }; })
-        .catch(function () { return { row: {} }; }),
-      fetch('/api/athlete-shoes', { credentials: 'same-origin' })
-        .then(function (r) { return r.ok ? r.json() : { shoes: [], default_shoe_id: null }; })
-        .catch(function () { return { shoes: [], default_shoe_id: null }; }),
+      fetchPrefs(),
+      fetchShoes(),
     ])
       .then(function (pair) {
         var payload = normalizeRunFullPayload(pair[0]);
@@ -231,5 +274,5 @@
       });
   }
 
-  global.V2RunDrawer = { open: open, close: close };
+  global.V2RunDrawer = { open: open, close: close, clearLookups: clearLookups };
 })(window);

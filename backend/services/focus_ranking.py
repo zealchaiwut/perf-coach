@@ -22,6 +22,7 @@ from datetime import date, timedelta
 from typing import Any, Iterable, Optional
 
 from backend.services.axis_spec import PERFORMANCE_AXES, axis_focus_ranking_eligible
+from backend.services.score_format import display_score
 
 # ---------------------------------------------------------------------------
 # Weights (by A-race distance) — must sum to 1, asserted at import.
@@ -156,27 +157,21 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
     focus = eligible[0] if eligible else None
     scored_by = {s["axis"]: s for s in scored}
 
-    def _reason_for(axis_name: str, s: Optional[dict[str, Any]], a: dict[str, Any]) -> str:
-        label = AXIS_LABELS.get(axis_name, axis_name)
+    def _reason_for(axis_name: str, s: Optional[dict[str, Any]], a: dict[str, Any]) -> tuple[str, str]:
+        """Short phrase + status. No label/score prefix — the table prints those."""
         if a.get("never_measured") or a.get("score") is None:
             if axis_name == "mobility":
-                return f"{label} — lower, but matters less for a marathon until you log a test."
-            return f"{label} — not measured yet."
+                return "Not measured · log a test", "never_measured"
+            return "Not measured yet", "never_measured"
         if s is None:
-            return f"{label} — not ranked."
+            return "Not ranked", "stale"
         if s["stale"]:
-            return f"{label} {int(round(s['score']))} — not ranked · anchor is stale."
+            return "Not ranked · anchor stale", "stale"
         if focus is not None and s["gap"] >= focus["gap"]:
-            return (
-                f"{label} {int(round(s['score']))} — lower weighted priority for this distance "
-                f"(weight {round(s['weight'] * 100)}% vs {round(focus['weight'] * 100)}%)."
-            )
+            return "Lower priority for this distance", "ranked"
         if focus is not None:
-            return (
-                f"{label} {int(round(s['score']))} — weighted gap {s['weighted_gap']:.1f} "
-                f"vs {focus['weighted_gap']:.1f} for {focus['label']}."
-            )
-        return f"{label} {int(round(s['score']))} — not ranked."
+            return "Smaller weighted gap", "ranked"
+        return "Not ranked", "ranked"
 
     why_not: list[dict[str, Any]] = []
     focus_axis = focus["axis"] if focus else None
@@ -185,14 +180,20 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
             continue
         a = by.get(name) or {}
         s = scored_by.get(name)
+        never = bool(a.get("never_measured") or a.get("score") is None)
+        reason, status = _reason_for(name, s, a)
+        ranked = status == "ranked"
         why_not.append({
             "axis": name,
             "label": AXIS_LABELS.get(name, name),
-            "score": None if a.get("never_measured") else a.get("score"),
-            "weighted_gap": round(s["weighted_gap"], 2) if s else None,
+            "score": None if never else a.get("score"),
+            "score_display": None if never else display_score(a.get("score")),
+            "weight_pct": int(round(s["weight"] * 100)) if ranked and s else None,
+            "weighted_gap": round(s["weighted_gap"], 1) if ranked and s else None,
             "stale": bool(s and s["stale"]),
-            "never_measured": bool(a.get("never_measured") or a.get("score") is None),
-            "reason": _reason_for(name, s, a),
+            "never_measured": never,
+            "status": status,
+            "reason": reason,
         })
     why_not.sort(
         key=lambda w: (
@@ -204,7 +205,7 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
 
     focus_rationale = None
     if focus is not None:
-        focus_rationale = f"lowest that's fresh and matters for this distance"
+        focus_rationale = "Lowest that's fresh and matters"
 
     work = WORK_MAP[focus["axis"]] if focus else None
     return {
@@ -213,7 +214,12 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
         "focus": (
             {
                 "axis": focus["axis"], "label": focus["label"], "score": focus["score"],
-                "weight": focus["weight"], "weighted_gap": round(focus["weighted_gap"], 2),
+                "score_display": display_score(focus["score"]),
+                "weight": focus["weight"],
+                "weight_pct": int(round(focus["weight"] * 100)),
+                "weighted_gap": round(focus["weighted_gap"], 1),
+                "status": "focus",
+                "reason": focus_rationale,
                 "work": {k: work[k] for k in ("name", "advice", "queueable", "kind", "template_tags", "tss_estimate")},
             }
             if focus else None
