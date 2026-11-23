@@ -21,8 +21,14 @@
     chartWeeks: [],
     weekCache: {},
     weekInflight: {},
+    monthSeq: 0,
+    chartSeq: 0,
+    listSeq: 0,
+    weekRollupSeq: {},
   };
   var weekObserver = null;
+  var monthCtrl = null;
+  var chartCtrl = null;
 
   function readQuery() {
     var q = new URLSearchParams(window.location.search);
@@ -209,10 +215,20 @@
   function loadMonth() {
     var body = document.getElementById('v2-month-body');
     sectionLoading(body, 'Loading month…');
-    fetch('/api/training/month?month=' + encodeURIComponent(state.month))
+    var seq = ++state.monthSeq;
+    if (monthCtrl) monthCtrl.abort();
+    monthCtrl = new AbortController();
+    fetch('/api/training/month?month=' + encodeURIComponent(state.month), { signal: monthCtrl.signal })
       .then(function (r) { if (!r.ok) throw new Error('Month failed'); return r.json(); })
-      .then(renderMonth)
-      .catch(function () { sectionError(body, 'Could not load month board.'); });
+      .then(function (data) {
+        if (seq !== state.monthSeq) return;
+        renderMonth(data);
+      })
+      .catch(function (e) {
+        if (e && e.name === 'AbortError') return;
+        if (seq !== state.monthSeq) return;
+        sectionError(body, 'Could not load month board.');
+      });
   }
 
   var MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -403,12 +419,15 @@
     var fromW = window.AppCommon && window.AppCommon.addDaysISO
       ? window.AppCommon.addDaysISO(mondayISO(end), -7 * 8)
       : end;
-    var ctrl = new AbortController();
-    var timer = setTimeout(function () { ctrl.abort(); }, 25000);
-    fetch('/api/weekly-rollup?from=' + encodeURIComponent(fromW) + '&to=' + encodeURIComponent(end), { signal: ctrl.signal })
+    var seq = ++state.chartSeq;
+    if (chartCtrl) chartCtrl.abort();
+    chartCtrl = new AbortController();
+    var timer = setTimeout(function () { chartCtrl.abort(); }, 25000);
+    fetch('/api/weekly-rollup?from=' + encodeURIComponent(fromW) + '&to=' + encodeURIComponent(end), { signal: chartCtrl.signal })
       .then(function (r) { if (!r.ok) throw new Error('chart'); return r.json(); })
       .then(function (data) {
         clearTimeout(timer);
+        if (seq !== state.chartSeq) return;
         var weeks = (data && data.weeks) || [];
         state.chartWeeks = weeks.slice();
         state.rollupsByWeek = {};
@@ -424,6 +443,7 @@
       })
       .catch(function (e) {
         clearTimeout(timer);
+        if (seq !== state.chartSeq) return;
         sectionError(el, e && e.name === 'AbortError' ? 'Chart timed out — try again.' : 'Could not load weekly volume.');
       });
   }
@@ -632,7 +652,9 @@
         return matchPlanned(pre.planned_id, w.id).then(function () { return w; });
       })
       .then(function (w) {
-        refreshAll();
+        var ws = mondayISO(pre.workout_date || todayISO());
+        fetchWeek(ws, { force: true });
+        refreshWeekRollup(ws);
         if (window.V2RunDrawer) window.V2RunDrawer.open(w.id, state.runIds.concat([w.id]));
       })
       .catch(function () { toast('Could not open late log'); });
@@ -825,7 +847,10 @@
     el.querySelectorAll('[data-feel-host]').forEach(function (host) {
       if (window.V2FeelButtons) {
         var val = host.getAttribute('data-feel-val') || null;
-        window.V2FeelButtons.mount(host, host.getAttribute('data-feel-host'), val === '' ? null : val);
+        var wid = host.getAttribute('data-feel-host');
+        window.V2FeelButtons.mount(host, wid, val === '' ? null : val, function (feeling) {
+          applyFeelInPlace(wid, feeling);
+        });
       }
     });
     el.querySelectorAll('[data-plan-skip]').forEach(function (btn) {
@@ -833,7 +858,13 @@
         e.stopPropagation();
         var pid = btn.getAttribute('data-plan-skip');
         fetch('/api/planned-sessions/' + encodeURIComponent(pid) + '/skip', { method: 'POST', credentials: 'same-origin' })
-          .then(function (r) { if (!r.ok) throw new Error(); loadList(true); loadMonth(); toast('Skipped planned session'); })
+          .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+          .then(function () {
+            var ws = applySkipInPlace(pid);
+            if (ws) refreshWeekRollup(ws);
+            else paintList();
+            toast('Skipped planned session');
+          })
           .catch(function () { toast('Could not skip session'); });
       });
     });
@@ -959,6 +990,57 @@
     });
   }
 
+  function applyFeelInPlace(workoutId, feeling) {
+    Object.keys(state.weekCache).forEach(function (ws) {
+      (state.weekCache[ws].entries || []).forEach(function (e) {
+        if (String(e.id) === String(workoutId)) e.feeling = feeling;
+      });
+    });
+  }
+
+  function applySkipInPlace(plannedId) {
+    var hit = null;
+    Object.keys(state.weekCache).forEach(function (ws) {
+      var cache = state.weekCache[ws];
+      if (!cache || !cache.entries) return;
+      cache.entries = cache.entries.filter(function (e) {
+        var pid = (e.plan_match && e.plan_match.planned_id) || String(e.id || '').replace('plan:', '');
+        if (String(pid) === String(plannedId)) {
+          hit = ws;
+          return false;
+        }
+        return true;
+      });
+    });
+    delete state.entriesByPlanId[plannedId];
+    paintList();
+    return hit;
+  }
+
+  function refreshWeekRollup(ws) {
+    if (!ws) return;
+    var seq = (state.weekRollupSeq[ws] || 0) + 1;
+    state.weekRollupSeq[ws] = seq;
+    var ctrl = new AbortController();
+    fetch('/api/weekly-rollup?week_start=' + encodeURIComponent(ws), { signal: ctrl.signal, credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('rollup'); return r.json(); })
+      .then(function (row) {
+        if (seq !== state.weekRollupSeq[ws]) return;
+        state.rollupsByWeek[ws] = row;
+        var found = false;
+        state.chartWeeks = (state.chartWeeks || []).map(function (w) {
+          if (w.week_start === ws) { found = true; return row; }
+          return w;
+        });
+        if (!found) state.chartWeeks.push(row);
+        drawChart(state.chartWeeks.slice());
+        paintList();
+      })
+      .catch(function (err) {
+        if (err && err.name === 'AbortError') return;
+      });
+  }
+
   function fetchInitialWeeks(opts) {
     opts = opts || {};
     var mondays = newestTwoMondays();
@@ -966,6 +1048,7 @@
     var from = mondays[mondays.length - 1];
     var to = todayISO();
     var inflightKey = '_initial';
+    var seq = ++state.listSeq;
     if (!opts.force && mondays.every(function (ws) {
       return state.weekCache[ws] && state.weekCache[ws].loaded;
     })) {
@@ -981,13 +1064,15 @@
     var p = fetch(url, { signal: ctrl.signal, credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error('list'); return r.json(); })
       .then(function (data) {
+        if (seq !== state.listSeq) return;
         applyLogPayload(data, mondays);
         delete state.weekInflight[inflightKey];
         paintList();
       })
       .catch(function (err) {
-        delete state.weekInflight[inflightKey];
+        if (state.weekInflight[inflightKey] === p) delete state.weekInflight[inflightKey];
         if (err && err.name === 'AbortError') return;
+        if (seq !== state.listSeq) return;
         mondays.forEach(function (ws) {
           state.weekCache[ws] = { loaded: false, entries: [], error: true };
         });
@@ -1016,13 +1101,14 @@
     var p = fetch(url, { signal: ctrl.signal, credentials: 'same-origin' })
       .then(function (r) { if (!r.ok) throw new Error('list'); return r.json(); })
       .then(function (data) {
+        if (state.weekInflight[ws] !== p) return;
         state.weekCache[ws] = { loaded: true, entries: flattenWeekEntries(data), error: null };
         delete state.weekInflight[ws];
         paintList();
         return state.weekCache[ws];
       })
       .catch(function (err) {
-        delete state.weekInflight[ws];
+        if (state.weekInflight[ws] === p) delete state.weekInflight[ws];
         if (err && err.name === 'AbortError') return;
         state.weekCache[ws] = { loaded: false, entries: [], error: true };
         paintList();
@@ -1061,6 +1147,7 @@
   }
 
   function refreshAll() {
+    if (window.V2RunDrawer && window.V2RunDrawer.clearLookups) window.V2RunDrawer.clearLookups();
     loadMonth();
     loadChart();
     loadList(true);

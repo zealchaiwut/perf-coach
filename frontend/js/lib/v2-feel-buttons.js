@@ -16,7 +16,13 @@
     })
       .then(function (r) {
         if (!r.ok) throw new Error();
-        if (onDone) onDone(value);
+        return r.json();
+      })
+      .then(function (body) {
+        var feeling = body && Object.prototype.hasOwnProperty.call(body, 'feeling')
+          ? body.feeling
+          : value;
+        if (onDone) onDone(feeling, false, body);
       })
       .catch(function () {
         if (onDone) onDone(undefined, true);
