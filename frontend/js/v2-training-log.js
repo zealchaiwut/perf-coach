@@ -413,6 +413,12 @@
         state.chartWeeks = weeks.slice();
         state.rollupsByWeek = {};
         weeks.forEach(function (w) { state.rollupsByWeek[w.week_start] = w; });
+        if (data.next_race && data.next_race.name) {
+          state.raceLine = data.next_race.name;
+        } else {
+          state.raceLine = '';
+        }
+        paintSubtitle(null);
         drawChart(weeks);
         paintList();
       })
@@ -565,21 +571,6 @@
     if (state.raceLine) line += ' · ' + state.raceLine;
     if (sessionCount != null) line += ' · ' + sessionCount + ' total';
     el.textContent = line;
-  }
-
-  function loadRaceLine() {
-    fetch('/api/races', { credentials: 'include' })
-      .then(function (r) { return r.ok ? r.json() : []; })
-      .then(function (body) {
-        var races = (Array.isArray(body) ? body : (body.races || body.items || []))
-          .filter(function (race) { return (race.status || 'planned') === 'planned'; });
-        if (!races.length) return;
-        races.sort(function (a, b) { return (a.race_date || '').localeCompare(b.race_date || ''); });
-        var next = races[0];
-        state.raceLine = next.name || 'Race';
-        paintSubtitle(null);
-      })
-      .catch(function () { /* keep date only */ });
   }
 
   function prefillFromPlanned(entry) {
@@ -1080,7 +1071,6 @@
     writeQuery();
     renderFilters();
     paintSubtitle(null);
-    loadRaceLine();
     if (window.V2SyncToolbar) {
       window.V2SyncToolbar.mount(document.getElementById('v2-sync-toolbar'), { onRefresh: refreshAll });
     }

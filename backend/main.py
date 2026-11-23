@@ -13806,7 +13806,12 @@ def get_weekly_rollup_endpoint(
 ):
     """Canonical week totals for plan/log headers (revamp P0-4)."""
     from backend.services.log_etag import etag_headers, not_modified, not_modified_response, range_etag
-    from backend.services.weekly_rollup import normalize_week_start, weekly_rollup, weekly_rollups
+    from backend.services.weekly_rollup import (
+        next_race_brief,
+        normalize_week_start,
+        weekly_rollup,
+        weekly_rollups,
+    )
 
     today = _today_bkk()
     if week_start is not None:
@@ -13835,7 +13840,10 @@ def get_weekly_rollup_endpoint(
             etag = range_etag(session, user.id, fw, we, today, params)
             if not_modified(request, etag):
                 return not_modified_response(etag)
-            body = {"weeks": weekly_rollups(str(user.id), fw, tw, session=session, today=today)}
+            body = {
+                "weeks": weekly_rollups(str(user.id), fw, tw, session=session, today=today),
+                "next_race": next_race_brief(session, user.id, today),
+            }
         return JSONResponse(body, headers=etag_headers(etag))
 
     ws = normalize_week_start(today)

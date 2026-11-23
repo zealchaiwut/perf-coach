@@ -12,7 +12,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from backend.db import engine
-from backend.models import PlannedSession, UserPreferences, Workout
+from backend.models import PlannedSession, Race, UserPreferences, Workout
 from backend.utils.time import today_bangkok, to_bangkok
 
 _RUN_RE = re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", re.IGNORECASE)
@@ -450,6 +450,28 @@ def weekly_rollups(
     finally:
         if own:
             session.close()
+
+
+def next_race_brief(session: Session, user_id, today: date) -> Optional[dict[str, Any]]:
+    """Compact next planned race for Log subtitle; None when none upcoming."""
+    row = (
+        session.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.status == "planned",
+            Race.race_date >= today,
+        )
+        .order_by(Race.race_date.asc())
+        .first()
+    )
+    if row is None:
+        return None
+    race_date = row.race_date.isoformat() if getattr(row, "race_date", None) else None
+    return {
+        "name": row.name,
+        "race_date": race_date,
+        "priority": row.priority,
+    }
 
 
 def rollup_for_export(week: dict[str, Any]) -> dict[str, Any]:
