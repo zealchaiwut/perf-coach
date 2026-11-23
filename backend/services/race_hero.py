@@ -22,6 +22,8 @@ from backend.services.perf_a_race import next_a_race
 from backend.services.race_finish_estimate import estimate_race_finish
 from backend.services.score_reader import get_race_scores
 
+_UNSET = object()
+
 RACE_SPECIFIC_EXPLANATION = (
     "These are the scores this course and distance need, not your overall ones."
 )
@@ -144,11 +146,20 @@ def build_after_race(session, user_id: uuid.UUID, race, today: date) -> dict[str
     return block
 
 
-def build_hero(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
+def build_hero(
+    session,
+    user_id: uuid.UUID,
+    today: date,
+    *,
+    race: Any = _UNSET,
+    checklist: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     from backend.services.a_race_readiness_checklist import build_checklist
 
-    race = next_a_race(session, user_id, today)
-    checklist = build_checklist(session, user_id, today)
+    if race is _UNSET:
+        race = next_a_race(session, user_id, today)
+    if checklist is None:
+        checklist = build_checklist(session, user_id, today, race=race)
     payload: dict[str, Any] = {
         "race": None,
         "goal": None,

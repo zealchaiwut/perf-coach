@@ -304,6 +304,36 @@ def get_performance_bundle(user: User = Depends(resolve_user)):
     })
 
 
+# ── Combined page (one session, shared context) ──────────────────────────────
+
+@router.get("/api/performance/page")
+@_query_logged("/api/performance/page")
+def get_performance_page(
+    sections: str | None = None,
+    size: str = "large",
+    user: User = Depends(resolve_user),
+):
+    """One Performance-tab boot: selected sections share one session (#1939)."""
+    from backend.services.performance_page import (
+        UnknownSectionError,
+        build_page,
+        parse_sections,
+    )
+    from backend.utils.time import today_bangkok
+
+    if size not in ("large", "small"):
+        raise HTTPException(status_code=422, detail="size must be 'large' or 'small'")
+    try:
+        wanted = parse_sections(sections)
+    except UnknownSectionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"unknown": exc.unknown, "allowed": exc.allowed},
+        )
+    with Session(engine) as db:
+        return JSONResponse(build_page(db, user.id, today_bangkok(), wanted, size=size))
+
+
 # ── A-race hero + after-the-race card (P4-8) ─────────────────────────────────
 
 @router.get("/api/performance/hero")

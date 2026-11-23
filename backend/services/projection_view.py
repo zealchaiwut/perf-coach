@@ -31,6 +31,7 @@ from backend.services.race_roles import RECALIBRATING_ROLES, race_role
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
+_UNSET = object()
 
 NOT_AVAILABLE = "not available"
 DEFAULT_HISTORY_DAYS = 84
@@ -472,7 +473,14 @@ def _markers(session, user_id: uuid.UUID, race, start: date, today: date):
     return recal, ticks, pending
 
 
-def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
+def build_projection(
+    session,
+    user_id: uuid.UUID,
+    today: date,
+    *,
+    race: Any = _UNSET,
+    overall: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     from backend.models import UserPreferences
     from backend.services.race_calibration import (
         combined_correction,
@@ -481,7 +489,14 @@ def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]
     from backend.services.race_finish_estimator import blended_scores_estimate
     from backend.services.score_reader import get_scores
 
-    race = next_a_race(session, user_id, today)
+    if race is _UNSET:
+        race = next_a_race(session, user_id, today)
+
+    def _overall() -> dict[str, Any]:
+        nonlocal overall
+        if overall is None:
+            overall = get_scores(user_id, as_of=today)["overall"]
+        return overall
     try:
         cal_rows = load_calibrations(str(user_id), session)
     except Exception:
@@ -502,12 +517,12 @@ def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]
 
         distance = MARATHON_DISTANCE_KM
         try:
-            overall = get_scores(user_id, as_of=today)["overall"]
+            scores = _overall()
             prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
             thresholds = {"threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km if prefs else None}
             basis = blended_scores_estimate(
-                (overall.get("endurance") or {}).get("score"),
-                (overall.get("speed") or {}).get("score"),
+                (scores.get("endurance") or {}).get("score"),
+                (scores.get("speed") or {}).get("score"),
                 distance,
                 thresholds,
             ).get("basis")
@@ -539,12 +554,12 @@ def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]
     goal = goal_state(session, user_id, race)
     basis = None
     try:
-        overall = get_scores(user_id, as_of=today)["overall"]
+        scores = _overall()
         prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
         thresholds = {"threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km if prefs else None}
         basis = blended_scores_estimate(
-            (overall.get("endurance") or {}).get("score"),
-            (overall.get("speed") or {}).get("score"),
+            (scores.get("endurance") or {}).get("score"),
+            (scores.get("speed") or {}).get("score"),
             distance, thresholds,
         ).get("basis")
     except Exception:

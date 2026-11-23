@@ -4,6 +4,7 @@
   "use strict";
 
   var esc = window.AppCommon.escapeHtml;
+  var PERFORMANCE_PAGE = "/api/performance/page";
 
   function scoreText(obj, raw) {
     if (typeof obj === "number") return String(obj);
