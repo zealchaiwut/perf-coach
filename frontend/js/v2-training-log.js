@@ -16,6 +16,7 @@
     showAllWeeks: false,
     expandedWeeks: {},
     raceLine: '',
+    entriesByPlanId: {},
   };
 
   function readQuery() {
@@ -561,6 +562,71 @@
       .catch(function () { /* keep date only */ });
   }
 
+  function prefillFromPlanned(entry) {
+    var structure = entry.planned_structure || {};
+    var exercises = structure.exercises || [];
+    return {
+      planned_id: (entry.plan_match && entry.plan_match.planned_id) || String(entry.id || '').replace('plan:', ''),
+      name: entry.title || (entry.plan_match && entry.plan_match.planned_name) || 'Session',
+      workout_type: entry.type || 'run',
+      workout_date: entry.date,
+      duration_seconds: entry.duration_seconds || null,
+      exercises_json: exercises,
+    };
+  }
+
+  function findEntryByPlanId(pid) {
+    return state.entriesByPlanId[pid] || null;
+  }
+
+  function matchPlanned(pid, workoutId) {
+    return fetch('/api/planned-sessions/' + encodeURIComponent(pid) + '/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ workout_id: workoutId }),
+    });
+  }
+
+  function logItLate(pid, entry) {
+    entry = entry || findEntryByPlanId(pid) || {};
+    var pre = prefillFromPlanned(entry);
+    pre.planned_id = pid || pre.planned_id;
+    var tpe = (pre.workout_type || '').toLowerCase();
+    if (window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(tpe)) {
+      window.V2StrengthDrawer.openEdit(null, {
+        name: pre.name,
+        workout_date: pre.workout_date,
+        duration_seconds: pre.duration_seconds,
+        exercises_json: pre.exercises_json,
+        planned_id: pre.planned_id,
+        workout_type: tpe.indexOf('plyo') >= 0 ? 'plyo' : 'strength',
+      });
+      return;
+    }
+    var body = {
+      name: pre.name,
+      workout_date: pre.workout_date,
+      workout_type: pre.workout_type || 'run',
+      duration_seconds: pre.duration_seconds,
+    };
+    fetch('/api/workouts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    })
+      .then(function (r) { if (!r.ok) throw new Error('create'); return r.json(); })
+      .then(function (w) {
+        return matchPlanned(pre.planned_id, w.id).then(function () { return w; });
+      })
+      .then(function (w) {
+        refreshAll();
+        if (window.V2RunDrawer) window.V2RunDrawer.open(w.id, state.runIds.concat([w.id]));
+      })
+      .catch(function () { toast('Could not open late log'); });
+  }
+
   function renderSessionRow(entry, highlight) {
     var missed = entry.row_kind === 'missed_plan';
     var tpe = (entry.type || '').toLowerCase();
@@ -581,7 +647,7 @@
       var pid = (entry.plan_match && entry.plan_match.planned_id) || String(entry.id).replace('plan:', '');
       side =
         '<div class="rv-missed-actions">' +
-        '<button type="button" class="rv-btn rv-btn--ghost-amber" data-plan-open="' + esc(pid) + '">Review in Plan</button>' +
+        '<button type="button" class="rv-btn rv-btn--ghost-amber" data-log-late="' + esc(pid) + '">Log it late</button>' +
         '<button type="button" class="rv-btn rv-btn--ghost-amber" data-plan-skip="' + esc(pid) + '">Skip</button>' +
         '</div><span class="rv-session-tss-block" aria-hidden="true"></span>';
     } else if (str) {
@@ -628,12 +694,17 @@
   }
 
   function renderList(data) {
+    state.entriesByPlanId = {};
     var el = document.getElementById('v2-list-body');
     var weeks = data.weeks || [];
     state.runIds = [];
     var loggedCount = 0;
     weeks.forEach(function (wk) {
       (wk.entries || []).forEach(function (e) {
+        if (e.row_kind === 'missed_plan') {
+          var pid = (e.plan_match && e.plan_match.planned_id) || String(e.id || '').replace('plan:', '');
+          if (pid) state.entriesByPlanId[pid] = e;
+        }
         if (isLogged(e)) loggedCount += 1;
         if (typeMatches(e) && isLogged(e) && isRunType(e)) {
           state.runIds.push(String(e.id));
@@ -754,10 +825,13 @@
           .catch(function () { toast('Could not skip session'); });
       });
     });
-    el.querySelectorAll('[data-plan-open]').forEach(function (btn) {
+    el.querySelectorAll('[data-log-late]').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
-        window.location.href = '/v2/training/plan';
+        var pid = btn.getAttribute('data-log-late');
+        var row = btn.closest('.rv-session-row');
+        var entry = findEntryByPlanId(pid);
+        logItLate(pid, entry, row);
       });
     });
     var older = document.getElementById('v2-show-older-weeks');
