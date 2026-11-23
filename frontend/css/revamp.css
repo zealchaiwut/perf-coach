@@ -236,6 +236,19 @@ body.rv-page .rv-card a:not(.rv-btn):not(.rv-recent-row):not(.rv-chip) {
   text-decoration: none;
 }
 
+body.rv-page .rv-card .rv-segnav a,
+body.rv-page .rv-card .rv-segnav a:link,
+body.rv-page .rv-card .rv-segnav a:visited {
+  color: #3c4a6b;
+}
+
+body.rv-page .rv-card .rv-segnav a[aria-current="page"],
+body.rv-page .rv-card .rv-segnav a[aria-current="page"]:link,
+body.rv-page .rv-card .rv-segnav a[aria-current="page"]:visited {
+  background: #0b1530;
+  color: #fff;
+}
+
 body.rv-page .rv-card a:not(.rv-btn):not(.rv-recent-row):not(.rv-chip):hover {
   color: var(--rv-ink);
 }
@@ -335,6 +348,7 @@ body.rv-page .rv-tabnav {
 body.rv-page .rv-nav-util { list-style: none; }
 
 body.rv-page .rv-tab--util {
+  position: relative;
   min-height: 40px;
   padding: 0 10px;
   border-radius: 10px;
@@ -720,16 +734,22 @@ body.rv-page .rv-toast {
   position: fixed;
   bottom: 24px;
   left: 50%;
-  transform: translateX(-50%) translateY(120%);
+  transform: translateX(-50%) translateY(calc(100% + 32px));
   background: var(--rv-ink);
   color: #fff;
   padding: 12px 18px;
   border-radius: 10px;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 body.rv-page .rv-toast.is-visible {
   transform: translateX(-50%) translateY(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 body.rv-page .rv-stack {
@@ -747,11 +767,30 @@ body.rv-page .rv-row {
 
 body.rv-page .rv-toolbar-card {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
   padding: 12px 16px;
+}
+
+body.rv-page .rv-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+body.rv-page #v2-sync-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 
 body.rv-page .rv-segnav {
@@ -774,8 +813,10 @@ body.rv-page .rv-segnav a {
   align-items: center;
 }
 
-body.rv-page .rv-segnav a[aria-current="page"] {
-  background: var(--rv-ink);
+body.rv-page .rv-segnav a[aria-current="page"],
+body.rv-page .rv-segnav a[aria-current="page"]:link,
+body.rv-page .rv-segnav a[aria-current="page"]:visited {
+  background: #0b1530;
   color: #fff;
 }
 
@@ -857,6 +898,7 @@ body.rv-page .rv-sync-pill--stale {
 }
 
 body.rv-page .rv-sync-dot-label {
+  display: none;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -907,10 +949,20 @@ body.rv-page .rv-sync-pills {
 body.rv-page .rv-sync-widget {
   display: inline-flex;
   align-items: center;
+  margin-left: auto;
 }
 
 body.rv-page #v2-sync-now {
   gap: 6px;
+  background: #fff;
+  border: 1px solid #c9d2e3;
+  font-size: 13px;
+  color: #0b1530;
+}
+
+body.rv-page #v2-sync-now .rv-sync-spinner {
+  border-color: #c9d2e3;
+  border-top-color: transparent;
 }
 
 body.rv-page .rv-sync-chevron {
@@ -3145,7 +3197,7 @@ body.rv-page .rv-plan-layout {
 @media (max-width: 1100px) {
   body.rv-page .rv-plan-layout { grid-template-columns: 1fr; }
 }
-body.rv-page .rv-plan-rail { position: sticky; top: 12px; }
+body.rv-page .rv-plan-rail { position: static; }
 body.rv-page .rv-log-chart-legend {
   display: flex;
   flex-wrap: wrap;
@@ -3200,6 +3252,8 @@ body.rv-page .rv-sr-race-row__status {
 /* Training shell — match Home / Performance chrome */
 body.rv-page .rv-training-page { gap: 16px; }
 body.rv-page .rv-training-page .rv-card { padding: 20px 24px; }
+body.rv-page .rv-training-page .rv-toolbar-card { padding: 12px 16px; }
+body.rv-page .rv-training-page .rv-plan-rail-card { padding: 18px; gap: 12px; }
 body.rv-page #v2-log-strength.rv-btn--primary {
   background: var(--rv-ink);
   border: none;
@@ -3212,12 +3266,29 @@ body.rv-page .rv-plan-road-head,
 body.rv-page .rv-plan-week-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 10px 16px;
   margin-bottom: 10px;
 }
+body.rv-page .rv-plan-head-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+body.rv-page .rv-plan-head-actions {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-shrink: 0;
+}
 body.rv-page .rv-plan-road-head .rv-label,
-body.rv-page .rv-plan-week-head .rv-label { margin: 0; flex: 1 1 auto; }
+body.rv-page .rv-plan-week-head .rv-label,
+body.rv-page .rv-plan-rail .rv-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
 body.rv-page .rv-plan-settings-link { font-size: 13px; font-weight: 600; white-space: nowrap; }
 body.rv-page .rv-plan-hint {
   margin: 0 0 12px;
@@ -3228,13 +3299,14 @@ body.rv-page .rv-plan-hint {
   color: var(--rv-secondary);
 }
 body.rv-page .rv-road-chart-wrap { overflow-x: auto; margin: 8px 0 4px; }
+body.rv-page .rv-road-grid { margin-top: 8px; }
 body.rv-page .rv-road-chart { display: block; max-width: 100%; height: auto; }
 body.rv-page .rv-road-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--rv-muted);
 }
 body.rv-page .rv-road-legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -3309,7 +3381,7 @@ body.rv-page .rv-plan-headroom {
   font-size: 13px;
   font-weight: 600;
 }
-body.rv-page .rv-plan-headroom--ok { color: #15803d; }
+body.rv-page .rv-plan-headroom--ok { color: #2d5e10; font-weight: 700; }
 body.rv-page .rv-plan-headroom--warn { color: #b45309; }
 body.rv-page .rv-plan-headroom--bad { color: #b91c1c; }
 body.rv-page .rv-plan-rules { margin: 0; padding-left: 18px; }
@@ -3811,6 +3883,7 @@ body.rv-page .rv-plan-road-title {
   margin: 3px 0 0;
   font-size: 19px;
   font-weight: 700;
+  line-height: 1.25;
 }
 
 body.rv-page .rv-plan-tiles {
@@ -3831,7 +3904,20 @@ body.rv-page .rv-plan-tile {
   gap: 3px;
   min-width: 0;
 }
+body.rv-page .rv-plan-tile > span {
+  font-size: 12px;
+  color: #56627f;
+}
 body.rv-page .rv-plan-tile strong { font-size: 15px; font-weight: 700; }
+body.rv-page .rv-plan-formula-grid .rv-plan-tile strong {
+  font-size: 22px;
+  font-weight: 600;
+  font-family: var(--rv-mono);
+}
+body.rv-page .rv-plan-formula-grid .rv-plan-tile > span:not(:first-child) {
+  font-size: 11.5px;
+  font-family: var(--rv-mono);
+}
 body.rv-page .rv-plan-tile--target {
   background: #fff;
   border: 2px solid #1f3b8a;
@@ -3954,6 +4040,7 @@ body.rv-page .rv-plan-week-nums {
   display: flex;
   align-items: baseline;
   gap: 10px;
+  margin-left: auto;
 }
 body.rv-page .rv-plan-week-tss { font-size: 34px; font-weight: 600; margin-left: 0; }
 body.rv-page .rv-plan-week-den { font-size: 18px; color: var(--rv-muted); }
@@ -3988,6 +4075,11 @@ body.rv-page .rv-week-nav-actions {
   flex-wrap: wrap;
 }
 body.rv-page .rv-week-nav-title { font-size: 17px; font-weight: 700; }
+body.rv-page .rv-week-nav-tss {
+  font-size: 13px;
+  color: #56627f;
+  margin-left: 8px;
+}
 
 body.rv-page .rv-suggest-banner {
   appearance: none;
@@ -4092,4 +4184,48 @@ body.rv-page .rv-sess-edit {
   color: #4c1d95;
 }
 body.rv-page .rv-plan-next { display: flex; align-items: flex-start; gap: 12px; }
+body.rv-page .rv-plan-next-bar {
+  width: 10px;
+  min-height: 44px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+body.rv-page .rv-plan-next-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+body.rv-page .rv-plan-rail .rv-subtitle,
+body.rv-page .rv-plan-rail p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #56627f;
+}
+body.rv-page .rv-rule-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+body.rv-page .rv-rule-state {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+body.rv-page .rv-rule-state--ok { color: #2d5e10; }
+body.rv-page .rv-rule-state--warn { color: #b45309; }
+body.rv-page .rv-rule-state--block { color: #b91c1c; }
+body.rv-page .rv-rule-row > span:last-child {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #56627f;
+}
 body.rv-page .rv-plan-board-host { display: flex; flex-direction: column; gap: 16px; }
+body.rv-page .rv-settings-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}

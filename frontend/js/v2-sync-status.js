@@ -117,18 +117,10 @@
     }
     var label = document.getElementById("rv-sync-dot-label");
     if (label) {
-      if (detail.overall === "ok") {
-        label.hidden = true;
-        label.textContent = "";
-        if (sr) sr.textContent = copy;
-      } else {
-        label.hidden = false;
-        label.textContent = copy;
-        if (sr) sr.textContent = "";
-      }
-    } else if (sr) {
-      sr.textContent = copy;
+      label.hidden = true;
+      label.textContent = "";
     }
+    if (sr) sr.textContent = copy;
   }
 
   function emit(data) {

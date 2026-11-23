@@ -86,6 +86,51 @@ def _pending_count(session: Session, user_id: uuid.UUID, source: str) -> int:
     )
 
 
+_TOOLBAR_SYNC_JOB_TYPES = frozenset({"strava_sync", "stryd_sync"})
+_NON_SYNC_JOB_TYPES = frozenset({
+    "backfill",
+    "precompute",
+    "banister_refit",
+    "daily_coach",
+    "weekly_coach",
+    "garmin_sync",
+})
+
+
+def _parse_snapshot_ts(raw: Any) -> Optional[datetime]:
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return _as_utc(raw)
+    try:
+        return _as_utc(datetime.fromisoformat(str(raw).replace("Z", "+00:00")))
+    except (TypeError, ValueError):
+        return None
+
+
+def snapshot_is_live_sync(job_snapshot: Optional[dict], *, now: Optional[datetime] = None) -> bool:
+    """True when a status payload is an in-flight Strava/Stryd pull, not a stale backfill."""
+    if not job_snapshot:
+        return False
+    st = (job_snapshot.get("status") or "").lower()
+    if st not in ("running", "pending"):
+        return False
+    job_type = (job_snapshot.get("job_type") or "").lower()
+    if job_type in _NON_SYNC_JOB_TYPES:
+        return False
+    if job_type and job_type not in _TOOLBAR_SYNC_JOB_TYPES and not job_type.endswith("_sync"):
+        return False
+    now = now or _utc_now()
+    ts = (
+        _parse_snapshot_ts(job_snapshot.get("started_at"))
+        or _parse_snapshot_ts(job_snapshot.get("enqueued_at"))
+        or _parse_snapshot_ts(job_snapshot.get("created_at"))
+    )
+    if ts is not None and not job_is_live(ts, ts, now=now):
+        return False
+    return True
+
+
 _REAUTH_HINTS = (
     "unauthorized",
     "401",
@@ -105,15 +150,22 @@ def _snapshot_running(job_snapshot: Optional[dict], source: str) -> bool:
     st = (job_snapshot.get("status") or "").lower()
     if st not in ("running", "pending"):
         return False
+    job_type = (job_snapshot.get("job_type") or "").lower()
+    if job_type in _NON_SYNC_JOB_TYPES:
+        return False
+    if job_type in ("strava_sync", "strava"):
+        return source == "strava"
+    if job_type in ("stryd_sync", "stryd"):
+        return source == "stryd"
     phase = (job_snapshot.get("phase") or "").lower()
     if phase == "pulling_strava":
         return source == "strava"
     if phase == "pulling_stryd":
         return source == "stryd"
     provider = (job_snapshot.get("provider") or "").lower()
-    if provider in ("strava", "stryd") and not phase:
+    if provider in ("strava", "stryd"):
         return source == provider
-    return True
+    return False
 
 
 def _needs_reauth(source: str, last_error: Optional[str]) -> bool:

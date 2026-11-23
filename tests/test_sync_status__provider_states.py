@@ -8,6 +8,7 @@ from backend.services.sync_provider_status import (
     build_providers,
     job_is_live,
     provider_ui_state,
+    snapshot_is_live_sync,
     _snapshot_running,
 )
 
@@ -72,6 +73,29 @@ def test_snapshot_running_uses_phase():
     snap["phase"] = "pulling_stryd"
     assert _snapshot_running(snap, "stryd") is True
     assert _snapshot_running(snap, "strava") is False
+
+
+def test_snapshot_running_ignores_stale_backfill_queue_row():
+    snap = {
+        "status": "pending",
+        "source": "queue",
+        "job_type": "backfill",
+        "enqueued_at": "2026-11-22T17:21:06.918815+00:00",
+    }
+    assert _snapshot_running(snap, "strava") is False
+    assert _snapshot_running(snap, "stryd") is False
+    assert snapshot_is_live_sync(snap, now=NOW) is False
+    live = {
+        "status": "running",
+        "job_type": "strava_sync",
+        "started_at": (NOW - timedelta(minutes=2)).isoformat(),
+    }
+    assert snapshot_is_live_sync(live, now=NOW) is True
+    assert _snapshot_running(live, "strava") is True
+    assert _snapshot_running(live, "stryd") is False
+    in_mem = {"status": "running", "provider": "strava", "phase": None}
+    assert _snapshot_running(in_mem, "strava") is True
+    assert _snapshot_running(in_mem, "stryd") is False
 
 
 @patch("backend.services.sync_provider_status._provider_running", return_value=False)
@@ -144,7 +168,8 @@ def test_log_page_loads_status_module_and_pill_markup():
     assert "rv-sync-pill--failed" in TOOLBAR_JS
     assert "rv-sync-pill--stale" in TOOLBAR_JS
     assert "Log a strength session" in TOOLBAR_JS
-    assert "Syncing " in TOOLBAR_JS
+    assert "Syncing…" in TOOLBAR_JS
+    assert "Sync now" in TOOLBAR_JS
     assert "Stryd needs reconnecting" in TOOLBAR_JS
     assert "last synced " in TOOLBAR_JS
     assert "/v2/settings#integrations" in TOOLBAR_JS

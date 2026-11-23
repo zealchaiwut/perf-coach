@@ -74,3 +74,50 @@ def test_plan_week_nav_uses_week_of_not_iso_only():
     assert "rv-suggest-banner" in BOARD_JS
     assert "rv-sess-who" in BOARD_JS
     assert "Rest day" in BOARD_JS
+
+
+def test_plan_page_order_is_road_then_board_beside_rail():
+    assert 'id="v2-plan-week-head"' in PLAN_HTML
+    assert 'id="v2-plan-week-board"' in PLAN_HTML
+    assert 'id="v2-plan-rail"' in PLAN_HTML
+    assert "rv-plan-main" not in PLAN_HTML
+    road_i = PLAN_HTML.find('id="v2-plan-road"')
+    load_i = PLAN_HTML.find('id="v2-plan-week-load"')
+    head_i = PLAN_HTML.find('id="v2-plan-week-head"')
+    board_i = PLAN_HTML.find('id="v2-plan-week-board"')
+    rail_i = PLAN_HTML.find('id="v2-plan-rail"')
+    assert road_i < load_i < head_i < board_i < rail_i
+    assert "minmax(0, 1fr) 316px" in CSS
+    assert "position: sticky" not in CSS.split("body.rv-page .rv-plan-rail")[1][:80]
+    assert "v2-plan-week-head" in BOARD_JS
+    assert "rv-week-board-card" in BOARD_JS
+    assert "v2-week-export" in BOARD_JS
+
+
+def test_plan_generic_mode_hides_phase_ribbon_and_week_hint():
+    assert "if (!generic)" in PLAN_JS
+    assert "Recent load · " in PLAN_JS
+    assert "28-day chronic" in PLAN_JS
+    assert "BOX * 0.88" in PLAN_JS
+    assert "rv-rule-row" in PLAN_JS
+    assert "rv-rule-state--ok" in PLAN_JS
+    assert "rv-plan-next-bar" in PLAN_JS
+    assert "wl.plan_hint" not in PLAN_JS
+    assert "data.plan_hint" in PLAN_JS
+    assert 'phase = wl.mode === \'generic\' ? \'general\'' in PLAN_JS or 'wl.mode === \'generic\' ? \'general\'' in PLAN_JS
+
+
+def test_toolbar_segnav_active_is_white():
+    assert "rv-toolbar-left" in PLAN_HTML
+    assert "rv-toolbar-left" in LOG_HTML
+    assert 'a[aria-current="page"]:visited' in CSS
+    assert "flex-direction: row" in CSS
+
+
+def test_toolbar_sync_now_label_and_nav_dot_only():
+    toolbar = (ROOT / "frontend" / "js" / "lib" / "v2-sync-toolbar.js").read_text(encoding="utf-8")
+    status = (ROOT / "frontend" / "js" / "v2-sync-status.js").read_text(encoding="utf-8")
+    assert "Sync now" in toolbar
+    assert "v2-sync-now-spin" in toolbar
+    assert "label.hidden = true" in status
+    assert "synced " in toolbar

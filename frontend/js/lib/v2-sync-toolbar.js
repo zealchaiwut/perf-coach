@@ -90,8 +90,8 @@
         '<div class="rv-sync-pills" id="v2-sync-pills"></div>' +
         '<div class="rv-sync-widget" id="v2-sync-widget">' +
           '<button type="button" class="rv-btn rv-btn--secondary" id="v2-sync-now" aria-expanded="false" aria-controls="v2-sync-panel" title="Show sync options">' +
-            '<span class="rv-sync-toggle-label">Sync</span>' +
-            '<span class="rv-sync-chevron" aria-hidden="true">▾</span>' +
+            '<span class="rv-sync-spinner" id="v2-sync-now-spin" hidden aria-hidden="true"></span>' +
+            '<span class="rv-sync-toggle-label">Sync now</span>' +
           '</button>' +
         '</div>' +
         (onLog
@@ -237,69 +237,49 @@
       if (!pills) return;
       var providers = (detail && detail.providers) || {};
       var parts = [];
-      var syncing = [];
-      var failed = [];
-      var stale = [];
-      var okNames = [];
       var ready = !!(detail && detail.raw);
 
       if (ready) {
         ['strava', 'stryd'].forEach(function (key) {
           var p = providers[key] || {};
+          var name = providerName(key);
           var state = providerStateOf(p);
+          var when = clockLabel(p.last_success_at);
           if (state === 'syncing') {
-            syncing.push(providerName(key));
-          } else if (state === 'failed') {
-            failed.push({ key: key, p: p });
-          } else if (state === 'stale') {
-            stale.push({ key: key, p: p });
-          } else if (p.connected !== false) {
-            okNames.push(providerName(key));
+            parts.push(
+              '<span class="rv-sync-pill rv-sync-pill--syncing">' +
+              '<span class="rv-sync-dot rv-sync-dot--syncing" aria-hidden="true"></span>' +
+              '<b>' + esc(name) + '</b><span>syncing…</span></span>'
+            );
+            return;
           }
-        });
-      }
-
-      if (syncing.length) {
-        parts.push(
-          '<span class="rv-sync-pill rv-sync-pill--syncing">' +
-          '<span class="rv-sync-spinner" aria-hidden="true"></span>' +
-          'Syncing ' + esc(syncing.join(' + ')) + '…</span>'
-        );
-      }
-
-      failed.forEach(function (item) {
-        var title = item.p.last_error ? esc(item.p.last_error) : '';
-        parts.push(
-          '<a class="rv-sync-pill rv-sync-pill--failed" href="/v2/settings#integrations"' +
-          (title ? ' title="' + title + '"' : '') + '>' +
-          '<span class="rv-sync-dot rv-sync-dot--red" aria-hidden="true"></span>' +
-          esc(failedLabel(item.key, item.p)) + '</a>'
-        );
-      });
-      stale.forEach(function (item) {
-        var when = clockLabel(item.p.last_success_at) || 'unknown';
-        parts.push(
-          '<a class="rv-sync-pill rv-sync-pill--stale" href="/v2/settings#integrations">' +
-          '<span class="rv-sync-dot rv-sync-dot--amber" aria-hidden="true"></span>' +
-          esc(providerName(item.key) + ' last synced ' + when) + '</a>'
-        );
-      });
-      if (ready && !syncing.length && okNames.length) {
-        var okTime = null;
-        ['strava', 'stryd'].forEach(function (key) {
-          var p = providers[key] || {};
-          if (providerStateOf(p) === 'ok' && p.last_success_at && (!okTime || p.last_success_at > okTime)) {
-            okTime = p.last_success_at;
+          if (state === 'failed') {
+            var title = p.last_error ? esc(p.last_error) : '';
+            parts.push(
+              '<a class="rv-sync-pill rv-sync-pill--failed" href="/v2/settings#integrations"' +
+              (title ? ' title="' + title + '"' : '') + '>' +
+              '<span class="rv-sync-dot rv-sync-dot--red" aria-hidden="true"></span>' +
+              '<b>' + esc(name) + '</b><span>' + esc(failedLabel(key, p)) + '</span></a>'
+            );
+            return;
           }
+          if (state === 'stale') {
+            parts.push(
+              '<a class="rv-sync-pill rv-sync-pill--stale" href="/v2/settings#integrations">' +
+              '<span class="rv-sync-dot rv-sync-dot--amber" aria-hidden="true"></span>' +
+              '<b>' + esc(name) + '</b><span>last synced ' + esc(when || 'unknown') + '</span></a>'
+            );
+            return;
+          }
+          if (p.connected === false) return;
+          parts.push(
+            '<span class="rv-sync-pill rv-sync-pill--ok">' +
+            '<span class="rv-sync-dot rv-sync-dot--green" aria-hidden="true"></span>' +
+            '<b>' + esc(name) + '</b>' +
+            (when ? '<span>synced ' + esc(when) + '</span>' : '') +
+            '</span>'
+          );
         });
-        var time = clockLabel(okTime || latestSuccess(providers));
-        parts.push(
-          '<span class="rv-sync-pill rv-sync-pill--ok">' +
-          '<span class="rv-sync-dot rv-sync-dot--green" aria-hidden="true"></span>' +
-          '<b>' + esc(okNames.join(' + ')) + '</b>' +
-          (time ? '<span class="rv-subtitle" style="margin:0">' + esc(time) + '</span>' : '') +
-          '</span>'
-        );
       }
       pills.innerHTML = parts.join('');
 
@@ -311,7 +291,9 @@
         if (running) toggle.setAttribute('aria-busy', 'true');
         else toggle.removeAttribute('aria-busy');
         var label = toggle.querySelector('.rv-sync-toggle-label');
-        if (label) label.textContent = running ? 'Syncing…' : 'Sync';
+        if (label) label.textContent = running ? 'Syncing…' : 'Sync now';
+        var spin = document.getElementById('v2-sync-now-spin');
+        if (spin) spin.hidden = !running;
       }
       paintPanel(detail);
     }
