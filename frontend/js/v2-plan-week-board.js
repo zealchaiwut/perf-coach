@@ -58,12 +58,27 @@
         .then(function (r) { return r.json(); });
     }
 
+    function tssNavLine(wl) {
+      if (!wl) return '';
+      var tot = Math.round((wl.logged_tss || 0) + (wl.planned_tss || 0));
+      var tgt = Math.round(wl.target_tss || 0);
+      var st = 'on target';
+      if (wl.headroom_state === 'over_ceiling') st = 'over ceiling';
+      else if (wl.headroom_state === 'over_target') st = 'over target';
+      return tot + ' / ' + tgt + ' TSS · ' + st;
+    }
+
     function loadWeekLoad() {
-      if (!options.weekLoadEl) return Promise.resolve();
       return fetch('/api/plan/revamp-week-load' + weekQuery(), { credentials: 'include' })
         .then(function (r) { return r.status === 204 ? null : r.json(); })
         .then(function (wl) {
-          if (wl && options.renderWeekLoad) options.renderWeekLoad(options.weekLoadEl, wl);
+          state.lastWl = wl;
+          if (wl && options.weekLoadEl && options.renderWeekLoad) {
+            options.renderWeekLoad(options.weekLoadEl, wl);
+          }
+          var tssEl = document.getElementById('v2-week-nav-tss');
+          if (tssEl) tssEl.textContent = tssNavLine(wl);
+          return wl;
         });
     }
 
@@ -86,16 +101,20 @@
     }
 
     function render(data) {
+      var headHost = document.getElementById('v2-plan-week-head') || host;
+      var boardHost = document.getElementById('v2-plan-week-board') || host;
       var head =
         '<div class="rv-card rv-week-nav">' +
         '<div class="rv-week-nav-left">' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-prev" aria-label="Previous week">‹</button>' +
         '<span class="rv-week-nav-title">Week of ' + esc(fmtWeekOf(data.week_start, data.week_end)) + '</span>' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-next" aria-label="Next week">›</button>' +
+        '<span class="rv-week-nav-tss" id="v2-week-nav-tss">' + esc(tssNavLine(state.lastWl)) + '</span>' +
         '</div>' +
         '<div class="rv-week-nav-actions">' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-open">Import coach week</button>' +
         '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-new">+ New session</button>' +
+        '<button type="button" class="rv-btn rv-btn--secondary" id="v2-week-export">Export</button>' +
         '</div></div>';
       var cols = data.days.map(function (day) {
         var colCls = 'rv-week-col' + (day.rest_placeholder ? ' rv-week-col--rest' : '');
@@ -117,13 +136,23 @@
         '<span class="rv-suggest-sub">fill the gap to target · mobility and drills · respects rest days</span></span>' +
         '<span class="rv-suggest-chevron" aria-hidden="true">›</span></button>' +
         '<div id="v2-suggest-panel" class="rv-card rv-stack" hidden></div>';
-      host.innerHTML = head + suggestBar +
+      var boardCard =
         '<div class="rv-card rv-week-board-card">' +
         '<div class="rv-week-board">' + cols + '</div>' +
         '<p class="rv-week-board-note">Coach sessions are locked. Drag support sessions between days, or click one to edit its exercises — the totals above update as you go.</p>' +
         '</div>';
+      if (headHost !== boardHost) {
+        headHost.innerHTML = head + suggestBar;
+        boardHost.innerHTML = boardCard;
+      } else {
+        boardHost.innerHTML = head + suggestBar + boardCard;
+      }
 
-      host.querySelectorAll('.rv-move-select').forEach(function (sel) {
+      function q(sel) {
+        return headHost.querySelector(sel) || boardHost.querySelector(sel);
+      }
+
+      boardHost.querySelectorAll('.rv-move-select').forEach(function (sel) {
         data.days.forEach(function (d) {
           var opt = document.createElement('option');
           opt.value = d.date;
@@ -132,8 +161,10 @@
         });
       });
 
-      host.querySelector('#v2-week-prev').onclick = function () { shiftWeek(-7); };
-      host.querySelector('#v2-week-next').onclick = function () { shiftWeek(7); };
+      var prev = q('#v2-week-prev');
+      var next = q('#v2-week-next');
+      if (prev) prev.onclick = function () { shiftWeek(-7); };
+      if (next) next.onclick = function () { shiftWeek(7); };
       function openNew(d) {
         if (window.V2SessionEditor && window.V2SessionEditor.openPlanned) {
           window.V2SessionEditor.openPlanned({
@@ -143,18 +174,32 @@
           });
         }
       }
-      host.querySelectorAll('[data-add-date]').forEach(function (btn) {
+      boardHost.querySelectorAll('[data-add-date]').forEach(function (btn) {
         btn.onclick = function () { openNew(btn.getAttribute('data-add-date')); };
       });
-      var newBtn = host.querySelector('#v2-week-new');
+      var newBtn = q('#v2-week-new');
       if (newBtn) {
         newBtn.onclick = function () { openNew(data.week_start); };
       }
-      host.querySelectorAll('[data-edit-id]').forEach(function (btn) {
+      var expBtn = q('#v2-week-export');
+      if (expBtn) {
+        expBtn.onclick = function () {
+          var lines = ['Week of ' + fmtWeekOf(data.week_start, data.week_end)];
+          (data.days || []).forEach(function (d) {
+            var names = (d.items || []).map(function (it) { return it.name; }).join(', ');
+            lines.push((d.label || d.date) + ': ' + (names || 'rest'));
+          });
+          var text = lines.join('\n');
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { toast('Week copied'); });
+          }
+        };
+      }
+      boardHost.querySelectorAll('[data-edit-id]').forEach(function (btn) {
         btn.onclick = function (ev) {
           ev.stopPropagation();
           var id = btn.getAttribute('data-edit-id');
-          var card = host.querySelector('[data-id="' + id + '"]');
+          var card = boardHost.querySelector('[data-id="' + id + '"]');
           var d = card ? card.getAttribute('data-date') : data.week_start;
           if (window.V2SessionEditor && window.V2SessionEditor.openPlanned) {
             window.V2SessionEditor.openPlanned({
@@ -166,11 +211,11 @@
           }
         };
       });
-      bindDnD(host, data);
-      bindCoachPopover(host);
-      bindKeyboardMove(host);
-      bindCoachImport(host, data);
-      bindSuggestFill(host, data);
+      bindDnD(boardHost, data);
+      bindCoachPopover(boardHost);
+      bindKeyboardMove(boardHost);
+      bindCoachImport(headHost, data);
+      bindSuggestFill(headHost, data);
     }
 
     function bindSuggestFill(host, data) {

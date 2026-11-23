@@ -80,10 +80,19 @@
       );
     });
     var BOX = 230;
-    var label = generic ? (data.title || 'Recent training load') : ('Road to ' + (data.race_name || 'race'));
-    var title = generic
-      ? (data.subtitle || 'Load from your last weeks')
-      : ('Load plan · ' + fmtDayMon(data.block_start) + ' → ' + fmtDayMon(data.race_date));
+    var PLOT = BOX * 0.88;
+    var label = generic ? 'Road to race' : ('Road to ' + (data.race_name || 'race'));
+    var chronic = data.chronic_baseline != null ? Math.round(data.chronic_baseline) : null;
+    var title;
+    var subLine = '';
+    if (generic) {
+      title = chronic != null
+        ? ('Recent load · ' + chronic + ' TSS/wk reference')
+        : 'Recent load';
+      subLine = '<p class="rv-subtitle">28-day chronic</p>';
+    } else {
+      title = 'Load plan · ' + fmtDayMon(data.block_start) + ' → ' + fmtDayMon(data.race_date);
+    }
     var peakTss = 0;
     var holdWeeks = 0;
     cols.forEach(function (c) {
@@ -100,18 +109,29 @@
       ) / 7));
       tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">A race</span><strong>' + esc(data.race_name) + ' · ' + esc(fmtDayMon(data.race_date)) + '</strong></div>');
       tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">To A race</span><strong>' + weeksOut + ' weeks</strong></div>');
-      if (settings.ramp_pct != null) {
-        tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">Ramp</span><strong>+' + Math.round(Number(settings.ramp_pct) * 100) + '% a week</strong></div>');
-      }
-      if (holdWeeks) {
-        tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">Peak</span><strong>' + holdWeeks + ' week' + (holdWeeks === 1 ? '' : 's') + (peakTss ? ' · ' + Math.round(peakTss) + ' TSS' : '') + '</strong></div>');
-      }
+      var bRace = data.b_race_name || (settings.b_race && settings.b_race.name) || '';
+      tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">B race in block</span><strong>' +
+        (bRace ? esc(bRace) : 'None') + '</strong></div>');
+      tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">Ramp</span><strong>' +
+        (settings.ramp_pct != null ? ('+' + Math.round(Number(settings.ramp_pct) * 100) + '% a week') : '—') +
+        '</strong></div>');
+      tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">Peak</span><strong>' +
+        (holdWeeks
+          ? (holdWeeks + ' week' + (holdWeeks === 1 ? '' : 's') + (peakTss ? ' · ' + Math.round(peakTss) + ' TSS' : ''))
+          : '—') +
+        '</strong></div>');
       var taper = settings.taper_factors || [];
+      var taperLabel = '—';
       if (taper.length) {
         var t0 = Math.round(Number(taper[0]) * 100);
         var t1 = Math.round(Number(taper[taper.length - 1]) * 100);
-        tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">Taper</span><strong>' + taper.length + ' week' + (taper.length === 1 ? '' : 's') + ' · ' + t0 + '% → ' + t1 + '%</strong></div>');
+        taperLabel = taper.length + ' week' + (taper.length === 1 ? '' : 's') + ' · ' + t0 + '% → ' + t1 + '%';
       }
+      tiles.push('<div class="rv-plan-tile"><span class="rv-chart-sub">Taper</span><strong>' + taperLabel + '</strong></div>');
+    }
+
+    function valBottom(h) {
+      return Math.min(h + 4, BOX - 16);
     }
 
     var bars = cols.map(function (c) {
@@ -119,15 +139,15 @@
       var act = c.actual_tss || 0;
       var planned = c.planned_tss || 0;
       var race = c.race_tss || 0;
-      var tgtH = tgt ? Math.max(8, (tgt / maxT) * BOX) : 0;
-      var actH = act ? Math.max(4, (act / maxT) * BOX) : 0;
-      var plH = planned ? Math.max(4, (planned / maxT) * BOX) : 0;
-      var raceH = race ? Math.max(4, (race / maxT) * BOX) : 0;
+      var tgtH = tgt ? Math.max(8, (tgt / maxT) * PLOT) : 0;
+      var actH = act ? Math.max(4, (act / maxT) * PLOT) : 0;
+      var plH = planned ? Math.max(4, (planned / maxT) * PLOT) : 0;
+      var raceH = race ? Math.max(4, (race / maxT) * PLOT) : 0;
       var isCur = c.state === 'current';
       var isRace = (c.race_items && c.race_items.length) || race;
       var tgtCls = 'rv-road-tgt';
       if (isRace) tgtCls += ' rv-road-tgt--race';
-      else if (String(c.phase || '').indexOf('race') >= 0) tgtCls += ' rv-road-tgt--a-race';
+      else if (!generic && String(c.phase || '').indexOf('race') >= 0) tgtCls += ' rv-road-tgt--a-race';
       else if (c.state === 'future') tgtCls += ' rv-road-tgt--future';
       var inner = tgtH ? '<div class="' + tgtCls + '" style="height:' + tgtH + 'px"></div>' : '';
       if (c.state === 'done' && actH) {
@@ -140,11 +160,11 @@
       if (c.state === 'done' && act) {
         var delta = tgt ? Math.round(act - tgt) : 0;
         val = c.over_target && delta
-          ? '<span class="rv-road-val rv-road-val--over" style="bottom:' + (actH + 4) + 'px">' + Math.round(act) + ' · +' + delta + '</span>'
-          : '<span class="rv-road-val" style="bottom:' + (actH + 4) + 'px">' + Math.round(act) + '</span>';
+          ? '<span class="rv-road-val rv-road-val--over" style="bottom:' + valBottom(actH) + 'px">' + Math.round(act) + ' · +' + delta + '</span>'
+          : '<span class="rv-road-val" style="bottom:' + valBottom(actH) + 'px">' + Math.round(act) + '</span>';
       } else if (tgt) {
         var extra = race ? ' + race' : '';
-        val = '<span class="rv-road-val" style="bottom:' + (Math.max(tgtH, plH + raceH) + 4) + 'px">' + Math.round(planned || tgt) + extra + '</span>';
+        val = '<span class="rv-road-val" style="bottom:' + valBottom(Math.max(tgtH, plH + raceH)) + 'px">' + Math.round(planned || tgt) + extra + '</span>';
       }
       var call = '';
       if (c.race_items && c.race_items[0] && c.race_items[0].label) {
@@ -157,21 +177,27 @@
       );
     }).join('');
 
-    var phaseSpans = [];
-    var i = 0;
-    while (i < cols.length) {
-      var ph = cols[i].phase || '';
-      var j = i + 1;
-      while (j < cols.length && (cols[j].phase || '') === ph) j += 1;
-      if (ph) {
-        phaseSpans.push(
-          '<div class="rv-road-phase" style="grid-column: span ' + (j - i) + ';' + phasePillStyle(ph) + '">' +
-          esc(phaseName(ph).toUpperCase()) + '</div>'
-        );
-      } else {
-        phaseSpans.push('<div style="grid-column: span ' + (j - i) + '"></div>');
+    var phaseHtml = '';
+    if (!generic) {
+      var phaseSpans = [];
+      var i = 0;
+      while (i < cols.length) {
+        var ph = cols[i].phase || '';
+        var j = i + 1;
+        while (j < cols.length && (cols[j].phase || '') === ph) j += 1;
+        if (ph) {
+          phaseSpans.push(
+            '<div class="rv-road-phase" style="grid-column: span ' + (j - i) + ';' + phasePillStyle(ph) + '">' +
+            esc(phaseName(ph).toUpperCase()) + '</div>'
+          );
+        } else {
+          phaseSpans.push('<div style="grid-column: span ' + (j - i) + '"></div>');
+        }
+        i = j;
       }
-      i = j;
+      if (phaseSpans.length) {
+        phaseHtml = '<div class="rv-road-phases" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + phaseSpans.join('') + '</div>';
+      }
     }
 
     var insight = '';
@@ -182,15 +208,20 @@
     var hint = data.plan_hint
       ? '<p class="rv-plan-hint">' + esc(data.plan_hint) + ' <a href="/v2/settings/plan">Add an A race</a></p>'
       : '';
+    var chip = data.changed_chip
+      ? '<span class="rv-chip rv-chip--warn">' + esc(data.changed_chip) + '</span>'
+      : '';
 
     host.innerHTML =
       '<div class="rv-plan-road-head">' +
-      '<div><h2 class="rv-label">' + esc(label) + '</h2><p class="rv-plan-road-title">' + esc(title) + '</p></div>' +
-      '<a href="/v2/settings/plan" class="rv-plan-settings-link">Change plan settings</a></div>' +
+      '<div class="rv-plan-head-copy"><h2 class="rv-label">' + esc(label) + '</h2>' +
+      '<p class="rv-plan-road-title">' + esc(title) + '</p>' + subLine + '</div>' +
+      '<div class="rv-plan-head-actions">' + chip +
+      '<a href="/v2/settings/plan" class="rv-plan-settings-link">Change plan settings</a></div></div>' +
       hint +
       (tiles.length ? '<div class="rv-plan-tiles">' + tiles.join('') + '</div>' : '') +
       '<div class="rv-road-grid" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + bars + '</div>' +
-      '<div class="rv-road-phases" style="grid-template-columns:repeat(' + cols.length + ',minmax(0,1fr))">' + phaseSpans.join('') + '</div>' +
+      phaseHtml +
       '<div class="rv-road-legend">' +
       '<span><i class="rv-road-swatch rv-road-swatch--done"></i>Done, on target</span>' +
       '<span><i class="rv-road-swatch rv-road-swatch--over"></i>Done, over target</span>' +
@@ -219,7 +250,10 @@
   function renderWeekLoad(card, wl) {
     if (!card) return;
     if (!wl) {
-      emptyPlanCard(card, "This week's load", 'Configure plan settings after you add an A race.');
+      card.innerHTML =
+        '<div class="rv-plan-week-head"><div class="rv-plan-head-copy">' +
+        '<h2 class="rv-label">This week\'s load</h2>' +
+        '<p class="rv-chart-sub">Where the target comes from, and how the planned sessions add up to it</p></div></div>';
       return;
     }
     var target = Math.max(wl.target_tss || 0, 1);
@@ -237,22 +271,18 @@
       : wl.headroom_state === 'over_target'
         ? '<span class="rv-plan-headroom rv-plan-headroom--warn">Over target</span>'
         : '<span class="rv-plan-headroom rv-plan-headroom--bad">Over ACWR ceiling</span>';
-    var hint = wl.plan_hint
-      ? '<p class="rv-plan-hint">' + esc(wl.plan_hint) + ' <a href="/v2/settings/plan">Add an A race</a></p>'
-      : '';
-    var phase = phaseName(wl.phase);
+    var phase = wl.mode === 'generic' ? 'general' : phaseName(wl.phase);
     var ac = window.AppCommon || {};
     var range = wl.week_start
       ? fmtWeekOf(wl.week_start, ac.addDaysISO ? ac.addDaysISO(wl.week_start, 6) : wl.week_start)
       : '';
     card.innerHTML =
       '<div class="rv-plan-week-head">' +
-      '<div><h2 class="rv-label">This week\'s load' + (range ? ' · ' + esc(range) : '') + (phase ? ' · ' + esc(phase) : '') + '</h2>' +
+      '<div class="rv-plan-head-copy"><h2 class="rv-label">This week\'s load' + (range ? ' · ' + esc(range) : '') + (phase ? ' · ' + esc(phase) : '') + '</h2>' +
       '<p class="rv-chart-sub">Where the target comes from, and how the planned sessions add up to it</p></div>' +
       '<div class="rv-plan-week-nums">' + statusBadge(wl) +
       '<span class="rv-mono rv-plan-week-tss">' + esc(String(Math.round(total))) + '</span>' +
       '<span class="rv-mono rv-plan-week-den">/ ' + esc(String(Math.round(target))) + ' TSS</span></div></div>' +
-      hint +
       '<div class="rv-plan-formula-grid">' +
       '<div class="rv-plan-tile"><span class="rv-chart-sub">Baseline · ' + esc(phase || 'phase') + '</span><strong class="rv-mono">' + esc(String(wl.baseline_tss)) + ' TSS</strong></div>' +
       '<span class="rv-plan-op">×</span>' +
@@ -375,41 +405,77 @@
         .then(function (bundle) {
           var nextHtml = '<p class="rv-subtitle">No upcoming session in the next few days.</p>';
           var days = (bundle.next_up && bundle.next_up.days) || [];
+          var imported = false;
+          function kindBar(it) {
+            var kind = String((it && (it.kind || it.session_type)) || '').toLowerCase();
+            if (kind.indexOf('race') >= 0) return '#c9d400';
+            if (kind.indexOf('quality') >= 0) return '#fca5a5';
+            if (kind === 'run') return '#86efac';
+            return '#c4b5fd';
+          }
           for (var i = 0; i < days.length; i++) {
             var items = days[i].items || days[i].sessions || [];
-            if (items.length) {
+            items.forEach(function (it) {
+              if (it.plan_source === 'coach' || it.locked) imported = true;
+            });
+            if (items.length && nextHtml.indexOf('rv-plan-next-title') < 0) {
               var it = items[0];
               nextHtml =
-                '<strong>' + esc(it.name || it.title || 'Session') + '</strong>' +
-                '<p class="rv-subtitle" style="margin:4px 0 0">' + esc(days[i].date || days[i].label || '') + '</p>';
-              break;
+                '<span class="rv-plan-next-bar" style="background:' + kindBar(it) + '"></span>' +
+                '<div><p class="rv-plan-next-title">' + esc(it.name || it.title || 'Session') + '</p>' +
+                '<p class="rv-subtitle">' + esc(days[i].date || days[i].label || '') + '</p></div>';
             }
           }
-          var rules = '<ul class="rv-plan-rules"><li class="rv-subtitle">Weekly training target excludes race-day load when a race is on the plan.</li></ul>';
-          if (warnings && (warnings.clashes || []).length) {
-            rules = '<ul class="rv-plan-rules">' + (warnings.clashes || []).map(function (c) {
-              return '<li>' + esc(c.message) + '</li>';
-            }).join('') + '</ul>';
-          } else if (warnings && warnings.race_week_note) {
-            rules = '<p class="rv-subtitle">' + esc(warnings.race_week_note) + '</p>';
+          var ruleRows = [];
+          if (wl && wl.mode === 'generic') {
+            ruleRows.push('<p class="rv-subtitle">No race plan — rules stay quiet until an A race is set.</p>');
+          } else {
+            ruleRows.push(
+              '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--ok">OK</span>' +
+              '<span>Weekly training target excludes race-day load when a race is on the plan.</span></div>'
+            );
+            ((warnings && warnings.clashes) || []).forEach(function (c) {
+              ruleRows.push(
+                '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--warn">WARN</span>' +
+                '<span>' + esc(c.message) + '</span></div>'
+              );
+            });
+            if (warnings && warnings.layout_error) {
+              ruleRows.push(
+                '<div class="rv-rule-row"><span class="rv-rule-state rv-rule-state--block">BLOCK</span>' +
+                '<span>' + esc(warnings.layout_error.message || 'Plan layout blocked') + '</span></div>'
+              );
+            }
           }
+          var rules = ruleRows.join('');
           return fetch('/api/performance/focus', { credentials: 'include' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (focus) {
               var axis = focus && focus.focus ? esc(focus.focus.label) : '—';
               var perf =
-                '<p class="rv-subtitle" style="margin:0 0 6px">Most room to grow: <strong>' + axis + '</strong>.</p>' +
-                '<p class="rv-subtitle" style="margin:0">Queue mobility or drills from Performance when filling the week.</p>';
+                '<p class="rv-subtitle">Most room to grow: <strong>' + axis + '</strong>.</p>' +
+                '<p class="rv-subtitle">Queue mobility or drills from Performance when filling the week.</p>';
+              var coachChip = imported ? '<span class="rv-chip">IMPORTED</span>' : '';
               var coachNote = wl && wl.mode === 'generic'
                 ? '<p class="rv-subtitle">Import coach sessions from the week board when your block is set up.</p>'
                 : '<p class="rv-subtitle">Use <strong>Import coach week</strong> on the board when your coach sends a week.</p>';
+              var reimport = '<a href="#v2-coach-import-open" class="rv-plan-settings-link" id="v2-rail-reimport">Re-import</a>';
               rail.innerHTML =
                 '<section class="rv-card rv-stack rv-plan-rail-card"><span class="rv-label">Next up</span>' +
                 '<div class="rv-plan-next">' + nextHtml + '</div></section>' +
-                '<section class="rv-card rv-card--soft rv-stack rv-plan-rail-card"><span class="rv-label">Coach week</span>' + coachNote + '</section>' +
+                '<section class="rv-card rv-card--soft rv-stack rv-plan-rail-card"><div class="rv-row"><span class="rv-label">Coach week</span>' +
+                coachChip + reimport + '</div>' + coachNote + '</section>' +
                 '<section class="rv-card rv-stack rv-plan-rail-card"><div class="rv-row"><span class="rv-label">From Performance</span>' +
                 '<a href="/v2/performance" class="rv-plan-settings-link">Why</a></div>' + perf + '</section>' +
                 '<section class="rv-card rv-card--soft rv-stack rv-plan-rail-card"><span class="rv-label">Rules in play</span>' + rules + '</section>';
+              var re = document.getElementById('v2-rail-reimport');
+              if (re) {
+                re.onclick = function (ev) {
+                  ev.preventDefault();
+                  var open = document.getElementById('v2-coach-import-open');
+                  if (open) open.click();
+                };
+              }
             });
         })
         .catch(function () {

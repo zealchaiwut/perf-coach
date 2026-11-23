@@ -14461,6 +14461,8 @@ def _sync_status_with_providers(user: User, payload: dict) -> dict:
 
 @app.get("/api/sync/status")
 async def get_sync_status(user: User = Depends(resolve_user)):
+    from backend.services.sync_provider_status import snapshot_is_live_sync as _snapshot_is_live_sync
+
     job = _sync_jobs.snapshot(user.id)
     if job is not None:
         serialized = {
@@ -14468,7 +14470,8 @@ async def get_sync_status(user: User = Depends(resolve_user)):
             "started_at": job["started_at"].isoformat() if job["started_at"] else None,
             "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
         }
-        return JSONResponse(_sync_status_with_providers(user, serialized))
+        if job.get("status") != "running" or _snapshot_is_live_sync(serialized):
+            return JSONResponse(_sync_status_with_providers(user, serialized))
 
     # No in-process job — check worker_job_runs for a delegated job.
     from backend.models import WorkerJobRun as _WorkerJobRun
@@ -14492,7 +14495,7 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 .limit(1)
             ).scalar_one_or_none()
         if wjr is not None:
-            return JSONResponse(_sync_status_with_providers(user, {
+            wjr_payload = {
                 "status": wjr.status,
                 "phase": wjr.phase,
                 "source": "worker",
@@ -14501,7 +14504,10 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 "error": wjr.error,
                 "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
                 "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
-            }))
+            }
+            live = (wjr.status or "").lower() in ("running", "pending")
+            if not live or _snapshot_is_live_sync(wjr_payload):
+                return JSONResponse(_sync_status_with_providers(user, wjr_payload))
     except Exception as _wjr_exc:
         _logging.getLogger(__name__).warning(
             "sync_status: worker_job_runs query failed: %s", _wjr_exc
@@ -14515,12 +14521,14 @@ async def get_sync_status(user: User = Depends(resolve_user)):
         from backend.services import job_queue as _jq
         pending = _jq.pending_for_user(user.id)
         if pending is not None:
-            return JSONResponse(_sync_status_with_providers(user, {
+            q_payload = {
                 "status": "pending" if pending["status"] == "queued" else "running",
                 "source": "queue",
                 "job_type": pending["job_type"],
                 "enqueued_at": pending["created_at"].isoformat() if pending["created_at"] else None,
-            }))
+            }
+            if _snapshot_is_live_sync(q_payload):
+                return JSONResponse(_sync_status_with_providers(user, q_payload))
     except Exception:
         pass
 

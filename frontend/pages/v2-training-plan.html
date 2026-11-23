@@ -18,21 +18,22 @@
     </header>
 
     <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
-      <nav class="rv-segnav" aria-label="Training views">
-        <a href="/v2/training/plan" aria-current="page">Plan</a>
-        <a href="/v2/training/log">Log</a>
-        <a href="/v2/training/trends">Trends</a>
-      </nav>
-      <div class="rv-row" id="v2-sync-toolbar"></div>
+      <div class="rv-toolbar-left">
+        <nav class="rv-segnav" aria-label="Training views">
+          <a href="/v2/training/plan" aria-current="page">Plan</a>
+          <a href="/v2/training/log">Log</a>
+          <a href="/v2/training/trends">Trends</a>
+        </nav>
+        <div id="v2-sync-toolbar"></div>
+      </div>
     </section>
 
+    <section class="rv-card rv-plan-warnings" id="v2-plan-warnings" hidden aria-label="Plan warnings"></section>
+    <section class="rv-card rv-stack rv-plan-road-card" id="v2-plan-road" aria-label="Road to race chart"></section>
+    <section class="rv-card rv-stack rv-plan-week-load-card" id="v2-plan-week-load" aria-label="This week load"></section>
+    <div id="v2-plan-week-head" class="rv-plan-week-head-host rv-stack"></div>
     <div id="v2-plan-shell" class="rv-plan-layout">
-      <div class="rv-plan-main rv-stack">
-        <section class="rv-card rv-plan-warnings" id="v2-plan-warnings" hidden aria-label="Plan warnings"></section>
-        <section class="rv-card rv-stack rv-plan-road-card" id="v2-plan-road" aria-label="Road to race chart"></section>
-        <section class="rv-card rv-stack rv-plan-week-load-card" id="v2-plan-week-load" aria-label="This week load"></section>
-        <section class="rv-stack rv-plan-board-host" id="v2-plan-week-board" aria-label="Week plan board"></section>
-      </div>
+      <section class="rv-stack rv-plan-board-host" id="v2-plan-week-board" aria-label="Week plan board"></section>
       <aside class="rv-plan-rail rv-stack" id="v2-plan-rail" aria-label="Plan sidebar"></aside>
     </div>
   </div>
