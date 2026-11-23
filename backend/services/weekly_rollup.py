@@ -107,6 +107,13 @@ def _estimate_planned_tss_remaining(
     return round(total, 2)
 
 
+def _target_or_chronic(plan_target: Any, chronic: Any) -> Any:
+    """A-race load-plan target when present, else chronic (Plan generic week)."""
+    if plan_target is not None:
+        return plan_target
+    return chronic
+
+
 def _assemble_week(
     *,
     ws: date,
@@ -183,7 +190,21 @@ def _assemble_week(
         "target_tss": round(float(target_tss_val), 1) if target_tss_val is not None else None,
         "phase": phase_label,
         "partial": partial,
+        "tss_delta_prev": None,
     }
+
+
+def _attach_tss_delta_prev(weeks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Set tss_delta_prev vs the previous row in ``weeks`` (range order)."""
+    prev_tss = None
+    for week in weeks:
+        if prev_tss is None:
+            week["tss_delta_prev"] = None
+        else:
+            week["tss_delta_prev"] = round(float(week.get("tss_total") or 0) - prev_tss, 2)
+        prev_tss = float(week.get("tss_total") or 0)
+    return weeks
+
 
 
 def weekly_rollup(
@@ -234,6 +255,7 @@ def weekly_rollup(
         )
         phase_label = None
         target_tss_val = None
+        chronic = None
         try:
             from backend.services.revamp_load_plan import chronic_weekly_tss, week_target_and_phase
 
@@ -246,6 +268,7 @@ def weekly_rollup(
                 phase_label = meta.get("phase")
         except Exception:
             pass
+        target_tss_val = _target_or_chronic(target_tss_val, chronic)
 
         return _assemble_week(
             ws=ws,
@@ -424,6 +447,7 @@ def weekly_rollups(
                         phase_label = meta.get("phase")
                 except Exception:
                     pass
+            target_tss_val = _target_or_chronic(target_tss_val, chronic)
             out.append(
                 _assemble_week(
                     ws=week_monday,
@@ -437,7 +461,7 @@ def weekly_rollups(
                     phase_label=phase_label,
                 )
             )
-        return out
+        return _attach_tss_delta_prev(out)
     finally:
         if own:
             session.close()
