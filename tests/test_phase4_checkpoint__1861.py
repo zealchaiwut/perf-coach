@@ -49,8 +49,10 @@ def test_phase4_performance_page_wires_every_region():
     assert html.index("app-common.js") < html.index("v2-performance.js")  # shared lib before page script
     js = Path("frontend/js/v2-performance.js").read_text(encoding="utf-8")
     radar = Path("frontend/js/lib/perf-radar.js").read_text(encoding="utf-8")  # shared with Home
-    for route in ROUTES:
-        assert route in js or route in radar, f"page never calls {route}"
+    assert "/api/performance/page" in js
+    assert "/api/performance/radar" in radar  # Home still self-mounts the component
+    for route in ("/api/performance/anchor-lifts", "/api/performance/mobility-tests", "/api/performance/focus/queue"):
+        assert route in js, f"mutation {route} missing"
 
 
 def test_phase4_radar_on_performance_and_small_on_home():

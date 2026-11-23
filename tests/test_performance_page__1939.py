@@ -131,6 +131,7 @@ def _page_patches(sql_engine, *, hero=None, radar=None, cards=None, checklist=No
     focus = focus if focus is not None else {"focus": None, "why_not": []}
     return (
         patch("backend.services.derived_cache.get_or_compute", side_effect=_passthrough_goc),
+        patch("backend.services.radar_cache.get_or_compute", side_effect=_passthrough_goc),
         patch("backend.services.radar_cache.get_radar_payload", side_effect=_fire_select(sql_engine, radar)),
         patch("backend.services.radar_payload.apply_focus_ranker"),
         patch("backend.services.radar_svg.render_radar_svg", return_value="<svg/>"),
@@ -245,6 +246,7 @@ def test_shared_inputs_resolved_once():
         patch("backend.services.performance_scores.get_performance_payload", return_value=payload) as get_payload,
         patch("backend.services.radar_cache.get_radar_payload", return_value=radar) as get_radar,
         patch("backend.services.derived_cache.get_or_compute", side_effect=_passthrough_goc),
+        patch("backend.services.radar_cache.get_or_compute", side_effect=_passthrough_goc),
         patch("backend.services.radar_svg.render_radar_svg", return_value="<svg/>"),
         patch("backend.services.radar_payload.apply_focus_ranker"),
         patch("backend.services.focus_ranking.rank_axes", return_value={"focus": None}),

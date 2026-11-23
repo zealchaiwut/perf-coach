@@ -364,6 +364,6 @@ def test_page_wiring():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert "v2-perf-projection" in html
-    assert "/api/performance/projection" in js and "data-chain-final" in js
+    assert "applyProjection" in js and "data-chain-final" in js
     assert "data-chain-na" in js and "not available" in js
     assert "data-projection-built-from" in js

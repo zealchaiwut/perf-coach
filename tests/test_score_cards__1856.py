@@ -163,6 +163,6 @@ def test_page_wiring():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert "v2-perf-score-cards" in html
-    for needle in ("/api/performance/score-cards", "data-card-reason", "data-card-split", "data-card-formula", "data-card-to-reach",
+    for needle in ("applyScoreCards", "data-card-reason", "data-card-split", "data-card-formula", "data-card-to-reach",
                    "<summary>Anchor efforts and other runs</summary>", "data-sparkline"):
         assert needle in js

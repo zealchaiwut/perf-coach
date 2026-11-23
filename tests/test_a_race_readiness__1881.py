@@ -104,8 +104,8 @@ def test_hero_includes_readiness_summary():
 def test_v2_performance_has_readiness_mount_points():
     assert "v2-perf-readiness" in V2_PERF
     assert 'data-hero="readiness"' in V2_JS
-    assert "/api/performance/a-race-readiness" in V2_JS
-    assert 'href="/settings"' in V2_JS and "Update CP" in V2_JS
+    assert "applyReadiness" in V2_JS
+    assert 'href="/v2/settings#thresholds"' in V2_JS and "Update CP" in V2_JS
 
 
 @pytest.fixture

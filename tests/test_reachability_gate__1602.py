@@ -598,6 +598,7 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/performance/backfill": "No frontend caller; training-performance.js reads /api/athletes/{id}/performance instead.",
     "/api/performance/score-breakdown": "No frontend caller (see cluster note above).",
     "/api/performance/score-history": "No frontend caller (see cluster note above).",
+    "/api/performance/bundle": "Orphan since the Performance revamp; tracked as #1602. No frontend caller.",
 
     "/api/personal-records/bulk": "home.js's own comment names the replacement directly: 'via /api/athletes/{id}/run-personal-records — NOT the old /api/personal-records'. This bulk sibling of that retired route is unused too.",
 
@@ -689,6 +690,20 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/athletes/{athlete_id}/duration-curve": "No frontend caller (see cluster note above).",
     "/api/athletes/{athlete_id}/races": "No frontend caller (see cluster note above).",
 }
+
+_PAGE_SUPERSEDED = (
+    "Superseded by GET /api/performance/page (#1940). Kept registered until "
+    "Home stops using /radar and a follow-up deletes the per-region GETs (#1939)."
+)
+
+_PERMANENT_EXEMPT_API.update({
+    "/api/performance/hero": _PAGE_SUPERSEDED,
+    "/api/performance/score-cards": _PAGE_SUPERSEDED,
+    "/api/performance/a-race-readiness": _PAGE_SUPERSEDED,
+    "/api/performance/projection": _PAGE_SUPERSEDED,
+    "/api/performance/races": _PAGE_SUPERSEDED,
+    "/api/performance/coach-block": _PAGE_SUPERSEDED,
+})
 
 _PERMANENT_EXEMPT: dict[str, str] = {**_PERMANENT_EXEMPT_PAGES, **_PERMANENT_EXEMPT_API}
 _BASELINE_ORPHANS: dict[str, str] = {**_BASELINE_ORPHANS_PAGES, **_BASELINE_ORPHANS_API}

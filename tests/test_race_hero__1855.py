@@ -159,5 +159,5 @@ def test_page_wiring():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert "v2-perf-hero" in html and "v2-perf-after-race" in html
-    assert "/api/performance/hero" in js and "Change race" in js
+    assert "applyHero" in js and "Change race" in js
     assert "Race-specific" in js

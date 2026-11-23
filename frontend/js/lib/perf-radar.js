@@ -7,6 +7,38 @@
 
   var ENDPOINT = "/api/performance/radar";
 
+  function paint(host, payload, opts) {
+    if (!host || !payload || !payload.svg) return null;
+    host.innerHTML = payload.svg;
+    var legend = document.createElement("div");
+    legend.className = "perf-radar-legend";
+    legend.setAttribute("aria-hidden", "true");
+    var compact = opts && opts.compactLegend;
+    var flags = payload.legend || {};
+    var hasPast = flags.past;
+    if (hasPast == null) hasPast = !!host.querySelector(".perf-radar-past");
+    var hasStale = flags.stale;
+    if (hasStale == null) hasStale = !!host.querySelector(".perf-radar-point--stale");
+    var hasFocus = flags.focus;
+    if (hasFocus == null) hasFocus = !!host.querySelector(".perf-radar-point--focus");
+    var html = '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--now"></span>Now</span>';
+    if (hasPast) {
+      html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--past"></span>' +
+        (compact ? "4 wk ago" : "4 weeks ago") + "</span>";
+    }
+    if (hasStale) {
+      html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--stale"></span>Stale</span>';
+    }
+    if (hasFocus) {
+      html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--focus"></span>Focus</span>';
+    }
+    legend.innerHTML = html;
+    host.appendChild(legend);
+    host.removeAttribute("aria-busy");
+    host.dispatchEvent(new CustomEvent("perf-radar:loaded", { detail: payload, bubbles: true }));
+    return payload;
+  }
+
   function mount(host, opts) {
     var size = (opts && opts.size) || host.getAttribute("data-size") || "large";
     host.setAttribute("aria-busy", "true");
@@ -15,36 +47,7 @@
         if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       })
-      .then(function (payload) {
-        host.innerHTML = payload.svg;
-        var legend = document.createElement("div");
-        legend.className = "perf-radar-legend";
-        legend.setAttribute("aria-hidden", "true");
-        var compact = opts && opts.compactLegend;
-        var flags = payload.legend || {};
-        var hasPast = flags.past;
-        if (hasPast == null) hasPast = !!host.querySelector(".perf-radar-past");
-        var hasStale = flags.stale;
-        if (hasStale == null) hasStale = !!host.querySelector(".perf-radar-point--stale");
-        var hasFocus = flags.focus;
-        if (hasFocus == null) hasFocus = !!host.querySelector(".perf-radar-point--focus");
-        var html = '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--now"></span>Now</span>';
-        if (hasPast) {
-          html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--past"></span>' +
-            (compact ? "4 wk ago" : "4 weeks ago") + "</span>";
-        }
-        if (hasStale) {
-          html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--stale"></span>Stale</span>';
-        }
-        if (hasFocus) {
-          html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--focus"></span>Focus</span>';
-        }
-        legend.innerHTML = html;
-        host.appendChild(legend);
-        host.removeAttribute("aria-busy");
-        host.dispatchEvent(new CustomEvent("perf-radar:loaded", { detail: payload, bubbles: true }));
-        return payload;
-      })
+      .then(function (payload) { return paint(host, payload, opts); })
       .catch(function () {
         host.removeAttribute("aria-busy");
         host.innerHTML = '<p class="rv-subtitle">Radar not available.</p>';
@@ -57,6 +60,9 @@
     return Promise.all(Array.prototype.map.call(nodes, function (n) { return mount(n); }));
   }
 
-  global.PerfRadar = { mount: mount, mountAll: mountAll, ENDPOINT: ENDPOINT };
-  document.addEventListener("DOMContentLoaded", function () { mountAll(); });
+  global.PerfRadar = { mount: mount, mountAll: mountAll, paint: paint, ENDPOINT: ENDPOINT };
+  document.addEventListener("DOMContentLoaded", function () {
+    if (document.body && document.body.getAttribute("data-perf-radar-boot") === "page") return;
+    mountAll();
+  });
 })(window);

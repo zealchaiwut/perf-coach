@@ -129,18 +129,18 @@ def test_home_and_performance_get_identical_numbers_from_one_endpoint():
     payload = {k: v for k, v in PAYLOAD.items()}
     store = {}
 
-    def fake_get(user_id, key, sig):
-        return store.get((str(user_id), key, sig))
-
-    def fake_put(user_id, key, sig, body):
-        store[(str(user_id), key, sig)] = body
+    def fake_goc(_session, user_id, key, as_of, compute):
+        k = (str(user_id), key, str(as_of))
+        if k not in store:
+            store[k] = compute()
+        return store[k]
 
     try:
         with (
             patch("backend.services.radar_payload.build_radar", return_value=dict(payload)) as build,
+            patch("backend.services.radar_cache.get_or_compute", side_effect=fake_goc),
+            patch("backend.services.derived_cache.get_or_compute", side_effect=fake_goc),
             patch("backend.services.derived_cache.get_data_version", return_value=1),
-            patch("backend.services.derived_cache.summary_cache_get", side_effect=fake_get),
-            patch("backend.services.derived_cache.summary_cache_put", side_effect=fake_put),
             patch("backend.services.focus_ranking.rank_axes", return_value={"focus": {"axis": "economy"}}),
             patch("backend.routers.performance_axes._a_race_distance_km", return_value=None),
         ):
@@ -167,7 +167,10 @@ def test_both_pages_mount_the_one_component():
     home_js = Path("frontend/js/v2-home.js").read_text()
     assert "/js/lib/perf-radar.js" in home and 'data-perf-radar data-size="small"' in home_js
     assert "/js/lib/perf-radar.js" in perf and 'data-perf-radar data-size="large"' in perf
+    assert 'data-perf-radar-boot="page"' in perf
     js = Path("frontend/js/lib/perf-radar.js").read_text()
     assert js.count("/api/performance/radar") == 1
+    assert "function paint(" in js
+    assert 'data-perf-radar-boot") === "page"' in js
     for other in ("v2-performance.js",):
         assert "performance/radar" not in Path("frontend/js", other).read_text()
