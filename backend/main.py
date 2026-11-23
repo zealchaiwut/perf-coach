@@ -19333,6 +19333,7 @@ def put_plan_revamp_settings(body: RevampPlanSettingsIn, user: User = Depends(re
 
 
 @app.get("/api/plan/revamp-road-chart")
+@_query_logged("/api/plan/revamp-road-chart")
 def get_plan_revamp_road_chart(user: User = Depends(resolve_user)):
     """Revamp Road-to chart: weekly target vs actual through the A race (P3-3)."""
     from backend.services.revamp_load_plan import road_to_chart
@@ -19351,6 +19352,7 @@ class PlanWarningApplyIn(BaseModel):
 
 
 @app.get("/api/plan/revamp-warnings")
+@_query_logged("/api/plan/revamp-warnings")
 def get_plan_revamp_warnings(user: User = Depends(resolve_user)):
     """Layout errors, post-race clashes, and race-week copy (P3-11)."""
     from backend.services.plan_warnings import revamp_warnings_payload
@@ -19520,6 +19522,7 @@ def get_training_trends_revamp(
 
 
 @app.get("/api/plan/revamp-week-board")
+@_query_logged("/api/plan/revamp-week-board")
 def get_plan_revamp_week_board(
     week_start: Optional[str] = Query(default=None),
     user: User = Depends(resolve_user),
@@ -19540,6 +19543,7 @@ def get_plan_revamp_week_board(
 
 
 @app.get("/api/plan/revamp-week-load")
+@_query_logged("/api/plan/revamp-week-load")
 def get_plan_revamp_week_load(
     week_start: Optional[str] = Query(default=None),
     user: User = Depends(resolve_user),
@@ -19849,6 +19853,7 @@ def _resp_json_or_none(resp):
 
 
 @app.get("/api/plan/week-bundle")
+@_query_logged("/api/plan/week-bundle")
 def get_plan_week_bundle(
     week_start: Optional[str] = Query(default=None),
     include_load_plan: bool = Query(default=False),
