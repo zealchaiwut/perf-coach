@@ -41,7 +41,7 @@ def test_week_headers_read_rollup_not_entry_summary():
     paint = _fn(LOG_JS, "paintList")
     assert "rollupsByWeek" in LOG_JS
     assert "tss_total" in paint
-    assert "planned_tss" in paint
+    assert "headerPlannedTss" in paint
     assert "target_tss" in paint
     assert "wk.summary" not in paint
     assert "sum.total_tss" not in paint

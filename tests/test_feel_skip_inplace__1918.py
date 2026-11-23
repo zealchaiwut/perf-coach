@@ -31,16 +31,9 @@ def test_feel_tap_issues_exactly_one_request():
     assert "/api/workouts/" in patch
     assert "r.json()" in patch
     assert "body.feeling" in patch
-    mount_at = LOG_JS.find("V2FeelButtons.mount")
-    assert mount_at != -1
-    feel_mount = LOG_JS[mount_at : mount_at + 400]
-    assert "applyFeelInPlace" in feel_mount
-    assert "refreshAll" not in feel_mount
-    skip_at = LOG_JS.find("el.querySelectorAll('[data-plan-skip]')")
-    feel_block = LOG_JS[LOG_JS.find("el.querySelectorAll('[data-feel-host]')") : skip_at]
-    assert "refreshAll" not in feel_block
-    assert "loadList" not in feel_block
-    assert "loadMonth" not in feel_block
+    row = _fn(LOG_JS, "renderSessionRow")
+    assert "rv-list-feel" not in row
+    assert "V2FeelButtons.mount" not in LOG_JS
 
 
 def test_skip_refetches_only_that_week_rollup():

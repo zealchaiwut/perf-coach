@@ -528,22 +528,50 @@
     return String(raw).replace(/_/g, '-').replace(/\s+/g, ' ').trim();
   }
 
-  function badgeChips(entry) {
+  function sourceMark(kind, label) {
+    return '<span class="rv-src-mark rv-src-mark--' + kind + '" title="' + esc(label) + '" aria-label="' + esc(label) + '"></span>';
+  }
+
+  function isRaceLike(entry, roll) {
+    var t = (entry.type || '').toLowerCase();
+    if (t.indexOf('race') >= 0) return true;
+    var title = (entry.title || '').toLowerCase();
+    return ((roll && roll.race_items) || []).some(function (r) {
+      var n = String(r.name || '').toLowerCase();
+      if (r.race_date && r.race_date === entry.date) return true;
+      return n && title.indexOf(n) >= 0;
+    });
+  }
+
+  function headerPlannedTss(roll, entries) {
+    var we = roll.week_end || '';
+    if (we && we < todayISO()) return 0;
+    var n = Number(roll.planned_tss_training) || 0;
+    ((roll && roll.race_items) || []).forEach(function (r) {
+      if (r.tss == null || r.tss_source === 'logged') return;
+      var logged = (entries || []).some(function (e) {
+        return isLogged(e) && e.date === r.race_date;
+      });
+      if (!logged) n += Number(r.tss) || 0;
+    });
+    return n;
+  }
+
+  function badgeChips(entry, roll) {
     var chips = [];
     var missed = entry.row_kind === 'missed_plan';
     if (missed) {
       chips.push('<span class="rv-chip rv-chip--missed">PLANNED, NOT DONE</span>');
       return chips.join('');
     }
-    if (entry.is_stryd_synced || entry.has_stryd) {
-      chips.push('<span class="rv-chip rv-chip--dark">STRYD</span>');
-    }
+    if (entry.has_strava) chips.push(sourceMark('strava', 'Strava'));
+    if (entry.is_stryd_synced || entry.has_stryd) chips.push(sourceMark('stryd', 'Stryd'));
     if (isStrengthType(entry)) {
       chips.push('<span class="rv-chip rv-chip--who-support">STRENGTH</span>');
     }
     if (entry.plan_match) {
       chips.push('<span class="rv-chip rv-chip--good">MATCHED COACH PLAN</span>');
-    } else if (entry.id && String(entry.id).indexOf('plan:') !== 0) {
+    } else if (entry.id && String(entry.id).indexOf('plan:') !== 0 && !isRaceLike(entry, roll)) {
       var unplanned = isStrengthType(entry) && (entry.source || '') === 'manual'
         ? 'UNPLANNED · TYPED AT THE GYM'
         : 'UNPLANNED';
@@ -694,13 +722,9 @@
         '<button type="button" class="rv-btn rv-btn--ghost-amber" data-log-late="' + esc(pid) + '">Log it late</button>' +
         '<button type="button" class="rv-btn rv-btn--ghost-amber" data-plan-skip="' + esc(pid) + '">Skip</button>' +
         '</div><span class="rv-session-tss-block" aria-hidden="true"></span>';
-    } else if (str) {
-      side =
-        '<span class="rv-session-open">Open</span>' +
-        '<span class="rv-session-tss-block"><span class="rv-session-tss">' + (entry.tss != null ? Math.round(entry.tss) : '—') + '</span><span class="rv-session-tss-unit">TSS</span></span>';
     } else {
       side =
-        (run ? '<div class="rv-list-feel" data-feel-host="' + esc(entry.id) + '" data-feel-val="' + esc(entry.feeling || '') + '"></div>' : '<span></span>') +
+        (str ? '<span class="rv-session-open">Open</span>' : '') +
         '<span class="rv-session-tss-block"><span class="rv-session-tss">' + (entry.tss != null ? Math.round(entry.tss) : '—') + '</span><span class="rv-session-tss-unit">TSS</span></span>';
     }
     return (
@@ -708,7 +732,7 @@
       '<span class="rv-session-date"><span class="rv-session-day">' + esc(String(day)) + '</span><span class="rv-session-wd">' + esc(wd) + '</span></span>' +
       typeDot(entry) +
       '<div class="rv-session-main">' +
-      '<div class="rv-session-title-row"><strong class="rv-session-title">' + esc(entry.title || 'Session') + '</strong>' + badgeChips(entry) + '</div>' +
+      '<div class="rv-session-title-row"><strong class="rv-session-title">' + esc(entry.title || 'Session') + '</strong>' + badgeChips(entry, state.rollupsByWeek[mondayISO(entry.date)]) + '</div>' +
       (meta ? '<div class="rv-session-metrics">' + esc(meta) + '</div>' : '') +
       '</div>' + side + '</div>'
     );
@@ -794,11 +818,11 @@
       var left = range + (phase ? ' · ' + phase : '');
       var km = fmtKm(roll.distance_km);
       var target = roll.target_tss;
-      var planned = roll.planned_tss;
+      var planned = headerPlannedTss(roll, entries);
       var right = '<span class="rv-week-stats">' + Math.round(roll.tss_total || 0) + ' TSS' +
         (km ? ' · ' + km : '') +
         (target != null ? '<span class="rv-week-target"> · target ' + Math.round(target) + '</span>' : '') +
-        (planned != null ? '<span class="rv-week-target"> · planned ' + Math.round(planned) + '</span>' : '') +
+        (planned > 0 ? '<span class="rv-week-target"> · planned ' + Math.round(planned) + '</span>' : '') +
         '</span>';
       html.push('<section class="rv-week-block" id="week-' + esc(ws) + '" tabindex="-1">');
       if (!expanded) {
@@ -827,14 +851,14 @@
         if (plannedOnly) {
           html.push(plannedEmptyCard(entries.length ? entries : [{ type: 'run' }]));
         } else {
-          var openAll = !!state.openWeeks[ws] || entries.length <= 2;
-          var visible = openAll ? entries : entries.slice(0, 2);
+          var openAll = !!state.openWeeks[ws] || entries.length <= 3;
+          var visible = openAll ? entries : entries.slice(0, 3);
           html.push('<div class="rv-week-sessions">');
           visible.forEach(function (entry) {
             html.push(renderSessionRow(entry, entry.id === highlightId));
           });
           if (!openAll) {
-            var rest = entries.slice(2);
+            var rest = entries.slice(3);
             var restTss = 0;
             var restKm = 0;
             rest.forEach(function (e) {
@@ -874,15 +898,6 @@
       return;
     }
     el.innerHTML = html.join('');
-    el.querySelectorAll('[data-feel-host]').forEach(function (host) {
-      if (window.V2FeelButtons) {
-        var val = host.getAttribute('data-feel-val') || null;
-        var wid = host.getAttribute('data-feel-host');
-        window.V2FeelButtons.mount(host, wid, val === '' ? null : val, function (feeling) {
-          applyFeelInPlace(wid, feeling);
-        });
-      }
-    });
     el.querySelectorAll('[data-plan-skip]').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
