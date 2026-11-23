@@ -15290,6 +15290,9 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
         session.add(race)
         session.commit()
         session.refresh(race)
+        from backend.services.race_calibration import after_race_write as _after_race_write
+
+        _after_race_write(session, user.id)
         return JSONResponse(status_code=201, content=_race_dict_enriched(session, user, race, autolink=False))
 
 
@@ -15467,6 +15470,9 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
 
         session.commit()
         session.refresh(race)
+        from backend.services.race_calibration import after_race_write as _after_race_write
+
+        _after_race_write(session, user.id)
         return JSONResponse(_race_dict_enriched(session, user, race, autolink=False))
 
 
@@ -15521,6 +15527,9 @@ def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve
 
         session.commit()
         session.refresh(race)
+        from backend.services.race_calibration import after_race_write as _after_race_write
+
+        _after_race_write(session, user.id)
         return JSONResponse(_race_dict_enriched(session, user, race, autolink=False))
 
 
@@ -15646,6 +15655,16 @@ def calibrate_race(
         race.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(race)
+        from backend.services.race_calibration import (
+            after_race_write as _after_race_write,
+            ensure_calibrations as _ensure_cals,
+        )
+
+        try:
+            _ensure_cals(str(user.id), session)
+        except Exception:
+            _log.warning("ensure_calibrations failed after calibrate_race", exc_info=True)
+        _after_race_write(session, user.id)
 
         # Load user preferences for current personal constants
         prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
@@ -15712,6 +15731,9 @@ def accept_calibration(
 
         session.commit()
         session.refresh(prefs)
+        from backend.services.race_calibration import after_race_write as _after_race_write
+
+        _after_race_write(session, user.id)
 
         ctl_days = prefs.ctl_days
         atl_days = prefs.atl_days
