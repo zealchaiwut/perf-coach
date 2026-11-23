@@ -329,6 +329,25 @@ def _run_axis_snapshot_batch() -> None:
         logger.error("job finish: axis_snapshot status=error: %s", exc, exc_info=True)
 
 
+def _run_precompute_nightly_batch() -> None:
+    """Nightly derived-cache warm for every active user (#1938)."""
+    from backend.services.precompute import run_nightly_precompute
+
+    recorder = DbRecorder(job_type="precompute_nightly", user_id=None, triggered_by="schedule")
+    try:
+        results = run_nightly_precompute()
+        ok_count = sum(1 for v in results.values() if v == "ok")
+        recorder.mark_success(None, stats={"ok": ok_count, "total": len(results)})
+        logger.info(
+            "job finish: precompute_nightly status=success ok=%d/%d",
+            ok_count,
+            len(results),
+        )
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: precompute_nightly status=error: %s", exc, exc_info=True)
+
+
 def _run_race_predictions_batch() -> None:
     """Daily race_predictions upsert for every active user (#1937)."""
     from backend.services.race_calibration import run_daily_predictions
@@ -531,6 +550,10 @@ def _h_race_predictions(p: dict) -> None:
     _run_race_predictions_batch()
 
 
+def _h_precompute_nightly(p: dict) -> None:
+    _run_precompute_nightly_batch()
+
+
 def _h_daily_coach(p: dict) -> None:
     today = None
     raw = p.get("today") or p.get("as_of")
@@ -649,6 +672,7 @@ _DISPATCH = {
     "axis_snapshot": _h_axis_snapshot,
     "load_plan_snapshots": _h_load_plan_snapshots,
     "race_predictions": _h_race_predictions,
+    "precompute_nightly": _h_precompute_nightly,
     "daily_coach": _h_daily_coach,
     "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
@@ -1685,6 +1709,17 @@ def _scheduler_loop() -> None:
             )
         except Exception as exc:
             logger.error("scheduled race_predictions failed to enqueue: %s", exc, exc_info=True)
+
+        # Nightly v2 derived warm (radar, score cards, hero, projection) (#1938).
+        try:
+            job_queue.enqueue(
+                "precompute_nightly",
+                {},
+                enqueued_by="schedule",
+                dedupe_key=f"precompute_nightly:{datetime.now(BANGKOK_TZ).date().isoformat()}",
+            )
+        except Exception as exc:
+            logger.error("scheduled precompute_nightly failed to enqueue: %s", exc, exc_info=True)
 
         # Daily Home Coach — once per calendar day (Asia/Bangkok), enqueued at
         # the same wake times as the sync sweep. Dedupe key is the date so

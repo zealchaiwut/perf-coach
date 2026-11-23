@@ -208,12 +208,19 @@ GETs **select the last stored row** even when the signature is stale.
 - **After a sync**, each per-user `*_sync` handler enqueues a `precompute` for
   that user (`PRECOMPUTE_AFTER_SYNC_ENABLED`, default on), so the first
   post-sync dashboard load is a pure cache hit rather than paying the recompute.
+  A precompute failure is logged and never fails the sync job.
+- **Nightly** (`precompute_nightly`, same wake times as the sync sweep, dedupe
+  key `precompute_nightly:YYYY-MM-DD`) runs `precompute_user(..., v2=True)` for
+  every active user so `/v2/performance` and Home read warm `derived:*` rows
+  even without a same-day sync (#1938).
 - **The worker** runs `backend/services/precompute.py::precompute_user`, which
   warms:
   - today + yesterday (+ any edited dates) in `training_load_snapshots`
   - Endurance/Speed scores in `summary_cache` (`performance`)
   - this week + last week, this month + last month in `summary_cache`
   - performance + personal-records overlay on `training_plans.computed_cache`
+  - v2 derived keys: `derived:radar`, `derived:score_cards`, `derived:hero`,
+    `derived:projection`, `derived:race_list`
 
 **GET never recomputes when a row exists.** A post-sync signature bump used to
 force the browser to wait on endurance/speed scoring; it now returns the last
