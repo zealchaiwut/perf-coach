@@ -211,7 +211,10 @@ def test_page_wiring_and_paste_anchor():
     js = Path("frontend/js/v2-performance.js").read_text()
     coach_html = Path("frontend/pages/coach.html").read_text()
     assert 'id="v2-perf-coach"' in html and 'id="paste"' in coach_html
+    csrf = Path("frontend/js/v2-csrf.js").read_text()
     for needle in ("window.NavCopy.copyForClaude", "NavCopy.CONSULT_ENDPOINT", "/api/coach/consult", "data-review-due",
                    "data-save-outcome", "data-not-applied", "outcome_note", "applied: false", "data-evidence",
-                   "data-paste-link", "data-checkin-state", "/api/performance/coach-block", "X-CSRF-Token"):
+                   "data-paste-link", "data-checkin-state", "applyCoach"):
         assert needle in js
+    assert "X-CSRF-Token" in csrf
+    assert "/api/csrf-token" not in js

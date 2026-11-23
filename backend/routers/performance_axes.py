@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -39,6 +39,7 @@ class _AnchorLiftsBody(BaseModel):
 
 
 @router.get("/api/performance/anchor-lifts")
+@_query_logged("/api/performance/anchor-lifts")
 def get_anchor_lifts(user: User = Depends(resolve_user)):
     from backend.services.axis_strength import get_anchor_lifts as _get
 
@@ -66,6 +67,8 @@ def put_anchor_lifts(body: _AnchorLiftsBody, user: User = Depends(resolve_user))
             prefs = UserPreferences(user_id=user.id)
             db.add(prefs)
         prefs.anchor_lifts = cleaned
+        from datetime import datetime, timezone
+        prefs.updated_at = datetime.now(timezone.utc)
         db.commit()
     return JSONResponse({"anchors": cleaned})
 
@@ -91,6 +94,7 @@ def _parse_iso_date(value: str | None, field: str):
 
 
 @router.get("/api/performance/mobility-tests")
+@_query_logged("/api/performance/mobility-tests")
 def list_mobility_tests(user: User = Depends(resolve_user)):
     from backend.models import MobilityTest
     from backend.services import axis_mobility as _mob
@@ -167,6 +171,7 @@ def _a_race_distance_km(db, user_id, as_of):
 
 
 @router.get("/api/performance/radar")
+@_query_logged("/api/performance/radar")
 def get_performance_radar(size: str = "large", user: User = Depends(resolve_user)):
     """One payload (and its rendered inline SVG) for the Home and Performance radars."""
     from backend.services.focus_ranking import rank_axes
@@ -301,9 +306,53 @@ def get_performance_bundle(user: User = Depends(resolve_user)):
     })
 
 
+# ── Combined page (one session, shared context) ──────────────────────────────
+
+@router.get("/api/performance/page")
+@_query_logged("/api/performance/page")
+def get_performance_page(
+    sections: str | None = None,
+    size: str = "large",
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
+    user: User = Depends(resolve_user),
+):
+    """One Performance-tab boot: selected sections share one session (#1939, #1941)."""
+    from backend.services.log_etag import (
+        etag_headers,
+        not_modified_response,
+        performance_page_etag,
+    )
+    from backend.services.performance_page import (
+        UnknownSectionError,
+        build_page,
+        parse_sections,
+    )
+    from backend.utils.time import today_bangkok
+
+    if size not in ("large", "small"):
+        raise HTTPException(status_code=422, detail="size must be 'large' or 'small'")
+    try:
+        wanted = parse_sections(sections)
+    except UnknownSectionError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"unknown": exc.unknown, "allowed": exc.allowed},
+        )
+    with Session(engine) as db:
+        today = today_bangkok()
+        etag = performance_page_etag(db, user.id, today, wanted, size)
+        if if_none_match and if_none_match == etag:
+            return not_modified_response(etag)
+        return JSONResponse(
+            build_page(db, user.id, today, wanted, size=size),
+            headers=etag_headers(etag),
+        )
+
+
 # ── A-race hero + after-the-race card (P4-8) ─────────────────────────────────
 
 @router.get("/api/performance/hero")
+@_query_logged("/api/performance/hero")
 def get_performance_hero(user: User = Depends(resolve_user)):
     from backend.services.race_hero import build_hero
     from backend.utils.time import today_bangkok
@@ -313,6 +362,7 @@ def get_performance_hero(user: User = Depends(resolve_user)):
 
 
 @router.get("/api/performance/a-race-readiness")
+@_query_logged("/api/performance/a-race-readiness")
 def get_a_race_readiness_checklist(user: User = Depends(resolve_user)):
     from backend.services.a_race_readiness_checklist import build_checklist
     from backend.utils.time import today_bangkok
@@ -324,16 +374,24 @@ def get_a_race_readiness_checklist(user: User = Depends(resolve_user)):
 # ── Endurance and Speed score cards (P4-9) ───────────────────────────────────
 
 @router.get("/api/performance/score-cards")
+@_query_logged("/api/performance/score-cards")
 def get_performance_score_cards(user: User = Depends(resolve_user)):
+    from backend.services.derived_cache import DERIVED_SCORE_CARDS, get_or_compute
     from backend.services.score_cards import build_cards
     from backend.utils.time import today_bangkok
 
-    return JSONResponse(build_cards(user.id, as_of=today_bangkok()))
+    today = today_bangkok()
+    with Session(engine) as db:
+        return JSONResponse(get_or_compute(
+            db, user.id, DERIVED_SCORE_CARDS, today,
+            lambda: build_cards(user.id, as_of=today),
+        ))
 
 
 # ── Races and projections (P4-10) ────────────────────────────────────────────
 
 @router.get("/api/performance/projection")
+@_query_logged("/api/performance/projection")
 def get_performance_projection(user: User = Depends(resolve_user)):
     from backend.services.projection_view import build_projection
     from backend.utils.time import today_bangkok
@@ -345,6 +403,7 @@ def get_performance_projection(user: User = Depends(resolve_user)):
 # ── Race list (P4-11) ────────────────────────────────────────────────────────
 
 @router.get("/api/performance/races")
+@_query_logged("/api/performance/races")
 def get_performance_races(user: User = Depends(resolve_user)):
     from backend.services.race_list import build_race_list
     from backend.utils.time import today_bangkok
@@ -367,6 +426,7 @@ def get_performance_season_road(user: User = Depends(resolve_user)):
 # ── Coach block (P4-12) ──────────────────────────────────────────────────────
 
 @router.get("/api/performance/coach-block")
+@_query_logged("/api/performance/coach-block")
 def get_performance_coach_block(user: User = Depends(resolve_user)):
     from backend.services.coach_block import fetch_coach_block
     from backend.utils.time import today_bangkok

@@ -119,22 +119,39 @@ def _client():
     from backend.auth import resolve_user
     from backend.models import User
 
-    app.dependency_overrides[resolve_user] = lambda: User(id=uuid.uuid4(), name="t")
+    uid = uuid.uuid4()
+    app.dependency_overrides[resolve_user] = lambda uid=uid: User(id=uid, name="t")
     return app, resolve_user, TestClient(app)
 
 
 def test_home_and_performance_get_identical_numbers_from_one_endpoint():
     app, dep, c = _client()
     payload = {k: v for k, v in PAYLOAD.items()}
+    store = {}
+
+    def fake_goc(_session, user_id, key, as_of, compute):
+        k = (str(user_id), key, str(as_of))
+        if k not in store:
+            store[k] = compute()
+        return store[k]
+
     try:
-        with patch("backend.services.radar_payload.build_radar", return_value=dict(payload)) as build:
+        with (
+            patch("backend.services.radar_payload.build_radar", return_value=dict(payload)) as build,
+            patch("backend.services.radar_cache.get_or_compute", side_effect=fake_goc),
+            patch("backend.services.derived_cache.get_or_compute", side_effect=fake_goc),
+            patch("backend.services.derived_cache.get_data_version", return_value=1),
+            patch("backend.services.focus_ranking.rank_axes", return_value={"focus": {"axis": "economy"}}),
+            patch("backend.routers.performance_axes._a_race_distance_km", return_value=None),
+        ):
             big = c.get("/api/performance/radar?size=large").json()
             small = c.get("/api/performance/radar?size=small").json()
-        assert build.call_count == 2
+            huge = c.get("/api/performance/radar?size=huge")
+        assert build.call_count == 1
         assert big["axes"] == small["axes"] == PAYLOAD["axes"]
         assert big["summary"] == small["summary"]
         assert big["svg"] != small["svg"] and 'data-size="large"' in big["svg"]
-        assert c.get("/api/performance/radar?size=huge").status_code == 422
+        assert huge.status_code == 422
     finally:
         app.dependency_overrides.pop(dep, None)
 
@@ -150,7 +167,10 @@ def test_both_pages_mount_the_one_component():
     home_js = Path("frontend/js/v2-home.js").read_text()
     assert "/js/lib/perf-radar.js" in home and 'data-perf-radar data-size="small"' in home_js
     assert "/js/lib/perf-radar.js" in perf and 'data-perf-radar data-size="large"' in perf
+    assert 'data-perf-radar-boot="page"' in perf
     js = Path("frontend/js/lib/perf-radar.js").read_text()
     assert js.count("/api/performance/radar") == 1
+    assert "function paint(" in js
+    assert 'data-perf-radar-boot") === "page"' in js
     for other in ("v2-performance.js",):
         assert "performance/radar" not in Path("frontend/js", other).read_text()

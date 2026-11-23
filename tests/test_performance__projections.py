@@ -295,7 +295,7 @@ def test_build_projection_one_estimate_feeds_chain_chart_and_hero():
             patch.object(pv, "_history", return_value=[(TODAY, 14950)]), \
             patch("backend.services.score_reader.get_scores", return_value=scores):
         out = pv.build_projection(db, UID, TODAY)
-    snap.assert_called_once_with(UID, a.id, EST["est_sec"], EST["band_sec"], db)
+    snap.assert_not_called()
     assert est_call.call_count == 1
     assert out["invariants"] == {"ok": True, "violations": []}
     assert out["chain"]["final"]["est_sec"] == out["chart"]["projection"]["est_sec"] == EST["est_sec"]
@@ -364,6 +364,6 @@ def test_page_wiring():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert "v2-perf-projection" in html
-    assert "/api/performance/projection" in js and "data-chain-final" in js
+    assert "applyProjection" in js and "data-chain-final" in js
     assert "data-chain-na" in js and "not available" in js
     assert "data-projection-built-from" in js

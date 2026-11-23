@@ -4,6 +4,16 @@
   "use strict";
 
   var esc = window.AppCommon.escapeHtml;
+  var PERFORMANCE_PAGE = "/api/performance/page";
+  var FIRST_SECTIONS = "hero,radar,score_cards";
+  var LAZY_SECTIONS = "readiness,projection,races,coach,mobility,anchors";
+  var LAZY_HOST_IDS = [
+    "v2-perf-readiness",
+    "v2-perf-projection-wrap",
+    "v2-perf-coach",
+    "v2-perf-mobility",
+    "v2-perf-strength-anchors",
+  ];
 
   function scoreText(obj, raw) {
     if (typeof obj === "number") return String(obj);
@@ -21,28 +31,76 @@
     window.setTimeout(function () { el.classList.remove("is-visible"); }, 2800);
   }
 
-  function getJSON(url) {
-    return fetch(url, { credentials: "same-origin" }).then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
+  function pageUrl(sections) {
+    return PERFORMANCE_PAGE + "?sections=" + encodeURIComponent(sections) + "&size=large";
+  }
+
+  function isRetryable(err) {
+    var status = err && err.status;
+    if (!status) return true;
+    return status === 502 || status === 503 || status === 504;
+  }
+
+  var pageEtags = {};
+
+  function fetchJSONOnce(url) {
+    var headers = {};
+    if (pageEtags[url]) headers["If-None-Match"] = pageEtags[url];
+    return fetch(url, { credentials: "same-origin", headers: headers }).then(function (r) {
+      var tag = r.headers.get("ETag");
+      if (tag) pageEtags[url] = tag;
+      if (r.status === 304) return { _notModified: true };
+      if (!r.ok) {
+        var err = new Error("HTTP " + r.status);
+        err.status = r.status;
+        throw err;
+      }
       return r.json();
     });
   }
 
-  function fetchJSONWithRetry(url, tries) {
-    tries = tries || 2;
-    function attempt(n) {
-      return getJSON(url).catch(function (err) {
-        if (n < tries) return attempt(n + 1);
-        throw err;
+  function fetchPage(sections) {
+    var url = pageUrl(sections);
+    return fetchJSONOnce(url).catch(function (err) {
+      if (!isRetryable(err)) throw err;
+      var delay = 1000 + Math.floor(Math.random() * 1000);
+      return new Promise(function (ok) { setTimeout(ok, delay); }).then(function () {
+        return fetchJSONOnce(url);
       });
-    }
-    return attempt(1);
+    });
+  }
+
+  function sectionFailed(data) {
+    return !data || (typeof data === "object" && data.error);
   }
 
   function setRegionLoading(host, label) {
     if (!host) return;
     host.setAttribute("aria-busy", "true");
+    host.hidden = false;
     host.innerHTML = '<p class="rv-subtitle rv-region-loading">' + esc(label) + "…</p>";
+  }
+
+  function renderSectionError(host, label, retryFn) {
+    if (!host) return;
+    host.removeAttribute("aria-busy");
+    host.hidden = false;
+    host.innerHTML =
+      '<span class="rv-label">' + esc(label) + "</span>" +
+      '<p class="rv-subtitle">Could not load this section. ' +
+      '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-section-retry>Retry</button></p>';
+    var btn = host.querySelector("[data-section-retry]");
+    if (btn) btn.addEventListener("click", retryFn);
+  }
+
+  function refetchSections(sections, apply) {
+    delete pageEtags[pageUrl(sections)];
+    fetchPage(sections).then(function (body) {
+      if (body && body._notModified) return;
+      apply(body || {});
+    }).catch(function () {
+      apply(null);
+    });
   }
 
   var AFTER_RACE_COPY =
@@ -64,34 +122,12 @@
     el.textContent = day + " \u00b7 where you stand, and what work moves it";
   }
 
-  // Revamp pages do not load nav.js (which patches fetch with the CSRF header),
-  // so mutating calls attach the double-submit token themselves.
-  function csrfToken() {
-    var m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
-    if (m) return Promise.resolve(decodeURIComponent(m[1]));
-    return fetch("/api/csrf-token", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (b) {
-        if (b && b.csrf_token) {
-          document.cookie = "csrf-token=" + encodeURIComponent(b.csrf_token) + "; Path=/; SameSite=Lax" +
-            (window.location.protocol === "https:" ? "; Secure" : "");
-        }
-        var again = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
-        return again ? decodeURIComponent(again[1]) : (b && b.csrf_token) || "";
-      })
-      .catch(function () { return ""; });
-  }
-
   function sendJSON(method, url, body) {
-    return csrfToken().then(function (token) {
-      var headers = { "Content-Type": "application/json" };
-      if (token) headers["X-CSRF-Token"] = token;
-      return fetch(url, {
-        method: method,
-        credentials: "same-origin",
-        headers: headers,
-        body: JSON.stringify(body),
-      });
+    return fetch(url, {
+      method: method,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     }).then(function (r) {
       return r.json().then(function (data) {
         if (!r.ok) throw new Error(errText(data, r.status));
@@ -129,17 +165,31 @@
         return { key: a.key, label: a.label, match: a.match, target_factor: parseFloat(input.value) };
       });
       sendJSON("PUT", "/api/performance/anchor-lifts", { anchors: next })
-        .then(function (data) { renderAnchors(host, data.anchors); toast("Anchors saved"); })
+        .then(function (data) {
+          renderAnchors(host, data.anchors);
+          toast("Anchors saved");
+          refetchSections("radar", function (b) { applyRadar(b && b.radar); });
+        })
         .catch(function (e) { toast("Could not save: " + e.message); });
     });
+  }
+
+  function applyAnchors(data) {
+    var host = document.getElementById("v2-perf-strength-anchors");
+    if (!host) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "Strength anchors", loadAnchors);
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    renderAnchors(host, data.anchors || []);
   }
 
   function loadAnchors() {
     var host = document.getElementById("v2-perf-strength-anchors");
     if (!host) return;
-    getJSON("/api/performance/anchor-lifts")
-      .then(function (data) { renderAnchors(host, data.anchors || []); })
-      .catch(function () { host.innerHTML = '<span class="rv-label">Strength anchors</span><p>Not available.</p>'; });
+    setRegionLoading(host, "Loading anchors");
+    refetchSections("anchors", function (body) { applyAnchors(body && body.anchors); });
   }
 
   // ── Drawer (P0-6 pattern: backdrop + aside, Escape closes, focus returns) ──
@@ -228,24 +278,30 @@
       sendJSON("POST", "/api/performance/mobility-tests", payload).then(function () {
         closeDrawer();
         toast("Mobility test saved");
-        loadMobility();
+        refetchSections("mobility,radar", function (b) {
+          applyMobility(b && b.mobility);
+          applyRadar(b && b.radar);
+        });
       }).catch(function (e) { err.textContent = e.message; err.hidden = false; });
     });
+  }
+
+  function applyMobility(data) {
+    var host = document.getElementById("v2-perf-mobility");
+    if (!host) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "Mobility self-test", loadMobility);
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    renderMobility(host, data);
   }
 
   function loadMobility() {
     var host = document.getElementById("v2-perf-mobility");
     if (!host) return;
     setRegionLoading(host, "Loading mobility");
-    fetchJSONWithRetry("/api/performance/mobility-tests", 2)
-      .then(function (data) {
-        host.removeAttribute("aria-busy");
-        renderMobility(host, data);
-      })
-      .catch(function () {
-        host.removeAttribute("aria-busy");
-        renderMobility(host, { axis: { never_measured: true, score: null, test_due: false, raw: {} } });
-      });
+    refetchSections("mobility", function (body) { applyMobility(body && body.mobility); });
   }
 
   // ── Focus card, why-not card and the queue into Plan (P4-7) ───────────────
@@ -339,16 +395,35 @@
     }
   }
 
+  function applyRadar(data) {
+    var chart = document.getElementById("v2-perf-radar-chart");
+    var focusHost = document.getElementById("v2-perf-focus");
+    if (sectionFailed(data)) {
+      if (chart) renderSectionError(chart, "Status", loadFocus);
+      if (focusHost) renderSectionError(focusHost, "Focus", loadFocus);
+      return;
+    }
+    if (chart) {
+      if (window.PerfRadar && window.PerfRadar.paint) window.PerfRadar.paint(chart, data);
+      else {
+        chart.innerHTML = data.svg || "";
+        chart.removeAttribute("aria-busy");
+      }
+    }
+    if (focusHost) {
+      if (sectionFailed(data.focus)) renderSectionError(focusHost, "Focus", loadFocus);
+      else renderFocus(focusHost, data.focus);
+    }
+  }
+
   function loadFocus() {
-    var host = document.getElementById("v2-perf-focus");
-    if (!host) return;
-    fetchJSONWithRetry("/api/performance/focus", 2)
-      .then(function (data) { renderFocus(host, data); })
-      .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Focus</span><p class="rv-subtitle">Not available.</p></div>'; });
+    var chart = document.getElementById("v2-perf-radar-chart");
+    if (chart) chart.setAttribute("aria-busy", "true");
+    refetchSections("radar", function (body) { applyRadar(body && body.radar); });
   }
 
   // ── A-race hero and the after-the-race card (P4-8) ────────────────────────
-  // Display only: every value comes from /api/performance/hero; the one local
+  // Display only: every value comes from the page hero section; the one local
   // calculation is formatting seconds as h:mm:ss.
 
   function fmtHMS(sec) {
@@ -455,34 +530,30 @@
       '<p class="rv-subtitle" style="margin:0;line-height:1.55">' + esc(after.copy || "") + '</p>' + cpHtml;
   }
 
+  function applyHero(data) {
+    var host = document.getElementById("v2-perf-hero");
+    var after = document.getElementById("v2-perf-after-race");
+    if (!host || !after) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "A race", loadHero);
+      after.removeAttribute("aria-busy");
+      after.innerHTML =
+        '<span class="rv-label">After the race</span>' +
+        '<p class="rv-subtitle">Could not load this section.</p>';
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    after.removeAttribute("aria-busy");
+    renderHero(host, after, data);
+  }
+
   function loadHero() {
     var host = document.getElementById("v2-perf-hero");
     var after = document.getElementById("v2-perf-after-race");
     if (!host || !after) return;
     setRegionLoading(host, "Loading A race");
     setRegionLoading(after, "Loading");
-    fetchJSONWithRetry("/api/performance/hero", 2)
-      .then(function (data) {
-        host.removeAttribute("aria-busy");
-        after.removeAttribute("aria-busy");
-        renderHero(host, after, data);
-      })
-      .catch(function () {
-        host.removeAttribute("aria-busy");
-        after.removeAttribute("aria-busy");
-        host.innerHTML =
-          '<span class="rv-label">A race</span><p class="rv-subtitle">No upcoming A race. Add one on the race list.</p>' +
-          '<button type="button" class="rv-btn rv-btn--primary rv-btn--sm" data-scroll-races>Add a race</button>';
-        renderAfterRaceFallback(after, AFTER_RACE_COPY);
-        var btn = host.querySelector("[data-scroll-races]");
-        if (btn) {
-          btn.addEventListener("click", function () {
-            openRaceDrawer(null);
-            var list = document.getElementById("v2-perf-races");
-            if (list && list.scrollIntoView) list.scrollIntoView({ behavior: "smooth" });
-          });
-        }
-      });
+    refetchSections("hero", function (body) { applyHero(body && body.hero); });
   }
 
   function stateChip(state) {
@@ -521,18 +592,34 @@
         var note = noteEl.value.trim();
         if (!note) { toast("Write the toilet plan first"); return; }
         sendJSON("PATCH", "/api/races/" + encodeURIComponent(raceId), { notes: note, toilet_plan_done: true })
-          .then(function () { toast("Toilet plan saved"); loadReadiness(); loadHero(); })
+          .then(function () {
+            toast("Toilet plan saved");
+            refetchSections("readiness,hero", function (b) {
+              applyReadiness(b && b.readiness);
+              applyHero(b && b.hero);
+            });
+          })
           .catch(function (e) { toast("Could not save: " + e.message); });
       });
     }
   }
 
+  function applyReadiness(data) {
+    var host = document.getElementById("v2-perf-readiness");
+    if (!host) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "A-race readiness", loadReadiness);
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    renderReadiness(host, data);
+  }
+
   function loadReadiness() {
     var host = document.getElementById("v2-perf-readiness");
     if (!host) return;
-    fetchJSONWithRetry("/api/performance/a-race-readiness", 2)
-      .then(function (data) { renderReadiness(host, data); })
-      .catch(function () { host.hidden = true; host.innerHTML = ""; });
+    setRegionLoading(host, "Loading readiness");
+    refetchSections("readiness", function (body) { applyReadiness(body && body.readiness); });
   }
 
   // ── Endurance and Speed cards (P4-9) ──────────────────────────────────────
@@ -595,16 +682,26 @@
       (anchors ? '<details><summary>Anchor efforts and other runs</summary><ul>' + anchors + '</ul></details>' : "") + '</div>';
   }
 
+  function applyScoreCards(data) {
+    var host = document.getElementById("v2-perf-score-cards");
+    if (!host) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "Endurance and Speed", loadScoreCards);
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    host.innerHTML = (data.cards || []).map(renderScoreCard).join("");
+  }
+
   function loadScoreCards() {
     var host = document.getElementById("v2-perf-score-cards");
     if (!host) return;
-    getJSON("/api/performance/score-cards")
-      .then(function (data) { host.innerHTML = (data.cards || []).map(renderScoreCard).join(""); })
-      .catch(function () { host.innerHTML = '<div class="rv-card"><span class="rv-label">Endurance and Speed</span><p>Not available.</p></div>'; });
+    setRegionLoading(host, "Loading");
+    refetchSections("score_cards", function (body) { applyScoreCards(body && body.score_cards); });
   }
 
   // ── Races and projections: tiles, chain, chart (P4-10) ────────────────────
-  // Every value comes from /api/performance/projection. The chart maps the
+  // Every value comes from the page projection section. The chart maps the
   // server's seconds and 0..1 date positions onto the SVG; nothing is derived.
 
   var NA = "not available";
@@ -770,16 +867,26 @@
     if (addBtn) addBtn.addEventListener("click", function () { openRaceDrawer(null); });
   }
 
+  function applyProjection(data) {
+    var host = document.getElementById("v2-perf-projection");
+    if (!host) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "Races and projections", loadProjection);
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    renderProjection(host, data);
+  }
+
   function loadProjection() {
     var host = document.getElementById("v2-perf-projection");
     if (!host) return;
-    getJSON("/api/performance/projection")
-      .then(function (data) { renderProjection(host, data); })
-      .catch(function () { host.innerHTML = '<span class="rv-label">Races and projections</span><p>Not available.</p>'; });
+    setRegionLoading(host, "Loading projection");
+    refetchSections("projection", function (body) { applyProjection(body && body.projection); });
   }
 
   // ── Race list: needs result, upcoming, completed, add/edit (P4-11) ────────
-  // Rows come from /api/performance/races. Recording uses the existing
+  // Rows come from the page races section. Recording uses the existing
   // POST /api/races/{id}/calibrate flow; edits use PATCH /api/races/{id}.
 
   var raceIndex = {};
@@ -796,10 +903,23 @@
   }
 
   function reloadProjectionViews() {
-    loadHero();
-    loadProjection();
-    loadRaces();
-    loadCoach();
+    refetchSections("hero,readiness,projection,races,score_cards,radar", function (b) {
+      if (!b) {
+        applyHero({ error: "failed" });
+        applyReadiness({ error: "failed" });
+        applyProjection({ error: "failed" });
+        applyRaces({ error: "failed" });
+        applyScoreCards({ error: "failed" });
+        applyRadar({ error: "failed" });
+        return;
+      }
+      applyHero(b.hero);
+      applyReadiness(b.readiness);
+      applyProjection(b.projection);
+      applyRaces(b.races);
+      applyScoreCards(b.score_cards);
+      applyRadar(b.radar);
+    });
   }
 
   function raceNameCell(r, extra) {
@@ -982,12 +1102,22 @@
     });
   }
 
+  function applyRaces(data) {
+    var host = document.getElementById("v2-perf-races");
+    if (!host) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "Races", loadRaces);
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    renderRaces(host, data);
+  }
+
   function loadRaces() {
     var host = document.getElementById("v2-perf-races");
     if (!host) return;
-    fetchJSONWithRetry("/api/performance/races", 2)
-      .then(function (data) { renderRaces(host, data); })
-      .catch(function () { host.innerHTML = '<span class="rv-race-sec">Races</span><p class="rv-subtitle">Could not load races. Refresh to retry.</p>'; });
+    setRegionLoading(host, "Loading races");
+    refetchSections("races", function (body) { applyRaces(body && body.races); });
   }
 
   document.addEventListener("perf:edit-race", function (ev) {
@@ -996,7 +1126,7 @@
   });
 
   // ── Coach block: check-in, review due, history (P4-12) ────────────────────
-  // Everything comes from /api/performance/coach-block; outcomes save through
+  // Everything comes from the page coach section; outcomes save through
   // the existing PATCH /api/decisions/{id}. No model call.
 
   function copyCheckin(btn) {
@@ -1063,6 +1193,7 @@
 
   function renderCoach(host, data) {
     var ck = data.checkin || {};
+    var state = ck.state === "done" ? "Check-in done this week" : "Check-in due this week";
     var review = data.review_due;
     var reviewCard = "";
     if (review) {
@@ -1085,7 +1216,8 @@
     host.innerHTML =
       '<div class="rv-perf-coach-grid">' +
       '<div class="rv-card rv-card--soft rv-stack">' +
-      '<span class="rv-label">Check-in with Claude</span>' +
+      '<span class="rv-label">Check-in with Claude</span> ' +
+      '<span class="rv-chip" data-checkin-state="' + esc(ck.state || "due") + '">' + esc(state) + '</span>' +
       '<p class="rv-subtitle">Copy your last 90 days out, talk it through, paste the change list back here.</p>' +
       '<button type="button" class="rv-btn rv-btn--primary" id="v2-copy-checkin">Copy check-in</button>' +
       reviewCard + "</div>" +
@@ -1114,37 +1246,96 @@
     });
   }
 
+  function applyCoach(data) {
+    var host = document.getElementById("v2-perf-coach");
+    if (!host) return;
+    if (sectionFailed(data)) {
+      renderSectionError(host, "Coach", loadCoach);
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    try { renderCoach(host, data); } catch (e) {
+      renderSectionError(host, "Coach", loadCoach);
+    }
+  }
+
   function loadCoach() {
     var host = document.getElementById("v2-perf-coach");
     if (!host) return;
     setRegionLoading(host, "Loading coach");
-    fetchJSONWithRetry("/api/performance/coach-block", 2)
-      .then(function (data) {
-        host.removeAttribute("aria-busy");
-        try { renderCoach(host, data); } catch (e) {
-          host.innerHTML = '<span class="rv-label">Coach</span><p class="rv-subtitle">Could not render coach block.</p>';
+    refetchSections("coach", function (body) { applyCoach(body && body.coach); });
+  }
+
+  var lazyStarted = false;
+
+  function applyLazy(body) {
+    if (!body) {
+      applyReadiness({ error: "failed" });
+      applyProjection({ error: "failed" });
+      applyRaces({ error: "failed" });
+      applyCoach({ error: "failed" });
+      applyMobility({ error: "failed" });
+      applyAnchors({ error: "failed" });
+      return;
+    }
+    applyReadiness(body.readiness);
+    applyProjection(body.projection);
+    applyRaces(body.races);
+    applyCoach(body.coach);
+    applyMobility(body.mobility);
+    applyAnchors(body.anchors);
+  }
+
+  function startLazy() {
+    if (lazyStarted) return;
+    lazyStarted = true;
+    ["v2-perf-readiness", "v2-perf-projection", "v2-perf-races", "v2-perf-coach",
+      "v2-perf-mobility", "v2-perf-strength-anchors"].forEach(function (id) {
+      var h = document.getElementById(id);
+      if (h) setRegionLoading(h, "Loading");
+    });
+    fetchPage(LAZY_SECTIONS).then(function (body) {
+      if (body && body._notModified) return;
+      applyLazy(body);
+    }).catch(function () { applyLazy(null); });
+  }
+
+  function observeLazy() {
+    var targets = LAZY_HOST_IDS.map(function (id) { return document.getElementById(id); }).filter(Boolean);
+    if (!targets.length) return;
+    if (!("IntersectionObserver" in window)) {
+      window.addEventListener("scroll", startLazy, { passive: true, once: true });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) {
+          io.disconnect();
+          startLazy();
+          return;
         }
-      })
-      .catch(function () {
-        host.removeAttribute("aria-busy");
-        host.innerHTML =
-          '<div class="rv-perf-coach-grid"><div class="rv-card rv-card--soft"><span class="rv-label">Check-in with Claude</span>' +
-          '<p class="rv-subtitle">Could not load coach data. <button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-coach-retry">Retry</button></p></div></div>';
-        var retry = host.querySelector("#v2-coach-retry");
-        if (retry) retry.addEventListener("click", loadCoach);
-      });
+      }
+    }, { rootMargin: "300px 0px" });
+    targets.forEach(function (t) { io.observe(t); });
   }
 
   document.addEventListener("DOMContentLoaded", function () {
     initPerfHeader();
-    loadScoreCards();
-    loadHero();
-    loadReadiness();
-    loadProjection();
-    loadRaces();
-    loadFocus();
-    loadCoach();
-    loadMobility();
-    loadAnchors();
+    setRegionLoading(document.getElementById("v2-perf-hero"), "Loading A race");
+    setRegionLoading(document.getElementById("v2-perf-after-race"), "Loading");
+    setRegionLoading(document.getElementById("v2-perf-score-cards"), "Loading");
+    var radarHost = document.getElementById("v2-perf-radar-chart");
+    if (radarHost) radarHost.setAttribute("aria-busy", "true");
+    fetchPage(FIRST_SECTIONS).then(function (body) {
+      if (body && body._notModified) return;
+      applyHero(body && body.hero);
+      applyRadar(body && body.radar);
+      applyScoreCards(body && body.score_cards);
+    }).catch(function () {
+      applyHero({ error: "failed" });
+      applyRadar({ error: "failed" });
+      applyScoreCards({ error: "failed" });
+    });
+    observeLazy();
   });
 })();

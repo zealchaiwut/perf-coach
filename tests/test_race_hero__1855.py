@@ -33,10 +33,16 @@ def hero(est=EST, r=None, session=None, pace=(353, None)):
     session = session or MagicMock()
     session.query.return_value.filter.return_value.filter.return_value.order_by.return_value.first.return_value = None
     session.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
+    empty_checklist = {
+        "summary": {"done": 0, "total": 6, "count_label": "0 / 6"},
+        "items": [],
+    }
     with patch.object(rh, "next_a_race", return_value=r), \
             patch.object(rh, "estimate_race_finish", return_value=est) as e, \
             patch.object(rh, "get_race_scores", return_value=SCORES) as g, \
-            patch.object(rh, "compute_goal_pace", return_value=pace) as p:
+            patch.object(rh, "compute_goal_pace", return_value=pace) as p, \
+            patch("backend.services.a_race_readiness_checklist.build_checklist",
+                  return_value=empty_checklist):
         return rh.build_hero(session, UID, TODAY), e, g, p
 
 
@@ -153,5 +159,5 @@ def test_page_wiring():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert "v2-perf-hero" in html and "v2-perf-after-race" in html
-    assert "/api/performance/hero" in js and "Change race" in js
+    assert "applyHero" in js and "Change race" in js
     assert "Race-specific" in js

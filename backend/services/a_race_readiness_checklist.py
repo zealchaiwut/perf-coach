@@ -11,6 +11,8 @@ from backend.services.checkpoint_detector import is_run_workout
 from backend.services.perf_a_race import next_a_race
 from backend.services.race_roles import race_role
 
+_UNSET = object()
+
 LONG_RUN_TARGET_SEC = 3 * 3600 + 30 * 60
 LONG_RUN_ITEM_TARGET = 2
 FUEL_REHEARSAL_TARGET = 4
@@ -207,8 +209,15 @@ def item_toilet_plan(race: Race) -> dict[str, Any]:
     )
 
 
-def build_checklist(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
-    race = next_a_race(session, user_id, today)
+def build_checklist(
+    session,
+    user_id: uuid.UUID,
+    today: date,
+    *,
+    race: Any = _UNSET,
+) -> dict[str, Any]:
+    if race is _UNSET:
+        race = next_a_race(session, user_id, today)
     if race is None:
         return {
             "race_id": None,

@@ -121,6 +121,9 @@ def create_race(
         db.add(race)
         db.commit()
         db.refresh(race)
+        from backend.services.race_calibration import after_race_write
+
+        after_race_write(db, plan.user_id)
         return race_to_dict(race)
 
 
@@ -172,6 +175,9 @@ def update_race(
         race.updated_at = _datetime.now(_timezone.utc)
         db.commit()
         db.refresh(race)
+        from backend.services.race_calibration import after_race_write
+
+        after_race_write(db, plan.user_id)
         return race_to_dict(race)
 
 
