@@ -1,6 +1,7 @@
 """Cached radar payload (axes only — SVG rendered per request)."""
 from __future__ import annotations
 
+import copy
 import uuid
 from datetime import date
 from typing import Callable, Optional
@@ -22,11 +23,13 @@ def get_radar_payload(
     def _compute():
         from backend.services.radar_payload import build_radar
 
-        return build_radar(session, user_id, as_of, focus_ranker=focus_ranker)
+        return build_radar(session, user_id, as_of)
 
+    payload = copy.deepcopy(
+        get_or_compute(session, user_id, DERIVED_RADAR_KEY, as_of, _compute)
+    )
     if focus_ranker is not None:
-        from backend.utils.query_log import note_radar_cache
+        from backend.services.radar_payload import apply_focus_ranker
 
-        note_radar_cache(hit=False)
-        return _compute()
-    return get_or_compute(session, user_id, DERIVED_RADAR_KEY, as_of, _compute)
+        apply_focus_ranker(payload, focus_ranker)
+    return payload
