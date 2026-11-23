@@ -1469,13 +1469,15 @@ _RUN_DURATION_BUCKETS = (("short", 0, 35), ("moderate", 35, 75), ("long", 75, No
 _STRENGTH_MIN_PER_EXERCISE = 5.0
 
 
-def estimate_historical_pace_and_tss(user_id, db=None) -> dict:
+def estimate_historical_pace_and_tss(user_id, db=None, workouts=None) -> dict:
     """Rough per-user baseline for estimate_planned_session_metrics(): average
     run pace (min/km) bucketed by duration, plus average TSS-per-minute for
     run and for strength/plyo, each from the trailing
     _PLANNED_ESTIMATE_LOOKBACK_DAYS of logged workouts. Any bucket with no
     supporting data returns None for that piece — callers must handle that
     (no data ⇒ no estimate, never a fabricated number).
+
+    Pass ``workouts`` to skip the lookback query (range rollup reuse).
     """
     uid = user_id if isinstance(user_id, _uuid_mod.UUID) else _uuid_mod.UUID(str(user_id))
     cutoff = today_bangkok() - timedelta(days=_PLANNED_ESTIMATE_LOOKBACK_DAYS)
@@ -1492,7 +1494,16 @@ def estimate_historical_pace_and_tss(user_id, db=None) -> dict:
             .all()
         )
 
-    if db is not None:
+    if workouts is not None:
+        workouts = [
+            w
+            for w in workouts
+            if getattr(w, "workout_date", None) is not None
+            and w.workout_date >= cutoff
+            and getattr(w, "duration_seconds", None)
+            and float(w.duration_seconds) > 0
+        ]
+    elif db is not None:
         workouts = _query(db)
     else:
         with Session(engine) as session:

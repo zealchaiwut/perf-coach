@@ -241,18 +241,31 @@ def week_target_and_phase(
     chronic_baseline: Optional[float] = None,
     settings: Optional[dict[str, Any]] = None,
     today: Optional[date] = None,
+    ctx: Optional[dict[str, Any]] = None,
+    snapshot: Any = None,
 ) -> Optional[dict[str, Any]]:
-    """Return target_tss + phase for a week inside the A-race block, else None."""
+    """Return target_tss + phase for a week inside the A-race block, else None.
+
+    ``ctx`` / ``snapshot`` skip the per-week plan_context and snapshot queries
+    used by batched ``weekly_rollups()``.
+    """
     uid = uuid.UUID(str(user_id))
     ws = normalize_week_start(week_start)
     today = today or today_bangkok()
+    if snapshot is not None:
+        return {
+            "target_tss": float(snapshot.target_tss),
+            "phase": snapshot.phase,
+            "peak_tss": snapshot.peak_tss,
+        }
     own = session is None
     if own:
         session = Session(engine)
     try:
         from backend.services import revamp_plan_settings as _rps
 
-        ctx = _rps.plan_context(session, uid, today=today)
+        if ctx is None:
+            ctx = _rps.plan_context(session, uid, today=today)
         if ctx is None:
             return None
         race = ctx["race"]

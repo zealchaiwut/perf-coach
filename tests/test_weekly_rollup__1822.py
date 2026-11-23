@@ -29,7 +29,7 @@ def _workout(*, tss_power, workout_date, start_time=None, workout_type="run"):
         workout_type=workout_type,
         distance_km=10.0,
         duration_seconds=3600,
-        tss=None,
+        tss=float(tss_power),
         tss_power=float(tss_power),
         tss_stryd=None,
         tss_method_override=None,
@@ -52,9 +52,14 @@ def test_two_runs_sum_tss_total():
         [],
     ]
 
-    with patch(
-        "backend.services.weekly_rollup._estimate_planned_tss_remaining",
-        return_value=0.0,
+    with (
+        patch(
+            "backend.services.weekly_rollup._estimate_planned_tss_remaining",
+            return_value=0.0,
+        ),
+        patch("backend.services.race_day_tss.race_week_payload", return_value=[]),
+        patch("backend.services.revamp_load_plan.chronic_weekly_tss", return_value=300.0),
+        patch("backend.services.revamp_load_plan.week_target_and_phase", return_value=None),
     ):
         out = weekly_rollup(str(_USER), ws, session=mock_session, today=date(2026, 11, 8))
     assert out["tss_total"] == 260.0
@@ -90,10 +95,18 @@ def test_export_series_and_rollups_agree():
 
 def test_weekly_rollups_range():
     inst = MagicMock()
-    with patch(
-        "backend.services.weekly_rollup.weekly_rollup",
-        side_effect=lambda uid, ws, **kw: {"week_start": ws.isoformat()},
+    inst.query.return_value.filter.return_value = inst.query.return_value
+    inst.query.return_value.order_by.return_value = inst.query.return_value
+    inst.query.return_value.all.return_value = []
+    inst.query.return_value.first.return_value = None
+    inst.get.return_value = None
+    with (
+        patch("backend.services.revamp_load_plan.chronic_weekly_tss", return_value=300.0),
+        patch("backend.services.revamp_plan_settings.resolve_a_race", return_value=None),
+        patch("backend.services.training_load.estimate_historical_pace_and_tss", return_value={}),
+        patch("backend.services.weekly_rollup._estimate_planned_tss_remaining", return_value=0.0),
+        patch("backend.services.race_day_tss.race_week_payload", return_value=[]),
     ):
-        rows = weekly_rollups(str(_USER), date(2026, 11, 2), date(2026, 11, 16), session=inst)
+        rows = weekly_rollups(str(_USER), date(2026, 11, 2), date(2026, 11, 16), session=inst, today=date(2026, 11, 16))
     assert len(rows) == 3
     assert rows[0]["week_start"] == "2026-11-02"
