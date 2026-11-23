@@ -19381,16 +19381,6 @@ class PlanWarningApplyIn(BaseModel):
     warning_id: str
 
 
-@app.get("/api/plan/revamp-warnings")
-@_query_logged("/api/plan/revamp-warnings")
-def get_plan_revamp_warnings(user: User = Depends(resolve_user)):
-    """Layout errors, post-race clashes, and race-week copy (P3-11)."""
-    from backend.services.plan_warnings import revamp_warnings_payload
-
-    with Session(engine) as db:
-        return JSONResponse(revamp_warnings_payload(db, user.id))
-
-
 @app.post("/api/plan/revamp-warnings/apply")
 def post_plan_revamp_warning_apply(
     body: PlanWarningApplyIn,
@@ -19585,53 +19575,6 @@ def get_training_trends_revamp(
     today = _today_bkk()
     with Session(engine) as db:
         return JSONResponse(trends_payload(db, user.id, range_key=rk, today=today))
-
-
-@app.get("/api/plan/revamp-week-board")
-@_query_logged("/api/plan/revamp-week-board")
-def get_plan_revamp_week_board(
-    week_start: Optional[str] = Query(default=None),
-    user: User = Depends(resolve_user),
-):
-    """Seven-day plan board for v2 Training plan (P3-5)."""
-    from backend.services.revamp_week_board import week_board
-
-    today = _today_bkk()
-    ws = today - _timedelta(days=today.weekday())
-    if week_start:
-        try:
-            ws = _date.fromisoformat(week_start)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        ws = ws - _timedelta(days=ws.weekday())
-    with Session(engine) as db:
-        return JSONResponse(week_board(user.id, ws, session=db, today=today))
-
-
-@app.get("/api/plan/revamp-week-load")
-@_query_logged("/api/plan/revamp-week-load")
-def get_plan_revamp_week_load(
-    week_start: Optional[str] = Query(default=None),
-    user: User = Depends(resolve_user),
-):
-    """Revamp this-week load card (P3-4)."""
-    from backend.services.revamp_load_plan import revamp_week_load
-
-    today = _today_bkk()
-    ws = today - _timedelta(days=today.weekday())
-    if week_start:
-        try:
-            ws = _date.fromisoformat(week_start)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        ws = ws - _timedelta(days=ws.weekday())
-    with Session(engine) as db:
-        from backend.services.revamp_load_plan import generic_week_load
-
-        payload = revamp_week_load(user.id, ws, session=db, today=today)
-        if payload is None:
-            payload = generic_week_load(user.id, ws, session=db, today=today)
-    return JSONResponse(payload)
 
 
 @app.get("/api/plan/revamp-week")

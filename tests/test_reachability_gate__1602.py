@@ -486,19 +486,6 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "composed in-process by get_plan_week_bundle. Direct FE callers "
         "removed on purpose — endpoint kept as the week-load SoT handler."
     ),
-    "/api/plan/revamp-week-board": (
-        "v2 Plan now boots via GET /api/plan/revamp-week (#1927). Endpoint "
-        "stays registered until #1933 removes it."
-    ),
-    "/api/plan/revamp-week-load": (
-        "v2 Plan now boots via GET /api/plan/revamp-week (#1927). Endpoint "
-        "stays registered until #1933 removes it."
-    ),
-    "/api/plan/revamp-warnings": (
-        "v2 Plan reads warnings from GET /api/plan/revamp-week (#1927); "
-        "POST /api/plan/revamp-warnings/apply still has a FE caller. GET "
-        "removed in #1933."
-    ),
     "/api/plan/rule-evaluate": (
         "Called from v2-plan-week-board.js on drag/drop and keyboard move."
     ),

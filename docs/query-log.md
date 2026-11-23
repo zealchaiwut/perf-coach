@@ -5,10 +5,8 @@ Lightweight per-request SQL instrumentation for Log and Plan endpoints:
 - `GET /api/training-log`
 - `GET /api/weekly-rollup`
 - `GET /api/training/month`
-- `GET /api/plan/revamp-week-board`
-- `GET /api/plan/revamp-week-load`
+- `GET /api/plan/revamp-week`
 - `GET /api/plan/revamp-road-chart`
-- `GET /api/plan/revamp-warnings`
 - `GET /api/plan/week-bundle`
 - `GET /api/performance/focus`
 

@@ -18,10 +18,8 @@ from backend.utils import query_log
 UID = uuid.uuid4()
 
 PLAN_PATHS = [
-    ("/api/plan/revamp-week-board", "/api/plan/revamp-week-board"),
-    ("/api/plan/revamp-week-load", "/api/plan/revamp-week-load"),
+    ("/api/plan/revamp-week", "/api/plan/revamp-week"),
     ("/api/plan/revamp-road-chart", "/api/plan/revamp-road-chart"),
-    ("/api/plan/revamp-warnings", "/api/plan/revamp-warnings"),
     ("/api/plan/week-bundle", "/api/plan/week-bundle"),
     ("/api/performance/focus", "/api/performance/focus"),
 ]
@@ -104,7 +102,7 @@ def test_write_count_increments_on_insert():
     log.addHandler(h)
     log.setLevel(logging.INFO)
     try:
-        with query_log.request_span("/api/plan/revamp-week-board", UID):
+        with query_log.request_span("/api/plan/revamp-week", UID):
             with SASession(sql_engine) as s:
                 s.execute(text("INSERT INTO t (id) VALUES (1)"))
                 s.execute(text("SELECT id FROM t"))
@@ -146,6 +144,7 @@ def test_plan_endpoints_emit_query_and_write_count(client, caplog, path, expecte
         patch("backend.services.revamp_load_plan.road_to_chart", side_effect=_fire_select(sql_engine, None)),
         patch("backend.services.revamp_load_plan.generic_road_chart", side_effect=_fire_select(sql_engine, road)),
         patch("backend.services.plan_warnings.revamp_warnings_payload", side_effect=_fire_select(sql_engine, warnings)),
+        patch("backend.services.revamp_week.build_revamp_week", side_effect=_fire_select(sql_engine, {"week_start": "2026-11-17", "board": board})),
         patch("backend.main.get_planned_sessions", side_effect=_fire_select(sql_engine, sessions)),
         patch("backend.main.get_plan_week_load", side_effect=_fire_select(sql_engine, load)),
         patch("backend.services.radar_cache.get_radar_payload", side_effect=_fire_select(sql_engine, radar)),

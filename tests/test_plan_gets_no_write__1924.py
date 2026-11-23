@@ -17,9 +17,7 @@ from backend.auth import resolve_user
 from backend.main import (
     app,
     get_plan_revamp_road_chart,
-    get_plan_revamp_warnings,
-    get_plan_revamp_week_board,
-    get_plan_revamp_week_load,
+    get_plan_revamp_week,
 )
 from backend.models import User
 from backend.services import revamp_load_plan as rlp
@@ -41,9 +39,7 @@ BLOCK_START = date(2026, 11, 9)
 RACE_DATE = date(2026, 12, 28)
 GET_PATHS = [
     "/api/plan/revamp-road-chart",
-    "/api/plan/revamp-week-load",
-    "/api/plan/revamp-warnings",
-    "/api/plan/revamp-week-board",
+    "/api/plan/revamp-week",
 ]
 
 
@@ -71,9 +67,7 @@ def test_finding_get_handlers_never_commit():
     """Finding: GET handlers never commit, so flushed snapshots would roll back."""
     for fn in (
         get_plan_revamp_road_chart,
-        get_plan_revamp_week_load,
-        get_plan_revamp_warnings,
-        get_plan_revamp_week_board,
+        get_plan_revamp_week,
     ):
         src = inspect.getsource(fn)
         assert "commit(" not in src, fn.__name__
@@ -260,6 +254,7 @@ def test_get_plan_endpoints_write_count_zero(client, caplog, path):
         patch("backend.services.revamp_load_plan.road_to_chart", side_effect=_fire_select(sql_engine, None)),
         patch("backend.services.revamp_load_plan.generic_road_chart", side_effect=_fire_select(sql_engine, road)),
         patch("backend.services.plan_warnings.revamp_warnings_payload", side_effect=_fire_select(sql_engine, warnings)),
+        patch("backend.services.revamp_week.build_revamp_week", side_effect=_fire_select(sql_engine, {"week_start": "2026-11-16", "board": board})),
         patch("backend.services.revamp_load_plan.ensure_snapshots") as ens,
     ):
         res = client.get(path)
