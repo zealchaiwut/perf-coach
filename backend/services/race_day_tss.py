@@ -75,16 +75,19 @@ def compute_race_day_tss(
     }
 
 
-def logged_race_tss(session: Session, user_id, race: Race) -> Optional[float]:
+def logged_race_tss(session: Session, user_id, race: Race, *, workouts=None) -> Optional[float]:
     """Actual session TSS for a completed race day."""
-    rows = (
-        session.query(Workout)
-        .filter(
-            Workout.user_id == user_id,
-            Workout.workout_date == race.race_date,
+    if workouts is not None:
+        rows = [w for w in workouts if getattr(w, "workout_date", None) == race.race_date]
+    else:
+        rows = (
+            session.query(Workout)
+            .filter(
+                Workout.user_id == user_id,
+                Workout.workout_date == race.race_date,
+            )
+            .all()
         )
-        .all()
-    )
     best = None
     for w in rows:
         wt = (w.workout_type or "").lower()
@@ -124,12 +127,29 @@ def race_week_payload(
     user_id,
     week_start,
     week_end,
+    *,
+    races: Optional[list[Race]] = None,
+    workouts: Optional[list[Workout]] = None,
 ) -> list[dict[str, Any]]:
-    """Race items kept separate from training planned TSS."""
+    """Race items kept separate from training planned TSS.
+
+    Prefetch ``races`` / ``workouts`` on the range path so each table is
+    queried once; compute_race_day_tss → estimate_race_finish still hits
+    the DB when duration is unknown (unavoidable per-race, rare).
+    """
+    if races is None:
+        race_rows = races_in_week(session, user_id, week_start, week_end)
+    else:
+        race_rows = [
+            r
+            for r in races
+            if week_start <= r.race_date <= week_end and r.status in ("planned", "done")
+        ]
+        race_rows.sort(key=lambda r: r.race_date)
     out: list[dict[str, Any]] = []
-    for race in races_in_week(session, user_id, week_start, week_end):
+    for race in race_rows:
         if race.status == "done":
-            actual = logged_race_tss(session, user_id, race)
+            actual = logged_race_tss(session, user_id, race, workouts=workouts)
             if actual is None:
                 est = compute_race_day_tss(session, race)
                 tss = est.get("tss")
