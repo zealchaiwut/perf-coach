@@ -477,24 +477,11 @@ def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]
     from backend.services.race_calibration import (
         combined_correction,
         load_calibrations,
-        record_prediction,
     )
     from backend.services.race_finish_estimator import blended_scores_estimate
     from backend.services.score_reader import get_scores
 
     race = next_a_race(session, user_id, today)
-    try:
-        # Same self-heal the calibration-status endpoint runs: a freshly recorded
-        # result becomes a calibration row before the chain is built.
-        from backend.services.race_calibration import ensure_calibrations
-
-        ensure_calibrations(str(user_id), session)
-    except Exception:
-        _log.warning("ensure_calibrations failed", exc_info=True)
-        try:
-            session.rollback()
-        except Exception:
-            pass
     try:
         cal_rows = load_calibrations(str(user_id), session)
     except Exception:
@@ -575,11 +562,6 @@ def build_projection(session, user_id: uuid.UUID, today: date) -> dict[str, Any]
         start=start, today=today, race=race, est=est, goal_sec=goal["time_sec"],
         history=_history(session, race.id), recalibrations=recal, ticks=ticks, pending=pending,
     )
-    if not est.get("unavailable") and est.get("est_sec") is not None:
-        try:
-            record_prediction(user_id, race.id, int(est["est_sec"]), est.get("band_sec"), session)
-        except Exception:
-            _log.warning("record_prediction failed in build_projection", exc_info=True)
     violations = check_invariants(payload, hero_est_sec=est.get("est_sec") if not est.get("unavailable") else None)
     if violations:
         _log.error("projection invariants violated: %s", violations)

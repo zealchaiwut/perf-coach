@@ -301,6 +301,13 @@ Timed schedules:
   `backend/main.py`'s `_banister_refit_scheduler_loop`, but the worker owns
   it going forward — set `BANISTER_REFIT_ENABLED=0` on the webapp (Render)
   once the worker's refit is confirmed running, to avoid double-running it.
+- **Race predictions** (#1937): at each sync-sweep wake the scheduler enqueues
+  a `race_predictions` job (dedupe key `race_predictions:YYYY-MM-DD`) that
+  upserts one `race_predictions` row per planned upcoming race per active
+  user. Manual:
+  `POST /internal/race-predictions/run` with `X-Worker-Secret`
+  (`{"sync": true}` runs inline). The webapp GET
+  `/api/performance/projection` never writes these rows.
 - **Daily Home Coach**: if `WORKER_DAILY_COACH_ENABLED=1` (default; falls
   back to legacy `WORKER_WEEKLY_COACH_ENABLED`), the scheduler enqueues a
   `daily_coach` job (dedupe key `daily_coach:YYYY-MM-DD`) at the same wake

@@ -365,3 +365,69 @@ def record_prediction(user_id: str, race_id, predicted_seconds: int, band_second
     except Exception:
         _log.warning("record_prediction failed for race %s", race_id, exc_info=True)
         db.rollback()
+
+
+def record_todays_predictions(db, user_id, today: Optional[date] = None) -> int:
+    """Upsert today's shown prediction for every planned upcoming race.
+
+    One row per race per Bangkok day (``record_prediction`` ON CONFLICT).
+    Returns how many races were recorded. Best-effort per race (#1937).
+    """
+    from backend.models import Race
+    from backend.services.race_finish_estimate import estimate_race_finish
+
+    day = today or today_bangkok()
+    races = (
+        db.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.status == "planned",
+            Race.race_date >= day,
+        )
+        .all()
+    )
+    n = 0
+    for race in races:
+        try:
+            est = estimate_race_finish(user_id, race, today=day, db=db)
+            if est.get("unavailable") or est.get("est_sec") is None:
+                continue
+            record_prediction(user_id, race.id, int(est["est_sec"]), est.get("band_sec"), db)
+            n += 1
+        except Exception:
+            _log.warning(
+                "record_todays_predictions failed for race %s",
+                getattr(race, "id", None),
+                exc_info=True,
+            )
+    return n
+
+
+def after_race_write(db, user_id) -> None:
+    """Best-effort persist of today's predictions after a race mutation (#1937)."""
+    try:
+        record_todays_predictions(db, user_id)
+    except Exception:
+        _log.warning("after_race_write predictions failed for %s", user_id, exc_info=True)
+
+
+def run_daily_predictions(as_of: Optional[date] = None) -> dict[str, str]:
+    """Worker entry: one prediction per planned race per active user (#1937)."""
+    from sqlalchemy.orm import Session
+
+    from backend.db import engine
+    from backend.models import User
+
+    day = as_of or today_bangkok()
+    results: dict[str, str] = {}
+    with Session(engine) as s:
+        users = [r.id for r in s.query(User.id).filter(User.is_active.is_(True)).all()]
+    for uid in users:
+        try:
+            with Session(engine) as s:
+                record_todays_predictions(s, uid, day)
+            results[str(uid)] = "ok"
+        except Exception:
+            _log.warning("daily race predictions failed for %s", uid, exc_info=True)
+            results[str(uid)] = "error"
+    return results

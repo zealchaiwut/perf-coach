@@ -149,8 +149,8 @@ def test_recording_uses_existing_calibrate_flow_and_projection_ensures_calibrati
     js = Path("frontend/js/v2-performance.js").read_text()
     assert '"/api/races/" + encodeURIComponent(raceId) + "/calibrate"' in js
     assert "/calibrate/accept" in js and "reloadProjectionViews" in js
-    src = Path("backend/services/projection_view.py").read_text()
-    assert "ensure_calibrations" in src  # a recorded result becomes a calibration row before the chain is built
+    src = Path("backend/main.py").read_text()
+    assert "ensure_calibrations" in src  # recorded result becomes a calibration row on the write path (#1937)
 
 
 # ── endpoint / page ──────────────────────────────────────────────────────────
