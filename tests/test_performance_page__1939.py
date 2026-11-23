@@ -131,6 +131,7 @@ def _page_patches(sql_engine, *, hero=None, radar=None, cards=None, checklist=No
     focus = focus if focus is not None else {"focus": None, "why_not": []}
     return (
         patch("backend.services.derived_cache.get_or_compute", side_effect=_passthrough_goc),
+        patch("backend.services.derived_cache.get_data_version", return_value=1),
         patch("backend.services.radar_cache.get_or_compute", side_effect=_passthrough_goc),
         patch("backend.services.radar_cache.get_radar_payload", side_effect=_fire_select(sql_engine, radar)),
         patch("backend.services.radar_payload.apply_focus_ranker"),

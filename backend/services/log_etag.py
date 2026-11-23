@@ -10,7 +10,16 @@ from fastapi.responses import Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from backend.models import LoadPlanWeekSnapshot, PlannedSession, Race, RevampLoadSettings, Workout
+from backend.models import (
+    Decision,
+    LoadPlanWeekSnapshot,
+    MobilityTest,
+    PlannedSession,
+    Race,
+    RevampLoadSettings,
+    UserPreferences,
+    Workout,
+)
 
 CACHE_CONTROL = "private, no-cache"
 
@@ -101,6 +110,49 @@ def revamp_week_etag(
         settings_at,
         race_max,
         snap_max,
+    )
+
+
+def performance_page_etag(
+    session: Session,
+    user_id,
+    as_of: date,
+    sections: Sequence[str],
+    size: str,
+) -> str:
+    """ETag for GET /api/performance/page (#1941). Reuses make_etag from #1921."""
+    from backend.services.derived_cache import derived_signature
+
+    sig = derived_signature(session, user_id, as_of)
+    race_max = (
+        session.query(func.max(func.coalesce(Race.updated_at, Race.created_at)))
+        .filter(Race.user_id == user_id)
+        .scalar()
+    )
+    decision_max = (
+        session.query(func.max(func.coalesce(Decision.updated_at, Decision.created_at)))
+        .filter(Decision.user_id == user_id)
+        .scalar()
+    )
+    mobility_max = (
+        session.query(func.max(MobilityTest.created_at))
+        .filter(MobilityTest.user_id == user_id)
+        .scalar()
+    )
+    prefs_at = (
+        session.query(UserPreferences.updated_at)
+        .filter(UserPreferences.user_id == user_id)
+        .scalar()
+    )
+    return make_etag(
+        user_id,
+        ",".join(sections),
+        size,
+        sig,
+        race_max,
+        decision_max,
+        mobility_max,
+        prefs_at,
     )
 
 

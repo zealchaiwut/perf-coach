@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -67,6 +67,8 @@ def put_anchor_lifts(body: _AnchorLiftsBody, user: User = Depends(resolve_user))
             prefs = UserPreferences(user_id=user.id)
             db.add(prefs)
         prefs.anchor_lifts = cleaned
+        from datetime import datetime, timezone
+        prefs.updated_at = datetime.now(timezone.utc)
         db.commit()
     return JSONResponse({"anchors": cleaned})
 
@@ -311,9 +313,15 @@ def get_performance_bundle(user: User = Depends(resolve_user)):
 def get_performance_page(
     sections: str | None = None,
     size: str = "large",
+    if_none_match: str | None = Header(default=None, alias="If-None-Match"),
     user: User = Depends(resolve_user),
 ):
-    """One Performance-tab boot: selected sections share one session (#1939)."""
+    """One Performance-tab boot: selected sections share one session (#1939, #1941)."""
+    from backend.services.log_etag import (
+        etag_headers,
+        not_modified_response,
+        performance_page_etag,
+    )
     from backend.services.performance_page import (
         UnknownSectionError,
         build_page,
@@ -331,7 +339,14 @@ def get_performance_page(
             detail={"unknown": exc.unknown, "allowed": exc.allowed},
         )
     with Session(engine) as db:
-        return JSONResponse(build_page(db, user.id, today_bangkok(), wanted, size=size))
+        today = today_bangkok()
+        etag = performance_page_etag(db, user.id, today, wanted, size)
+        if if_none_match and if_none_match == etag:
+            return not_modified_response(etag)
+        return JSONResponse(
+            build_page(db, user.id, today, wanted, size=size),
+            headers=etag_headers(etag),
+        )
 
 
 # ── A-race hero + after-the-race card (P4-8) ─────────────────────────────────

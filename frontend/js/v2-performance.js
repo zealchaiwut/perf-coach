@@ -41,8 +41,14 @@
     return status === 502 || status === 503 || status === 504;
   }
 
+  var pageEtags = {};
+
   function fetchJSONOnce(url) {
-    return fetch(url, { credentials: "same-origin" }).then(function (r) {
+    var headers = {};
+    if (pageEtags[url]) headers["If-None-Match"] = pageEtags[url];
+    return fetch(url, { credentials: "same-origin", headers: headers }).then(function (r) {
+      var tag = r.headers.get("ETag");
+      if (tag) pageEtags[url] = tag;
       if (r.status === 304) return { _notModified: true };
       if (!r.ok) {
         var err = new Error("HTTP " + r.status);
@@ -88,6 +94,7 @@
   }
 
   function refetchSections(sections, apply) {
+    delete pageEtags[pageUrl(sections)];
     fetchPage(sections).then(function (body) {
       if (body && body._notModified) return;
       apply(body || {});
@@ -1287,7 +1294,10 @@
       var h = document.getElementById(id);
       if (h) setRegionLoading(h, "Loading");
     });
-    fetchPage(LAZY_SECTIONS).then(applyLazy).catch(function () { applyLazy(null); });
+    fetchPage(LAZY_SECTIONS).then(function (body) {
+      if (body && body._notModified) return;
+      applyLazy(body);
+    }).catch(function () { applyLazy(null); });
   }
 
   function observeLazy() {
@@ -1317,6 +1327,7 @@
     var radarHost = document.getElementById("v2-perf-radar-chart");
     if (radarHost) radarHost.setAttribute("aria-busy", "true");
     fetchPage(FIRST_SECTIONS).then(function (body) {
+      if (body && body._notModified) return;
       applyHero(body && body.hero);
       applyRadar(body && body.radar);
       applyScoreCards(body && body.score_cards);
