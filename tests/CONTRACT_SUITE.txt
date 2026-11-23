@@ -22,3 +22,8 @@ tests/test_ux_readiness_signal_copy.py
 tests/test_incremental_sync_inprocess_when_worker_off.py
 tests/test_sync_status__provider_states.py
 tests/test_log_plan_mock_match.py
+tests/test_shared_css_gaps.py
+tests/test_v2_home_mock_parity.py
+tests/test_daily_basics__1885.py
+tests/test_weekly_checkin_mock_match.py
+tests/test_weekly_checkin_page__1887.py

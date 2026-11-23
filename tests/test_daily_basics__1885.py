@@ -10,6 +10,7 @@ def test_v2_home_has_daily_basics_js():
     assert "rv-daily-basics" in text
     assert "/api/body-log" in text
     assert "data-bl-field" in text
+    assert "dailyBasicsHtml(data.daily_basics)" in text
 
 
 def test_daily_basics_touch_targets_css():

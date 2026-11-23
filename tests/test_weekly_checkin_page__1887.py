@@ -22,15 +22,16 @@ def test_step_bar_and_layout_at_390():
 def test_four_steps_and_api_wiring():
     for needle in (
         "data-checkin-step",
-        "Step 1",
-        "Step 4",
+        "Last week's changes",
+        "Copy · talk · paste back",
         "/api/weekly-check-in",
         "/api/weekly-check-in/refresh",
         "wci-preview",
         "Paste change list",
         "v2-weekly-check-in.js",
+        "fetchWithCsrf",
     ):
-        assert needle in HTML or needle in JS
+        assert needle in HTML or needle in JS, needle
 
 
 def test_coach_block_links_to_checkin_page():

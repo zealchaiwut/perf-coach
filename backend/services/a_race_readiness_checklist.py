@@ -61,7 +61,7 @@ def _run_workouts(session, user_id: uuid.UUID, start: date, end: date) -> list[W
         .filter(Workout.user_id == user_id, Workout.workout_date >= start, Workout.workout_date <= end)
         .all()
     )
-    return [w for w in rows if is_run_workout(w)]
+    return [w for w in rows if is_run_workout(w.workout_type or "")]
 
 
 def _race_shoe_ids(session, user_id: uuid.UUID) -> frozenset[uuid.UUID]:
