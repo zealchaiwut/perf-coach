@@ -32,8 +32,9 @@ def test_feel_tap_issues_exactly_one_request():
     assert "r.json()" in patch
     assert "body.feeling" in patch
     row = _fn(LOG_JS, "renderSessionRow")
-    assert "rv-list-feel" not in row
-    assert "V2FeelButtons.mount" not in LOG_JS
+    assert "rv-list-feel" in row
+    assert "data-feel-id" in row
+    assert "V2FeelButtons.mount" in LOG_JS
 
 
 def test_skip_refetches_only_that_week_rollup():

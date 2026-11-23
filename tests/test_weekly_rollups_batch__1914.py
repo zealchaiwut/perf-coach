@@ -205,7 +205,13 @@ def test_weekly_rollups_parity_with_per_week():
         ]
     assert len(batched) == 3
     for a, b in zip(batched, per):
-        assert a == b
+        a2 = {k: v for k, v in a.items() if k != "tss_delta_prev"}
+        b2 = {k: v for k, v in b.items() if k != "tss_delta_prev"}
+        assert a2 == b2
+        assert "tss_delta_prev" in a
+    assert batched[0]["tss_delta_prev"] is None
+    assert batched[1]["tss_delta_prev"] == round(batched[1]["tss_total"] - batched[0]["tss_total"], 2)
+    assert batched[2]["tss_delta_prev"] == round(batched[2]["tss_total"] - batched[1]["tss_total"], 2)
     assert batched[0]["tss_total"] == 130.0
     assert batched[1]["tss_strength"] == 40.0
     assert batched[2]["partial"] is True

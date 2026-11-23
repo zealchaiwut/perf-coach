@@ -50,10 +50,10 @@ def test_log_list_drops_visible_sessions_title():
 
 
 def test_log_list_css_grid_and_week_header():
-    assert "grid-template-columns: 58px 10px minmax(0, 1fr) auto auto" in CSS
+    assert "grid-template-columns: 56px minmax(0, 1fr) auto 170px" in CSS
     assert "rv-session-dot--run" in CSS
     assert "rv-planned-empty" in CSS
-    assert "padding: 20px 6px 8px" in CSS
+    assert "padding: 16px 20px" in CSS
     assert "rv-chart-head" in CSS
 
 

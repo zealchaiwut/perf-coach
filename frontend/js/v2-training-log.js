@@ -29,6 +29,7 @@
     searchWeeks: [],
     allCursor: null,
     allLoading: false,
+    knownRaces: [],
   };
   var weekObserver = null;
   var monthCtrl = null;
@@ -135,6 +136,7 @@
       html.push('<div class="rv-month-head">' + h + '</div>');
     });
     html.push('<div class="rv-month-head rv-month-head--week">Week</div>');
+    state.knownRaces = [];
     (data.weeks || []).forEach(function (week) {
       week.days.forEach(function (day) {
         var cls = 'rv-month-day';
@@ -148,6 +150,9 @@
           '</div>'
         );
         (day.items || []).forEach(function (item) {
+          if (item.kind === 'race') {
+            state.knownRaces.push({ name: item.name, race_date: day.date });
+          }
           var cardCls = 'rv-month-card rv-session ' + sessionCardClass(item.kind, item.status);
           var isRun = item.kind === 'run' || item.kind === 'quality_run';
           var isStr = item.kind === 'strength' || item.kind === 'support';
@@ -532,14 +537,35 @@
     return '<span class="rv-src-mark rv-src-mark--' + kind + '" title="' + esc(label) + '" aria-label="' + esc(label) + '"></span>';
   }
 
+  function knownRaces(roll) {
+    var seen = {};
+    var out = [];
+    function add(r) {
+      if (!r) return;
+      var name = r.name || '';
+      var when = r.race_date || '';
+      var key = when + '|' + name;
+      if (!name && !when) return;
+      if (seen[key]) return;
+      seen[key] = 1;
+      out.push({ name: name, race_date: when });
+    }
+    ((roll && roll.race_items) || []).forEach(add);
+    Object.keys(state.rollupsByWeek || {}).forEach(function (ws) {
+      (((state.rollupsByWeek[ws] || {}).race_items) || []).forEach(add);
+    });
+    (state.knownRaces || []).forEach(add);
+    return out;
+  }
+
   function isRaceLike(entry, roll) {
     var t = (entry.type || '').toLowerCase();
     if (t.indexOf('race') >= 0) return true;
     var title = (entry.title || '').toLowerCase();
-    return ((roll && roll.race_items) || []).some(function (r) {
+    return knownRaces(roll).some(function (r) {
       var n = String(r.name || '').toLowerCase();
-      if (r.race_date && r.race_date === entry.date) return true;
-      return n && title.indexOf(n) >= 0;
+      if (!n) return false;
+      return r.race_date === entry.date && title.indexOf(n) >= 0;
     });
   }
 
@@ -569,13 +595,17 @@
     if (isStrengthType(entry)) {
       chips.push('<span class="rv-chip rv-chip--who-support">STRENGTH</span>');
     }
-    if (entry.plan_match) {
+    if (isRaceLike(entry, roll)) {
+      chips.push('<span class="rv-chip rv-chip--race-flag">RACE</span>');
+    } else if (entry.plan_match) {
       chips.push('<span class="rv-chip rv-chip--good">MATCHED COACH PLAN</span>');
-    } else if (entry.id && String(entry.id).indexOf('plan:') !== 0 && !isRaceLike(entry, roll)) {
-      var unplanned = isStrengthType(entry) && (entry.source || '') === 'manual'
-        ? 'UNPLANNED · TYPED AT THE GYM'
-        : 'UNPLANNED';
-      chips.push('<span class="rv-chip rv-chip--warn">' + unplanned + '</span>');
+    } else if (
+      isStrengthType(entry) &&
+      (entry.source || '') === 'manual' &&
+      entry.id &&
+      String(entry.id).indexOf('plan:') !== 0
+    ) {
+      chips.push('<span class="rv-chip rv-chip--warn">UNPLANNED · TYPED AT THE GYM</span>');
     }
     if (entry.speed_signal != null) {
       chips.push('<span class="rv-chip rv-chip--warn">HARD EFFORT · SPEED SIGNAL</span>');
@@ -595,8 +625,8 @@
     var missed = entry.row_kind === 'missed_plan';
     if (missed) {
       var bits = [];
-      if (entry.exercise_count) bits.push(entry.exercise_count + ' exercises');
-      if (entry.tss != null) bits.push(Math.round(entry.tss) + ' TSS planned');
+      if (entry.exercise_count) bits.push(esc(entry.exercise_count + ' exercises'));
+      if (entry.tss != null) bits.push(esc(Math.round(entry.tss) + ' TSS planned'));
       return bits.join(' · ');
     }
     var tpe = (entry.type || '').toLowerCase();
@@ -604,20 +634,20 @@
     if (strength) {
       var sbits = [];
       var mins = fmtMins(entry.duration_seconds);
-      if (mins) sbits.push(mins);
-      if (entry.exercise_count) sbits.push(entry.exercise_count + ' exercises');
-      if (entry.set_count) sbits.push(entry.set_count + ' sets');
+      if (mins) sbits.push(esc(mins));
+      if (entry.exercise_count) sbits.push(esc(entry.exercise_count + ' exercises'));
+      if (entry.set_count) sbits.push(esc(entry.set_count + ' sets'));
       return sbits.join(' · ');
     }
     var rbits = [];
     var dur = fmtHms(entry.duration_seconds);
-    if (dur) rbits.push(dur);
+    if (dur) rbits.push('<b>' + esc(dur) + '</b>');
     var km = fmtKm(entry.distance_km);
-    if (km) rbits.push(km);
+    if (km) rbits.push('<b>' + esc(km) + '</b>');
     var pace = fmtPaceSpk(entry.average_pace_seconds_per_km);
-    if (pace) rbits.push(pace);
-    if (entry.avg_power) rbits.push(Math.round(entry.avg_power) + ' W');
-    if (entry.avg_hr) rbits.push('HR ' + Math.round(entry.avg_hr));
+    if (pace) rbits.push(esc(pace));
+    if (entry.avg_power) rbits.push(esc(Math.round(entry.avg_power) + ' W'));
+    if (entry.avg_hr) rbits.push(esc('HR ' + Math.round(entry.avg_hr)));
     return rbits.join(' · ');
   }
 
@@ -699,14 +729,17 @@
       .catch(function () { toast('Could not open late log'); });
   }
 
-  function renderSessionRow(entry, highlight) {
+  function renderSessionRow(entry, highlight, roll) {
+    roll = roll || state.rollupsByWeek[mondayISO(entry.date)] || {};
     var missed = entry.row_kind === 'missed_plan';
     var tpe = (entry.type || '').toLowerCase();
     var run = isRunType(entry) && !missed;
     var str = !missed && window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(tpe);
+    var race = isRaceLike(entry, roll);
     var rowCls = 'rv-session-row';
     if (missed) rowCls += ' rv-session-row--missed';
     if (highlight) rowCls += ' rv-session-row--today';
+    if (race) rowCls += ' rv-session-row--race';
     if (run || str) rowCls += ' rv-session-row--clickable';
     var day = isoParts(entry.date).d;
     var wd = WEEKDAYS_SHORT[weekdayIndex(entry.date)] || '';
@@ -714,28 +747,139 @@
     var attrs = (run || str)
       ? ' data-run-id="' + esc(entry.id) + '" data-workout-type="' + esc(entry.type || '') + '" tabindex="0" role="button"'
       : '';
-    var side;
+    var weekTss = Number(roll.tss_total) || 0;
+    var share = '';
+    if (!missed && entry.tss != null && weekTss > 0) {
+      var pct = Math.round((Number(entry.tss) / weekTss) * 100);
+      share =
+        '<span class="rv-session-share"><span class="rv-session-sbar"><span class="rv-session-share-fill' +
+        (race ? ' rv-session-share-fill--race' : '') +
+        '" style="width:' + pct + '%"></span></span><span class="rv-session-share-pct">' + pct + '%</span></span>';
+    }
+    var feel = '';
+    if (!missed && entry.id && String(entry.id).indexOf('plan:') !== 0) {
+      feel = '<span class="rv-list-feel" data-feel-id="' + esc(entry.id) + '" data-feeling="' + esc(entry.feeling || '') + '"></span>';
+    }
+    var tssBlock;
     if (missed) {
       var pid = (entry.plan_match && entry.plan_match.planned_id) || String(entry.id).replace('plan:', '');
-      side =
+      tssBlock =
         '<div class="rv-missed-actions">' +
         '<button type="button" class="rv-btn rv-btn--ghost-amber" data-log-late="' + esc(pid) + '">Log it late</button>' +
         '<button type="button" class="rv-btn rv-btn--ghost-amber" data-plan-skip="' + esc(pid) + '">Skip</button>' +
         '</div><span class="rv-session-tss-block" aria-hidden="true"></span>';
     } else {
-      side =
-        (str ? '<span class="rv-session-open">Open</span>' : '') +
-        '<span class="rv-session-tss-block"><span class="rv-session-tss">' + (entry.tss != null ? Math.round(entry.tss) : '—') + '</span><span class="rv-session-tss-unit">TSS</span></span>';
+      tssBlock =
+        '<span class="rv-session-tss-block"><span class="rv-session-tss">' +
+        (entry.tss != null ? Math.round(entry.tss) : '—') +
+        '</span>' + share + '</span>';
     }
     return (
       '<div class="' + rowCls + '"' + attrs + '>' +
       '<span class="rv-session-date"><span class="rv-session-day">' + esc(String(day)) + '</span><span class="rv-session-wd">' + esc(wd) + '</span></span>' +
-      typeDot(entry) +
       '<div class="rv-session-main">' +
-      '<div class="rv-session-title-row"><strong class="rv-session-title">' + esc(entry.title || 'Session') + '</strong>' + badgeChips(entry, state.rollupsByWeek[mondayISO(entry.date)]) + '</div>' +
-      (meta ? '<div class="rv-session-metrics">' + esc(meta) + '</div>' : '') +
-      '</div>' + side + '</div>'
+      '<div class="rv-session-title-row"><strong class="rv-session-title">' + esc(entry.title || 'Session') + '</strong>' + badgeChips(entry, roll) + '</div>' +
+      (meta ? '<div class="rv-session-metrics">' + meta + '</div>' : '') +
+      '</div>' + feel + tssBlock + '</div>'
     );
+  }
+
+  function fmtSignedDelta(n) {
+    var v = Math.round(Number(n) || 0);
+    if (v > 0) return '+' + v;
+    if (v < 0) return '\u2212' + Math.abs(v);
+    return '0';
+  }
+
+  function weekBarHtml(roll, entries, opts) {
+    opts = opts || {};
+    var ws = roll.week_start;
+    var we = roll.week_end || weekEndISO(ws);
+    var today = todayISO();
+    var thisMon = mondayISO(today);
+    var add = window.AppCommon && window.AppCommon.addDaysISO;
+    var lastMon = add ? add(thisMon, -7) : thisMon;
+    var isCurrent = ws === thisMon;
+    var isLast = ws === lastMon;
+    var logged = (entries || []).filter(isLogged);
+    var emptyCurrent = isCurrent && !logged.length;
+    var tss = Number(roll.tss_total) || 0;
+    var target = roll.target_tss;
+    var hasTarget = target != null && isFinite(Number(target));
+    var tnum = hasTarget ? Number(target) : 0;
+    var over = hasTarget && !emptyCurrent && tss > tnum;
+    var tssCls = 'rv-log-wkbar-big';
+    if (emptyCurrent) tssCls += ' rv-log-wkbar-big--empty';
+    else if (over) tssCls += ' rv-log-wkbar-big--over';
+    var phase = phaseLabel(roll.phase);
+    var races = knownRaces(roll).filter(function (r) {
+      return r.race_date && r.race_date >= ws && r.race_date <= we;
+    });
+    var raceName = races.length ? races[0].name : '';
+    var sub = [];
+    if (isCurrent) sub.push('This week');
+    else if (isLast) sub.push('Last week');
+    if (phase) sub.push(esc(phase));
+    if (raceName) sub.push(esc(raceName) + ' week');
+    var planned = headerPlannedTss(roll, entries);
+    var plannedCount = (entries || []).filter(function (e) { return !isLogged(e); }).length;
+    if (emptyCurrent) {
+      if (plannedCount) sub.push(plannedCount + ' planned, nothing logged yet');
+      else sub.push('nothing logged yet');
+    } else {
+      var sc = roll.session_count != null ? Number(roll.session_count) : logged.length;
+      if (sc) sub.push(sc + (sc === 1 ? ' session' : ' sessions'));
+    }
+    if ((isCurrent || ws > thisMon) && planned > 0 && !emptyCurrent) {
+      sub.push('planned ' + Math.round(planned));
+    }
+    var meter = '';
+    if (hasTarget) {
+      var scale = Math.max(tnum / 0.87, tss);
+      var fillPct = scale > 0 ? Math.min(100, (tss / scale) * 100) : 0;
+      var tickPct = scale > 0 ? Math.min(100, (tnum / scale) * 100) : 87;
+      var fillEl = '';
+      if (!emptyCurrent && (over || fillPct > 0)) {
+        fillEl = '<span class="rv-log-wkbar-fill' + (over ? ' rv-log-wkbar-fill--over' : '') + '" style="width:' + (over ? 100 : fillPct) + '%"></span>';
+      }
+      var label;
+      if (emptyCurrent) {
+        label = '<b>0%</b> of ' + Math.round(tnum) + ' target · <a class="rv-log-wkbar-plan" href="/v2/training/plan">Open in Plan ›</a>';
+      } else if (over) {
+        label = '<b class="rv-log-wkbar-over">+' + Math.round(tss - tnum) + '</b> over ' + Math.round(tnum) + ' target';
+      } else {
+        var pctOf = tnum > 0 ? Math.round((tss / tnum) * 100) : 0;
+        label = '<b>' + pctOf + '%</b> of ' + Math.round(tnum) + ' target';
+      }
+      if (!emptyCurrent && roll.tss_delta_prev != null && isFinite(Number(roll.tss_delta_prev))) {
+        label += ' · <span class="rv-log-wkbar-delta">' + fmtSignedDelta(roll.tss_delta_prev) + ' vs prev</span>';
+      }
+      meter =
+        '<div class="rv-log-wkbar-meter">' +
+        '<div class="rv-log-wkbar-track">' + fillEl +
+        '<span class="rv-log-wkbar-tick" style="left:' + tickPct + '%"></span></div>' +
+        '<span class="rv-log-wkbar-ml">' + label + '</span></div>';
+    }
+    var kmHtml = '';
+    if (!emptyCurrent && roll.distance_km) {
+      kmHtml = '<div class="rv-log-wkbar-stat"><span class="rv-log-wkbar-mid">' +
+        esc(Number(roll.distance_km).toFixed(1)) +
+        '</span><span class="rv-log-wkbar-unit">km</span></div>';
+    }
+    if (emptyCurrent && !meter) {
+      meter = '<a class="rv-log-wkbar-plan" href="/v2/training/plan">Open in Plan ›</a>';
+    }
+    var cls = 'rv-log-wkbar' + (emptyCurrent ? ' rv-log-wkbar--empty' : '');
+    var inner =
+      '<div class="rv-log-wkbar-left"><span class="rv-log-wkbar-range">' + esc(fmtWeekRange(ws, we)) + '</span>' +
+      (sub.length ? '<span class="rv-log-wkbar-sub">' + sub.join(' · ') + '</span>' : '') +
+      '</div><div class="rv-log-wkbar-stats">' +
+      '<div class="rv-log-wkbar-stat"><span class="' + tssCls + '">' + (emptyCurrent ? 0 : Math.round(tss)) + '</span><span class="rv-log-wkbar-unit">TSS</span></div>' +
+      kmHtml + meter + '</div>';
+    if (opts.collapsed) {
+      return '<button type="button" class="' + cls + ' rv-week-collapsed" aria-expanded="false" data-expand-week="' + esc(ws) + '">' + inner + '</button>';
+    }
+    return '<div class="' + cls + '">' + inner + '</div>';
   }
 
   function plannedEmptyCard(entries) {
@@ -813,31 +957,13 @@
         return true;
       });
       var expanded = searching || !!state.expandedWeeks[ws] || newest.indexOf(ws) !== -1;
-      var phase = phaseLabel(roll.phase);
-      var range = fmtWeekRange(ws, we);
-      var left = range + (phase ? ' · ' + phase : '');
-      var km = fmtKm(roll.distance_km);
-      var target = roll.target_tss;
-      var planned = headerPlannedTss(roll, entries);
-      var right = '<span class="rv-week-stats">' + Math.round(roll.tss_total || 0) + ' TSS' +
-        (km ? ' · ' + km : '') +
-        (target != null ? '<span class="rv-week-target"> · target ' + Math.round(target) + '</span>' : '') +
-        (planned > 0 ? '<span class="rv-week-target"> · planned ' + Math.round(planned) + '</span>' : '') +
-        '</span>';
       html.push('<section class="rv-week-block" id="week-' + esc(ws) + '" tabindex="-1">');
+      html.push(weekBarHtml(roll, entries, { collapsed: !expanded }));
       if (!expanded) {
-        html.push(
-          '<button type="button" class="rv-week-collapsed" aria-expanded="false" data-expand-week="' + esc(ws) + '">' +
-          '<span class="rv-week-range">' + esc(left) + '</span>' + right + '</button>'
-        );
         html.push('</section>');
         shown += 1;
         return;
       }
-      html.push(
-        '<div class="rv-week-head">' +
-        '<span class="rv-week-range">' + esc(left) + '</span>' + right + '</div>'
-      );
       if (state.weekInflight[ws] && !cache.loaded) {
         html.push('<p class="rv-section-state">Loading week…</p>');
       } else if (cache.error) {
@@ -847,15 +973,16 @@
         );
       } else {
         var logged = entries.filter(isLogged);
-        var plannedOnly = cache.loaded && !logged.length;
-        if (plannedOnly) {
-          html.push(plannedEmptyCard(entries.length ? entries : [{ type: 'run' }]));
-        } else {
+        var thisMon = mondayISO(todayISO());
+        var emptyCurrent = ws === thisMon && !logged.length;
+        if (emptyCurrent) {
+          /* grey bar in weekBarHtml replaces the dashed planned-sessions card */
+        } else if (logged.length) {
           var openAll = !!state.openWeeks[ws] || entries.length <= 3;
           var visible = openAll ? entries : entries.slice(0, 3);
-          html.push('<div class="rv-week-sessions">');
+          html.push('<div class="rv-week-body"><div class="rv-week-sessions">');
           visible.forEach(function (entry) {
-            html.push(renderSessionRow(entry, entry.id === highlightId));
+            html.push(renderSessionRow(entry, entry.id === highlightId, roll));
           });
           if (!openAll) {
             var rest = entries.slice(3);
@@ -872,7 +999,7 @@
               (restKm ? ' · ' + restKm.toFixed(1) + ' km' : '') + ' ›</span></button>'
             );
           }
-          html.push('</div>');
+          html.push('</div></div>');
         }
       }
       html.push('</section>');
@@ -898,6 +1025,13 @@
       return;
     }
     el.innerHTML = html.join('');
+    if (window.V2FeelButtons) {
+      el.querySelectorAll('[data-feel-id]').forEach(function (host) {
+        window.V2FeelButtons.mount(host, host.getAttribute('data-feel-id'), host.getAttribute('data-feeling') || null, function (val) {
+          applyFeelInPlace(host.getAttribute('data-feel-id'), val);
+        });
+      });
+    }
     el.querySelectorAll('[data-plan-skip]').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -1086,6 +1220,8 @@
       .then(function (r) { if (!r.ok) throw new Error('rollup'); return r.json(); })
       .then(function (row) {
         if (seq !== state.weekRollupSeq[ws]) return;
+        var prevDelta = (state.rollupsByWeek[ws] || {}).tss_delta_prev;
+        if (row.tss_delta_prev == null && prevDelta != null) row.tss_delta_prev = prevDelta;
         state.rollupsByWeek[ws] = row;
         var found = false;
         state.chartWeeks = (state.chartWeeks || []).map(function (w) {

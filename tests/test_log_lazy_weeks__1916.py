@@ -39,19 +39,23 @@ def test_initial_requests_are_rollup_plus_two_week_log():
 
 def test_week_headers_read_rollup_not_entry_summary():
     paint = _fn(LOG_JS, "paintList")
+    bar = _fn(LOG_JS, "weekBarHtml")
     assert "rollupsByWeek" in LOG_JS
-    assert "tss_total" in paint
-    assert "headerPlannedTss" in paint
-    assert "target_tss" in paint
+    assert "weekBarHtml" in paint
+    assert "tss_total" in bar
+    assert "headerPlannedTss" in bar
+    assert "target_tss" in bar
     assert "wk.summary" not in paint
     assert "sum.total_tss" not in paint
 
 
 def test_collapsed_older_weeks_are_buttons_from_rollup():
     paint = _fn(LOG_JS, "paintList")
-    assert 'aria-expanded="false"' in paint
-    assert "data-expand-week" in paint
-    assert "rv-week-collapsed" in paint
+    bar = _fn(LOG_JS, "weekBarHtml")
+    assert 'aria-expanded="false"' in bar
+    assert "data-expand-week" in bar
+    assert "rv-week-collapsed" in bar
+    assert "collapsed: !expanded" in paint
     assert "data-retry-week" in CSS or "data-retry-week" in paint
     assert "rv-week-collapsed" in CSS
 
