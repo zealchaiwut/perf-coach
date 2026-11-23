@@ -23,6 +23,7 @@ from backend.services.race_roles import ROLE_LABELS, race_role, recalibrates, ro
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
+_UNSET = object()
 
 MATCH_DAY_WINDOW = 1
 MATCH_DISTANCE_TOLERANCE = 0.05
@@ -179,7 +180,13 @@ def upcoming_row(session, user_id, race, today: date, target_id) -> dict[str, An
     return row
 
 
-def build_race_list(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
+def build_race_list(
+    session,
+    user_id: uuid.UUID,
+    today: date,
+    *,
+    race: Any = _UNSET,
+) -> dict[str, Any]:
     from backend.models import Race, Workout
 
     races = (
@@ -210,7 +217,7 @@ def build_race_list(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
             .all()
         )
 
-    target = next_a_race(session, user_id, today)
+    target = next_a_race(session, user_id, today) if race is _UNSET else race
     target_id = target.id if target is not None else None
     debriefs = debrief_by_race(session, user_id, [r.id for r in need_rows_races])
     needs_rows = [needs_result_row(r, runs) for r in needs]

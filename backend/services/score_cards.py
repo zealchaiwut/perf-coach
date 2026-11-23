@@ -155,9 +155,15 @@ def build_card(axis: str, reader_block: dict[str, Any], perf_block: Optional[dic
     }
 
 
-def build_cards(user_id: uuid.UUID, as_of: Optional[date] = None) -> dict[str, Any]:
-    overall = score_reader.get_scores(user_id, as_of=as_of)
-    payload = _performance_scores.get_performance_payload(user_id)
+def build_cards(
+    user_id: uuid.UUID,
+    as_of: Optional[date] = None,
+    *,
+    overall: Optional[dict[str, Any]] = None,
+    payload: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    overall = overall if overall is not None else score_reader.get_scores(user_id, as_of=as_of)
+    payload = payload if payload is not None else _performance_scores.get_performance_payload(user_id)
     return {
         "state": overall.get("state"),
         "cards": [
