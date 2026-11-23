@@ -1,4 +1,4 @@
-"""Per-request SQL query count + duration for Log-tab endpoints (#1912).
+"""Per-request SQL query count + duration for Log/Plan endpoints (#1912, #1923).
 
 Off unless ``PERF_QUERY_LOG=1`` (or ``enable()`` in tests). When off, no
 SQLAlchemy listener is registered.
@@ -18,6 +18,11 @@ _log = logging.getLogger("backend.query_log")
 _query_count: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
     "perf_query_count", default=None
 )
+_write_count: contextvars.ContextVar[Optional[int]] = contextvars.ContextVar(
+    "perf_write_count", default=None
+)
+
+_WRITE_VERBS = frozenset({"INSERT", "UPDATE", "DELETE"})
 
 _enabled = False
 _installed_ids: set[int] = set()
@@ -27,11 +32,20 @@ def _env_on() -> bool:
     return os.getenv("PERF_QUERY_LOG") == "1"
 
 
+def _statement_verb(statement: Any) -> str:
+    if not statement:
+        return ""
+    return str(statement).lstrip().split(None, 1)[0].upper()
+
+
 def _on_before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
     n = _query_count.get()
     if n is None:
         return
     _query_count.set(n + 1)
+    w = _write_count.get()
+    if w is not None and _statement_verb(statement) in _WRITE_VERBS:
+        _write_count.set(w + 1)
 
 
 def install(engine: Any = None) -> None:
@@ -73,19 +87,23 @@ def request_span(path: str, user_id: Any = None) -> Iterator[None]:
         return
     install()
     token = _query_count.set(0)
+    wtoken = _write_count.set(0)
     t0 = time.perf_counter()
     try:
         yield
     finally:
         duration_ms = round((time.perf_counter() - t0) * 1000.0, 1)
         count = _query_count.get() or 0
+        writes = _write_count.get() or 0
         _query_count.reset(token)
+        _write_count.reset(wtoken)
         _log.info(
             "query_log",
             extra={
                 "path": path,
                 "user_id": str(user_id) if user_id is not None else None,
                 "query_count": int(count),
+                "write_count": int(writes),
                 "duration_ms": duration_ms,
             },
         )
