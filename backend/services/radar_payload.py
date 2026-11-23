@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from typing import Any, Optional
 
 from backend.services.axis_spec import PERFORMANCE_AXES
+from backend.services.score_format import display_score
 
 AXIS_LABELS: dict[str, str] = {
     "endurance": "Endurance",
@@ -27,7 +28,8 @@ MINUS = "\u2212"
 
 
 def fmt_score(score: Optional[float]) -> str:
-    return "–" if score is None else str(int(round(float(score))))
+    n = display_score(score)
+    return "–" if n is None else str(n)
 
 
 def fmt_delta(delta: Optional[float]) -> Optional[str]:
@@ -52,7 +54,16 @@ def axis_status(axis: dict[str, Any]) -> str:
     return fmt_delta(axis.get("delta_28d")) or ""
 
 
-def summary_sentence(axes: list[dict[str, Any]]) -> str:
+def legend_flags(axes: list[dict[str, Any]]) -> dict[str, bool]:
+    """Which legend items the SVG actually draws."""
+    return {
+        "past": sum(1 for a in axes if a.get("score_28d_ago") is not None) >= 2,
+        "stale": any(bool(a.get("stale")) for a in axes),
+        "focus": any(bool(a.get("focus")) for a in axes),
+    }
+
+
+def summary_sentence(axes: list[dict[str, Any]], *, past: Optional[bool] = None) -> str:
     measured, missing = [], []
     for a in axes:
         label = AXIS_LABELS[a["axis"]]
@@ -68,7 +79,10 @@ def summary_sentence(axes: list[dict[str, Any]]) -> str:
     out = "Performance radar. " + (", ".join(measured) + "." if measured else "No axis measured yet.")
     if missing:
         out += " Not yet measured: " + ", ".join(missing) + "."
-    out += " Dashed outline is four weeks ago."
+    if past is None:
+        past = legend_flags(axes)["past"]
+    if past:
+        out += " Grey outline is four weeks ago."
     return out
 
 
@@ -89,10 +103,12 @@ def build_axes(
         delta = block.get("delta_28d")
         if delta is None and score is not None and past is not None:
             delta = round(float(score) - float(past), 1)
+        score_1dp = None if never else round(float(score), 1)
         axis = {
             "axis": name,
             "label": AXIS_LABELS[name],
-            "score": None if never else round(float(score), 1),
+            "score": score_1dp,
+            "score_display": display_score(score_1dp),
             "score_28d_ago": None if past is None else round(float(past), 1),
             "delta_28d": delta,
             "stale": False if never else bool(block.get("stale")),
@@ -125,10 +141,12 @@ def build_radar(
         picked = focus_ranker(axes)
         if picked:
             axes = build_axes(overall, axis_blocks, past, picked)
+    flags = legend_flags(axes)
     return {
         "as_of": as_of.isoformat(),
         "axis_order": list(PERFORMANCE_AXES),
         "axes": axes,
         "not_yet_measured": [a["label"] for a in axes if a["never_measured"]],
-        "summary": summary_sentence(axes),
+        "legend": flags,
+        "summary": summary_sentence(axes, past=flags["past"]),
     }

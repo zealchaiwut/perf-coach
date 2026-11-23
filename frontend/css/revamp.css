@@ -3153,16 +3153,65 @@ body.rv-page #v2-perf-focus h2 {
   line-height: 1.1;
 }
 body.rv-page .rv-perf-focus-why { background: #fff; }
+body.rv-page .rv-why-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 0;
+}
+body.rv-page .rv-why-table th,
+body.rv-page .rv-why-table td {
+  padding: 8px 10px;
+  height: 36px;
+  border: 0;
+  border-bottom: 1px solid #eef1f7;
+  vertical-align: middle;
+  font-size: 13.5px;
+  text-align: left;
+}
+body.rv-page .rv-why-table thead th {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5f6b84;
+  height: auto;
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+body.rv-page .rv-why-table tbody tr:last-child td { border-bottom: 0; }
+body.rv-page .rv-why-table .rv-why-num {
+  text-align: right;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+body.rv-page .rv-why-table .rv-why-row--focus td {
+  color: #7a3a10;
+  font-weight: 700;
+  background: #fff7ec;
+}
+body.rv-page .rv-why-table .rv-why-row--stale td,
+body.rv-page .rv-why-table .rv-why-row--never td {
+  color: #56627f;
+}
+@media (max-width: 600px) {
+  body.rv-page .rv-why-table .rv-why-col-weight,
+  body.rv-page .rv-why-table .rv-why-col-gap { display: none; }
+}
 body.rv-page .perf-radar-legend {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 14px 18px;
   margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #eef1f7;
   font-size: 12px;
   color: var(--rv-muted);
 }
 body.rv-page .perf-radar-legend-item { display: inline-flex; align-items: center; gap: 8px; }
-body.rv-page .perf-radar-swatch { width: 22px; height: 10px; border-radius: 2px; display: inline-block; }
+body.rv-page .perf-radar-swatch { width: 22px; height: 10px; border-radius: 2px; display: inline-block; box-sizing: border-box; }
 body.rv-page .perf-radar-swatch--now {
   background: rgba(31, 59, 138, 0.2);
   border: 2px solid #1f3b8a;
@@ -3171,15 +3220,19 @@ body.rv-page .perf-radar-swatch--now {
   border-radius: 3px;
 }
 body.rv-page .perf-radar-swatch--past {
-  background: repeating-linear-gradient(90deg, #8792a8 0 4px, transparent 4px 7px);
-  height: 2px;
+  width: 18px;
+  height: 0;
+  border: 0;
+  border-top: 1.5px solid #a3adc2;
+  background: none;
+  border-radius: 0;
 }
 body.rv-page .perf-radar-swatch--stale {
   width: 12px;
   height: 12px;
   border-radius: 999px;
-  border: 2px dashed #1f3b8a;
-  background: #fff;
+  border: 2.5px solid #1f3b8a;
+  background: radial-gradient(circle, #94a3b8 0 2.5px, #ffffff 3px);
 }
 body.rv-page .perf-radar-swatch--focus {
   width: 10px;

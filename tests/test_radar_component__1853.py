@@ -28,30 +28,39 @@ def test_axis_order_fixed():
     assert labels == list(PERFORMANCE_AXES)
 
 
-def test_never_measured_omitted_from_polygon_and_listed_below():
+def test_never_measured_plots_at_center_and_listed_below():
     svg = rs.render_radar_svg(PAYLOAD)
     now = re.search(r'<polygon class="perf-radar-now" points="([^"]+)"', svg).group(1).split()
-    assert len(now) == 6  # seven axes, mobility never measured -> closes over six
+    assert len(now) == 7
+    mobility_i = next(i for i, a in enumerate(PAYLOAD["axes"]) if a["axis"] == "mobility")
+    pts = rs._polygon(PAYLOAD["axes"], "score")
+    assert pts[mobility_i] == (rs.CX, rs.CY)
+    assert f"{rs._fmt(rs.CX)},{rs._fmt(rs.CY)}" in now
     assert 'perf-radar-point--missing" data-axis="mobility"' in svg
     assert "Not yet measured: Mobility" in svg
+    assert "—" in svg or "–" in svg
 
 
-def test_stale_points_hollow_dashed_and_focus_amber():
+def test_stale_points_solid_ring_with_core_and_focus_amber():
     svg = rs.render_radar_svg(PAYLOAD)
     stale = re.search(r'<circle class="perf-radar-point perf-radar-point--stale" data-axis="endurance"[^>]*>', svg).group(0)
-    assert 'fill="#ffffff"' in stale and 'stroke-dasharray="3 2"' in stale
+    assert 'fill="#ffffff"' in stale
+    assert "stroke-dasharray" not in stale
+    assert 'perf-radar-point-stale-core" data-axis="endurance"' in svg
     focus = re.search(r'<circle class="perf-radar-point perf-radar-point--focus" data-axis="economy"[^>]*>', svg).group(0)
     assert 'fill="#b45309"' in focus
     assert svg.count("perf-radar-point--focus") == 1
     assert re.search(r'data-axis="economy"[^>]*>Economy</text>', svg)
 
 
-def test_rings_and_dashed_28_day_outline():
+def test_rings_and_solid_28_day_outline():
     svg = rs.render_radar_svg(PAYLOAD)
     for ring in (25, 50, 75):
         assert f'data-ring="{ring}"' in svg
     past = re.search(r'<polygon class="perf-radar-past"[^>]*>', svg).group(0)
-    assert 'stroke-dasharray="6 5"' in past
+    assert 'stroke="#a3adc2"' in past
+    assert 'stroke-width="1.5"' in past
+    assert "stroke-dasharray" not in past
 
 
 def test_labels_carry_score_and_status():
@@ -68,7 +77,7 @@ def test_accessible_summary_lists_every_axis_and_value():
     for a in PAYLOAD["axes"]:
         assert a["label"] in summary
         if not a["never_measured"]:
-            assert f"{a['label']} {int(round(a['score']))}" in summary
+            assert f"{a['label']} {rp.fmt_score(a['score'])}" in summary
     svg = rs.render_radar_svg(PAYLOAD)
     assert 'role="img"' in svg and "<title" in svg and "<desc" in svg
     assert "41 · stale" in svg and "44 · focus" in svg

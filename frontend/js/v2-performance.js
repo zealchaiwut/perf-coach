@@ -5,6 +5,14 @@
 
   var esc = window.AppCommon.escapeHtml;
 
+  function scoreText(obj, raw) {
+    if (typeof obj === "number") return String(obj);
+    if (obj && obj.score_display != null) return String(obj.score_display);
+    if (raw === undefined) raw = obj && obj.score;
+    if (raw == null) return "—";
+    return String(raw);
+  }
+
   function toast(msg) {
     var el = document.getElementById("rv-toast");
     if (!el) return;
@@ -282,23 +290,41 @@
         '<button type="button" class="rv-btn rv-btn--accent" id="v2-focus-queue">' + weekLbl + "</button>" + tss + "</div>";
     }
     var whyTitle = "Why " + focus.label + " and not the others";
-    var whyNot = (data.why_not || []).map(function (w) {
-      var cls = w.stale ? " rv-why-stale" : "";
-      var sc = w.score != null ? String(Math.round(w.score)) : "—";
-      return '<div class="rv-row' + cls + '" style="padding:4px 0"><span style="font-size:13.5px">' + esc(w.label) +
-        " " + esc(sc) + "</span><span class=\"rv-subtitle\">" + esc(w.reason) + "</span></div>";
-    }).join("");
-    var pickLine = '<div class="rv-row" style="padding:4px 0;font-weight:600;color:#7a3a10"><span style="font-size:13.5px">' +
-      esc(focus.label) + " " + esc(Math.round(focus.score)) + '</span><span style="font-size:13px;color:#7a3a10">' +
-      esc(data.focus_rationale || "lowest fresh gap that matters for this distance") + "</span></div>";
+    var dist = data.distance_class || "marathon";
+    function whyRow(w, kind) {
+      var axis = w.label + (kind === "focus" ? " (focus)" : "");
+      var score = scoreText(w);
+      var weight = w.weight_pct != null ? w.weight_pct + "%" : "—";
+      var gap = w.weighted_gap != null ? Number(w.weighted_gap).toFixed(1) : "—";
+      return '<tr class="rv-why-row--' + kind + '">' +
+        "<td>" + esc(axis) + "</td>" +
+        '<td class="rv-why-num">' + esc(score) + "</td>" +
+        '<td class="rv-why-num rv-why-col-weight">' + esc(weight) + "</td>" +
+        '<td class="rv-why-num rv-why-col-gap">' + esc(gap) + "</td>" +
+        "<td>" + esc(w.reason || "") + "</td></tr>";
+    }
+    var body = whyRow(focus, "focus");
+    (data.why_not || []).forEach(function (w) {
+      var kind = w.status === "never_measured" || w.never_measured ? "never" :
+        (w.status === "stale" || w.stale ? "stale" : "ranked");
+      body += whyRow(w, kind);
+    });
+    var whyTable =
+      '<table class="rv-why-table"><thead><tr>' +
+      '<th scope="col">Axis</th>' +
+      '<th scope="col" class="rv-why-num">Score</th>' +
+      '<th scope="col" class="rv-why-num rv-why-col-weight">Weight · ' + esc(dist) + "</th>" +
+      '<th scope="col" class="rv-why-num rv-why-col-gap">Weighted gap</th>' +
+      '<th scope="col">Why not</th>' +
+      "</tr></thead><tbody>" + body + "</tbody></table>";
     host.innerHTML =
       '<div class="rv-card rv-stack" style="background:#0b1530;color:#fff">' +
       '<span class="rv-label" style="color:#e4ff52">Most room to grow</span>' +
-      '<h2 style="margin:0">' + esc(focus.label) + ' <span style="font-family:var(--rv-mono)">' + esc(Math.round(focus.score)) + "</span></h2>" +
+      '<h2 style="margin:0">' + esc(focus.label) + ' <span style="font-family:var(--rv-mono)">' + esc(scoreText(focus)) + "</span></h2>" +
       '<div class="rv-focus-work-chips">' + chips + "</div>" +
       action + "</div>" +
-      '<div class="rv-card rv-stack rv-perf-focus-why"><span class="rv-label" style="text-transform:none;letter-spacing:0">' +
-      esc(whyTitle) + "</span>" + whyNot + pickLine + "</div>";
+      '<div class="rv-card rv-stack rv-perf-focus-why"><span class="rv-label">' +
+      esc(whyTitle) + "</span>" + whyTable + "</div>";
     var btn = host.querySelector("#v2-focus-queue");
     if (btn) {
       btn.addEventListener("click", function () {
@@ -399,8 +425,8 @@
         heroTile("Gap to goal", gapVal, esc(gap.reading || ""), { valGood: gapGood, attr: ' data-hero="gap"' }) +
         '</div>' +
         '<div class="rv-perf-race-pills"><span class="rv-label">Race-specific</span>' +
-        '<span class="rv-perf-race-pill" data-hero="race-endurance">End ' + esc(rs.endurance == null ? "—" : Math.round(rs.endurance)) + '</span>' +
-        '<span class="rv-perf-race-pill" data-hero="race-speed">Spd ' + esc(rs.speed == null ? "—" : Math.round(rs.speed)) + '</span>' +
+        '<span class="rv-perf-race-pill" data-hero="race-endurance">End ' + esc(scoreText(rs.endurance)) + '</span>' +
+        '<span class="rv-perf-race-pill" data-hero="race-speed">Spd ' + esc(scoreText(rs.speed)) + '</span>' +
         '<span class="rv-subtitle">' + esc(rs.explanation || "") + '</span></div>';
       var change = host.querySelector("#v2-hero-change-race");
       if (change) {
@@ -564,7 +590,7 @@
       '<div class="rv-row rv-score-card-head"><span class="rv-label">' + esc(c.label) + '</span>' +
       '<a href="/v2/training/trends" class="rv-score-trend-link">Trend</a></div>' +
       '<div class="rv-score-hero-row">' +
-      '<strong class="rv-score-num' + scoreCls + '">' + esc(c.score == null ? "—" : Math.round(c.score)) + "</strong>" +
+      '<strong class="rv-score-num' + scoreCls + '">' + esc(scoreText(c)) + "</strong>" +
       chip + sparkline(c.sparkline, c.axis) + "</div>" + formula + split + reason + callout +
       (anchors ? '<details><summary>Anchor efforts and other runs</summary><ul>' + anchors + '</ul></details>' : "") + '</div>';
   }
@@ -620,7 +646,7 @@
     var e = chain.endurance || {}, sp = chain.speed || {}, b = chain.blended || {}, c = chain.correction || {}, f = chain.final || {};
     var arrow = '<span class="rv-proj-chain__arrow" aria-hidden="true">\u2192</span>';
     var scoreLine = function (name, st) {
-      return '<div><span class="rv-subtitle" style="font-size:12px">' + name + (st.score != null ? ' <b style="color:var(--rv-ink)">' + esc(Math.round(st.score)) + '</b>' : "") + '</span>' + paceOrNA(st) + '</div>';
+      return '<div><span class="rv-subtitle" style="font-size:12px">' + name + (st.score != null ? ' <b style="color:var(--rv-ink)">' + esc(scoreText(st)) + '</b>' : "") + '</span>' + paceOrNA(st) + '</div>';
     };
     var goal = f.goal || {};
     var finalSide = f.available
@@ -796,7 +822,7 @@
     if (!c || c.score == null) return '<span class="rv-race-pill">' + label + ' \u2014</span>';
     var d = c.delta_28d == null ? "" : " " + signed(c.delta_28d);
     var cls = "rv-race-pill" + (c.delta_28d != null && c.delta_28d > 0 ? " rv-race-pill--up" : "");
-    return '<span class="' + cls + '">' + label + " " + esc(Math.round(c.score)) + esc(d) + '</span>';
+    return '<span class="' + cls + '">' + label + " " + esc(scoreText(c)) + esc(d) + '</span>';
   }
 
   function debriefChip(r) {
