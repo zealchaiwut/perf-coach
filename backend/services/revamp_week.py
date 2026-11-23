@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from backend.models import PlannedSession, Race
 from backend.services.radar_cache import DERIVED_RADAR_KEY
 from backend.services.revamp_load_plan import (
-    generic_road_chart,
+    empty_generic_road,
     generic_week_load,
     revamp_week_load,
     road_to_chart,
@@ -172,10 +172,10 @@ def build_revamp_week(
             load = generic_week_load(uid, ws, session=session, today=today, chronic=chronic)
         out["week_load"] = load
     if "road" in wanted:
-        road = road_to_chart(uid, session=session, today=today, ctx=ctx)
-        if road is None:
-            road = generic_road_chart(uid, session=session, today=today, chronic=chronic)
-        out["road"] = road
+        if ctx is None:
+            out["road"] = empty_generic_road(chronic)
+        else:
+            out["road"] = road_to_chart(uid, session=session, today=today, ctx=ctx)
     if "warnings" in wanted:
         if _skip_warnings(session, uid, today, ctx):
             out["warnings"] = dict(EMPTY_WARNINGS)

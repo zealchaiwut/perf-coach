@@ -443,6 +443,25 @@ def _chart_column(
     }
 
 
+def empty_generic_road(chronic: Optional[float] = None) -> dict[str, Any]:
+    """No-A-race Plan payload: no history columns, no weekly_rollup (#1932)."""
+    target = round(chronic, 1) if chronic is not None else None
+    subtitle = (
+        f"Reference {target:.0f} TSS/wk from your 28-day chronic"
+        if target is not None
+        else "Add a planned A race to unlock the road-to-race chart."
+    )
+    return {
+        "mode": "generic",
+        "title": "Recent training load",
+        "subtitle": subtitle,
+        "chronic_baseline": chronic,
+        "plan_hint": "Add a planned A race in Settings → Plan to unlock the full road-to-race chart.",
+        "columns": [],
+        "phase_overruns": [],
+    }
+
+
 def generic_road_chart(
     user_id: uuid.UUID,
     *,

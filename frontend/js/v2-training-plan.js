@@ -69,6 +69,18 @@
       '<a href="/v2/settings/plan" class="rv-plan-settings-link">Add an A race</a></div>';
   }
 
+  function renderCompactNoRace(host, wl) {
+    var logged = Math.round((wl && wl.logged_tss) || 0);
+    var planned = Math.round((wl && wl.planned_tss) || 0);
+    var target = Math.round((wl && wl.target_tss) || 0);
+    var total = logged + planned;
+    host.innerHTML =
+      '<div class="rv-plan-road-head rv-plan-compact-load"><div><h2 class="rv-label">This week</h2>' +
+      '<p class="rv-chart-sub">' + esc(String(total)) + ' / ' + esc(String(target)) +
+      ' TSS · vs your 28-day average</p></div>' +
+      '<a href="/v2/settings/plan" class="rv-plan-settings-link">Add an A race</a></div>';
+  }
+
   function friendlySectionError(r) {
     if (!r) return 'Could not load this section. Check your connection.';
     if (r.status === 401 || r.status === 403) return 'Session expired — refresh and try again.';
@@ -127,6 +139,10 @@
     if (!host) return;
     host._roadData = data;
     if (wl) host._weekLoad = wl;
+    if (data && data.mode === 'generic' && !(data.columns && data.columns.length)) {
+      renderCompactNoRace(host, wl || host._weekLoad);
+      return;
+    }
     if (!data || !data.columns || !data.columns.length) {
       emptyPlanCard(host, 'Road to race', 'Add a planned A race to see the load plan.');
       return;

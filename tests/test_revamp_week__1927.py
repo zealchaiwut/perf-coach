@@ -57,7 +57,7 @@ def test_warnings_skipped_without_a_race_or_recent_race():
         patch("backend.services.plan_warnings.revamp_warnings_payload") as wp,
         patch.object(rw, "week_board", return_value={"days": []}),
         patch.object(rw, "generic_week_load", return_value={"mode": "generic"}),
-        patch.object(rw, "generic_road_chart", return_value={"mode": "generic", "columns": []}),
+        patch.object(rw, "empty_generic_road", return_value={"mode": "generic", "columns": []}),
         patch.object(rw, "peek_focus_label", return_value=None),
     ):
         out = rw.build_revamp_week(session, UID, week_start=WS, today=TODAY, sections=["warnings"])
