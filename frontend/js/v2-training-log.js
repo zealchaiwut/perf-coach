@@ -25,10 +25,15 @@
     chartSeq: 0,
     listSeq: 0,
     weekRollupSeq: {},
+    blockStart: null,
+    searchWeeks: [],
+    allCursor: null,
+    allLoading: false,
   };
   var weekObserver = null;
   var monthCtrl = null;
   var chartCtrl = null;
+  var searchTimer = null;
 
   function readQuery() {
     var q = new URLSearchParams(window.location.search);
@@ -437,6 +442,12 @@
         } else {
           state.raceLine = '';
         }
+        state.blockStart = data.block_start || null;
+        if (state.range === 'block' && !state.blockStart) {
+          state.range = '8w';
+          writeQuery();
+        }
+        renderFilters();
         paintSubtitle(null);
         drawChart(weeks);
         paintList();
@@ -741,6 +752,12 @@
       });
     }
     var newest = newestTwoMondays();
+    var searching = !!state.search;
+    if (searching) {
+      weeks = (state.searchWeeks || []).slice().sort(function (a, b) {
+        return (b.week_start || '').localeCompare(a.week_start || '');
+      });
+    }
     state.runIds = [];
     var loggedCount = 0;
     var today = todayISO();
@@ -762,7 +779,7 @@
     paintSubtitle(loggedCount);
     var html = [];
     var shown = 0;
-    weeks.forEach(function (roll) {
+    weeks.forEach(function (roll, idx) {
       var ws = roll.week_start;
       var we = roll.week_end || weekEndISO(ws);
       var cache = state.weekCache[ws] || { loaded: false, entries: [], error: null };
@@ -771,7 +788,7 @@
         if (state.search && (e.title || '').toLowerCase().indexOf(state.search.toLowerCase()) < 0) return false;
         return true;
       });
-      var expanded = !!state.expandedWeeks[ws] || newest.indexOf(ws) !== -1;
+      var expanded = searching || !!state.expandedWeeks[ws] || newest.indexOf(ws) !== -1;
       var phase = phaseLabel(roll.phase);
       var range = fmtWeekRange(ws, we);
       var left = range + (phase ? ' · ' + phase : '');
@@ -836,11 +853,24 @@
       }
       html.push('</section>');
       shown += 1;
+      if (state.range === 'all' && !searching && idx === weeks.length - 1) {
+        html.push('<div class="rv-older-sentinel" data-load-older-month="1" aria-hidden="true"></div>');
+      }
     });
     if (!shown) {
-      el.innerHTML = '<p class="rv-section-state">No sessions match these filters. <button type="button" class="rv-btn rv-btn--secondary" id="v2-clear-filters">Clear filters</button></p>';
+      var empty = state.search
+        ? 'No sessions match “' + esc(state.search) + '”.'
+        : 'No sessions match these filters.';
+      el.innerHTML = '<p class="rv-section-state">' + empty + ' <button type="button" class="rv-btn rv-btn--secondary" id="v2-clear-filters">Clear filters</button></p>';
       var clr = document.getElementById('v2-clear-filters');
-      if (clr) clr.onclick = function () { state.filter = 'all'; state.search = ''; writeQuery(); renderFilters(); paintList(); };
+      if (clr) clr.onclick = function () {
+        state.filter = 'all';
+        state.search = '';
+        state.searchWeeks = [];
+        writeQuery();
+        renderFilters();
+        paintList();
+      };
       return;
     }
     el.innerHTML = html.join('');
@@ -925,8 +955,12 @@
       '<label class="sr-only" for="v2-search">Search sessions</label>' +
       '<input type="search" class="rv-input rv-list-search" id="v2-search" placeholder="Search sessions" value="' + esc(state.search) + '"/>' +
       '<label class="sr-only" for="v2-range">Date range</label>' +
-      '<select id="v2-range" class="rv-input rv-list-range"><option value="8w">Last 8 weeks</option><option value="block">This block</option><option value="all">All time</option></select></div>';
-    document.getElementById('v2-range').value = state.range;
+      '<select id="v2-range" class="rv-input rv-list-range"><option value="8w">Last 8 weeks</option>' +
+      (state.blockStart ? '<option value="block">This block</option>' : '') +
+      '<option value="all">All time</option></select></div>';
+    var rangeEl = document.getElementById('v2-range');
+    if (state.range === 'block' && !state.blockStart) state.range = '8w';
+    rangeEl.value = state.range;
     el.querySelectorAll('[data-filter]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.filter = btn.getAttribute('data-filter');
@@ -935,15 +969,19 @@
         paintList();
       });
     });
-    document.getElementById('v2-search').addEventListener('change', function (ev) {
-      state.search = ev.target.value.trim();
-      writeQuery();
-      paintList();
+    document.getElementById('v2-search').addEventListener('input', function (ev) {
+      var val = ev.target.value;
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        state.search = val.trim();
+        writeQuery();
+        runSearch();
+      }, 300);
     });
     document.getElementById('v2-range').addEventListener('change', function (ev) {
       state.range = ev.target.value;
       writeQuery();
-      loadList();
+      applyRange();
     });
   }
 
@@ -981,12 +1019,19 @@
     weekObserver = new IntersectionObserver(function (entries) {
       entries.forEach(function (en) {
         if (!en.isIntersecting) return;
+        if (en.target.getAttribute('data-load-older-month')) {
+          loadOlderAllMonth();
+          return;
+        }
         var ws = en.target.getAttribute('data-expand-week');
         if (ws) expandWeek(ws, false);
       });
     }, { rootMargin: '200px' });
     root.querySelectorAll('[data-expand-week]').forEach(function (btn) {
       weekObserver.observe(btn);
+    });
+    root.querySelectorAll('[data-load-older-month]').forEach(function (node) {
+      weekObserver.observe(node);
     });
   }
 
@@ -1138,6 +1183,114 @@
     fetchInitialWeeks({ force: !!force });
   }
 
+  function searchBounds() {
+    var end = todayISO();
+    var add = window.AppCommon && window.AppCommon.addDaysISO;
+    if (state.range === 'block' && state.blockStart) return { from: state.blockStart, to: end };
+    if (state.range === 'all') return { from: add ? add(end, -365) : end, to: end };
+    return { from: add ? add(mondayISO(end), -7 * 8) : end, to: end };
+  }
+
+  function runSearch() {
+    if (!state.search) {
+      state.searchWeeks = [];
+      paintList();
+      return;
+    }
+    var b = searchBounds();
+    var seq = ++state.listSeq;
+    var url = '/api/training-log?from=' + encodeURIComponent(b.from) +
+      '&to=' + encodeURIComponent(b.to) +
+      '&search=' + encodeURIComponent(state.search) +
+      '&include_plan=1';
+    fetch(url, { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('search'); return r.json(); })
+      .then(function (data) {
+        if (seq !== state.listSeq) return;
+        state.searchWeeks = data.weeks || [];
+        applyLogPayload(data, null);
+        (state.searchWeeks || []).forEach(function (wk) {
+          if (wk.week_start) state.expandedWeeks[wk.week_start] = true;
+        });
+        paintList();
+      })
+      .catch(function () {
+        if (seq !== state.listSeq) return;
+        state.searchWeeks = [];
+        paintList();
+      });
+  }
+
+  function mergeRollupWeeks(weeks) {
+    (weeks || []).forEach(function (w) {
+      if (!w || !w.week_start) return;
+      state.rollupsByWeek[w.week_start] = w;
+      var found = false;
+      state.chartWeeks = (state.chartWeeks || []).map(function (cur) {
+        if (cur.week_start === w.week_start) { found = true; return w; }
+        return cur;
+      });
+      if (!found) state.chartWeeks.push(w);
+    });
+  }
+
+  function monthBounds(ym) {
+    var start = ym + '-01';
+    var parts = ym.split('-');
+    var lastDay = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10), 0).getDate();
+    var end = ym + '-' + (lastDay < 10 ? '0' : '') + lastDay;
+    var today = todayISO();
+    if (end > today) end = today;
+    return { from: mondayISO(start), to: end };
+  }
+
+  function prevMonth(ym) {
+    var parts = ym.split('-');
+    var d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 2, 1);
+    var m = d.getMonth() + 1;
+    return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m;
+  }
+
+  function loadOlderAllMonth() {
+    if (state.range !== 'all' || state.search || state.allLoading) return;
+    var cursor = state.allCursor || todayISO().slice(0, 7);
+    var next = prevMonth(cursor);
+    state.allLoading = true;
+    var b = monthBounds(next);
+    fetch('/api/weekly-rollup?from=' + encodeURIComponent(b.from) + '&to=' + encodeURIComponent(b.to), { credentials: 'same-origin' })
+      .then(function (r) { if (!r.ok) throw new Error('month'); return r.json(); })
+      .then(function (data) {
+        state.allCursor = next;
+        mergeRollupWeeks(data.weeks || []);
+        state.allLoading = false;
+        paintList();
+      })
+      .catch(function () { state.allLoading = false; });
+  }
+
+  function applyRange() {
+    if (state.search) {
+      runSearch();
+      return;
+    }
+    if (state.range === 'all') {
+      var oldest = (state.chartWeeks || []).reduce(function (acc, w) {
+        if (!w.week_start) return acc;
+        return !acc || w.week_start < acc ? w.week_start : acc;
+      }, null);
+      state.allCursor = (oldest || todayISO()).slice(0, 7);
+    } else if (state.range === 'block' && state.blockStart) {
+      fetch('/api/weekly-rollup?from=' + encodeURIComponent(state.blockStart) + '&to=' + encodeURIComponent(todayISO()), { credentials: 'same-origin' })
+        .then(function (r) { if (!r.ok) throw new Error('block'); return r.json(); })
+        .then(function (data) {
+          mergeRollupWeeks(data.weeks || []);
+          paintList();
+        })
+        .catch(function () { paintList(); });
+    }
+    loadList();
+  }
+
   function toast(msg) {
     var t = document.getElementById('v2-toast');
     if (!t) return;
@@ -1162,6 +1315,7 @@
       window.V2SyncToolbar.mount(document.getElementById('v2-sync-toolbar'), { onRefresh: refreshAll });
     }
     refreshAll();
+    if (state.search) runSearch();
     window.addEventListener('v2:log-refresh', refreshAll);
     window.V2TrainingLogReload = refreshAll;
   }
