@@ -19637,11 +19637,13 @@ def get_plan_revamp_week_load(
 @app.get("/api/plan/revamp-week")
 @_query_logged("/api/plan/revamp-week")
 def get_plan_revamp_week(
+    request: Request,
     week_start: Optional[str] = Query(default=None),
     sections: Optional[str] = Query(default=None),
     user: User = Depends(resolve_user),
 ):
     """One Plan-tab boot: selected sections share one session and plan context (#1927)."""
+    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, revamp_week_etag
     from backend.services.revamp_week import UnknownSectionError, build_revamp_week, parse_sections
 
     today = _today_bkk()
@@ -19660,7 +19662,11 @@ def get_plan_revamp_week(
             detail={"unknown": exc.unknown, "allowed": exc.allowed},
         )
     with Session(engine) as db:
-        return JSONResponse(build_revamp_week(db, user.id, week_start=ws, sections=wanted, today=today))
+        etag = revamp_week_etag(db, user.id, today, ws, wanted)
+        if not_modified(request, etag):
+            return not_modified_response(etag)
+        body = build_revamp_week(db, user.id, week_start=ws, sections=wanted, today=today)
+        return JSONResponse(body, headers=etag_headers(etag))
 
 
 @app.get("/api/plan/revamp-planned-editor/context")

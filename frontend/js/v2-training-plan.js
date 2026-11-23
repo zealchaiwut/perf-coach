@@ -551,10 +551,18 @@
     window.V2TrainingPlan.weekCachePut = cachePut;
     window.V2TrainingPlan.weekCacheInvalidate = cacheInvalidate;
 
+    var etags = {};
     function fetchWeek(ws, sections) {
       var q = '/api/plan/revamp-week?week_start=' + encodeURIComponent(ws);
       if (sections) q += '&sections=' + encodeURIComponent(sections);
-      return fetch(q, { credentials: 'include' }).then(readOkJson);
+      var headers = {};
+      if (etags[q]) headers['If-None-Match'] = etags[q];
+      return fetch(q, { credentials: 'include', headers: headers }).then(function (r) {
+        var tag = r.headers.get('ETag');
+        if (tag) etags[q] = tag;
+        if (r.status === 304) return { _notModified: true };
+        return readOkJson(r);
+      });
     }
 
     function applyPage(data) {
@@ -571,6 +579,7 @@
     function navFetch(ws, sections) {
       var cached = cacheGet(ws);
       var req = fetchWeek(ws, sections || 'board,week_load').then(function (data) {
+        if (data && data._notModified) return cached || data;
         cachePut(ws, data);
         if (data && data.week_load !== undefined) renderWeekLoad(week, data.week_load);
         if (cached && board && board._applyWeek && state.ws === ws) board._applyWeek(data);
@@ -600,6 +609,7 @@
 
     function loadAll() {
       return fetchWeek(state.ws).then(function (data) {
+        if (data && data._notModified) return;
         cachePut(state.ws, data);
         applyPage(data);
         prefetchAdj(state.ws);
