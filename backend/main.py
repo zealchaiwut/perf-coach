@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
+from backend.utils.query_log import logged as _query_logged
 from backend.utils.time import today_bangkok as _today_bangkok
 from backend.models import (
     AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
@@ -10787,6 +10788,7 @@ def _workout_list_tss(w, splits, prefs) -> float | None:
 
 
 @app.get("/api/training-log")
+@_query_logged("/api/training-log")
 def get_training_log(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
@@ -13771,6 +13773,7 @@ def get_training_load_weekly(
 
 
 @app.get("/api/weekly-rollup")
+@_query_logged("/api/weekly-rollup")
 def get_weekly_rollup_endpoint(
     week_start: Optional[str] = Query(default=None),
     from_week: Optional[str] = Query(default=None, alias="from"),
@@ -13801,6 +13804,7 @@ def get_weekly_rollup_endpoint(
 
 
 @app.get("/api/training/month")
+@_query_logged("/api/training/month")
 def get_training_month(
     month: str = Query(..., description="YYYY-MM"),
     user: User = Depends(resolve_user),
