@@ -480,7 +480,14 @@ def generic_road_chart(
         chronic = chronic_weekly_tss(session, uid, today)
     target = round(chronic, 1)
     oldest = ws - timedelta(weeks=max(span_weeks, 1) - 1)
-    rolls = weekly_rollups(uid, oldest, ws, session=session, today=today)
+    rolls = weekly_rollups(
+        uid,
+        oldest,
+        ws,
+        session=session,
+        today=today,
+        plan_ctx={"chronic_baseline": chronic},
+    )
     by_start = {r["week_start"]: r for r in rolls}
     columns: list[dict[str, Any]] = []
     for i in range(span_weeks - 1, -1, -1):

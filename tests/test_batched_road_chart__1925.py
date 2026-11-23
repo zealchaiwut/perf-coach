@@ -121,8 +121,41 @@ def test_generic_road_chart_batches_and_keeps_span_weeks():
         out = rlp.generic_road_chart(UID, session=session, today=TODAY, span_weeks=14)
     batched.assert_called_once()
     single.assert_not_called()
+    ctx = batched.call_args.kwargs.get("plan_ctx") or {}
+    assert ctx.get("chronic_baseline") == 200.0
+    assert ctx.get("race") is None
     assert out["mode"] == "generic"
     assert len(out["columns"]) == 14
+
+
+def test_weekly_rollups_chronic_only_skips_snapshot_and_plan_lookup():
+    from backend.services.weekly_rollup import weekly_rollups
+
+    session = MagicMock()
+    q = session.query.return_value
+    q.filter.return_value = q
+    q.order_by.return_value = q
+    q.all.return_value = []
+    q.first.return_value = None
+    with (
+        patch("backend.services.training_load.estimate_historical_pace_and_tss", return_value={}),
+        patch("backend.services.revamp_load_plan.chronic_weekly_tss") as chronic,
+        patch("backend.services.revamp_plan_settings.get_row") as get_row,
+        patch("backend.services.revamp_load_plan.week_target_and_phase") as target,
+    ):
+        weekly_rollups(
+            UID,
+            date(2026, 11, 9),
+            date(2026, 11, 23),
+            session=session,
+            today=TODAY,
+            plan_ctx={"chronic_baseline": 200.0},
+        )
+    chronic.assert_not_called()
+    get_row.assert_not_called()
+    target.assert_not_called()
+    models = [c.args[0].__name__ for c in session.query.call_args_list]
+    assert "LoadPlanWeekSnapshot" not in models
 
 
 def test_week_target_prefetched_miss_skips_snapshot_query():
