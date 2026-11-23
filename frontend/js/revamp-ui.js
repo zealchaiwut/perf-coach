@@ -66,12 +66,14 @@
       tab.hidden = false;
       return;
     }
-    fetch("/api/auth/me", { credentials: "same-origin" })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (u) {
-        if (u && u.is_admin) tab.hidden = false;
-      })
-      .catch(function () {});
+    var me = window.fetchCurrentUser
+      ? window.fetchCurrentUser()
+      : fetch("/api/auth/me", { credentials: "same-origin" }).then(function (r) {
+          return r.ok ? r.json() : null;
+        });
+    me.then(function (u) {
+      if (u && u.is_admin) tab.hidden = false;
+    }).catch(function () {});
   }
 
   if (document.readyState === "loading") {

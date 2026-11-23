@@ -153,14 +153,30 @@
       .catch(function () { toast('Could not build consult prompt'); });
   }
 
+  function loadHtml2Canvas() {
+    if (typeof global.html2canvas === 'function') {
+      return Promise.resolve(global.html2canvas);
+    }
+    if (global._html2canvasPromise) return global._html2canvasPromise;
+    global._html2canvasPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = '/js/lib/html2canvas.min.js';
+      s.onload = function () {
+        if (typeof global.html2canvas === 'function') resolve(global.html2canvas);
+        else reject(new Error('html2canvas missing'));
+      };
+      s.onerror = function () { reject(new Error('html2canvas failed')); };
+      document.head.appendChild(s);
+    });
+    return global._html2canvasPromise;
+  }
+
   function screenshot() {
     var e = els();
-    if (typeof global.html2canvas !== 'function') {
-      toast('Screenshot tool not loaded');
-      return;
-    }
     if (!e.drawer) return;
-    global.html2canvas(e.drawer, { backgroundColor: '#f5f7fc', scale: 2 }).then(function (canvas) {
+    loadHtml2Canvas().then(function (h2c) {
+      return h2c(e.drawer, { backgroundColor: '#f5f7fc', scale: 2 });
+    }).then(function (canvas) {
       canvas.toBlob(function (blob) {
         if (!blob) { toast('Screenshot failed'); return; }
         var url = URL.createObjectURL(blob);

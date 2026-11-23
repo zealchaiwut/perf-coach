@@ -353,8 +353,12 @@
     });
     ensureShell();
     renderPills({ status: 'idle', providers: {}, overall: 'ok' });
-    if (global.V2SyncStatus && global.V2SyncStatus.lastDetail()) {
-      handleDetail(global.V2SyncStatus.lastDetail());
+    if (global.V2SyncStatus) {
+      if (global.V2SyncStatus.lastDetail()) {
+        handleDetail(global.V2SyncStatus.lastDetail());
+      } else if (typeof global.V2SyncStatus.poll === 'function') {
+        global.V2SyncStatus.poll();
+      }
     } else {
       fetch('/api/sync/status').then(function (r) { return r.ok ? r.json() : null; }).then(handleRaw);
     }
