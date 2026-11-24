@@ -137,6 +137,15 @@ def _apply_session_log(session: Session, user_id, payload: dict) -> dict[str, An
         except Exception:
             pass
     versions = list_versions(session, workout.id)
+    if payload.get("apply_to_future"):
+        from backend.services.session_template_overrides import upsert_from_edit_log
+
+        upsert_from_edit_log(
+            session,
+            user_id,
+            str(payload.get("template_key") or payload.get("name") or ""),
+            payload.get("edit_log") or [],
+        )
     return {
         "workout_id": str(workout.id),
         "version_id": versions[0]["id"] if versions else None,

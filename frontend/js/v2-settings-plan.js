@@ -344,12 +344,45 @@
     });
   }
 
+  function renderOverrides(rows) {
+    var host = document.getElementById('v2-plan-overrides');
+    if (!host) return;
+    if (!rows || !rows.length) {
+      host.innerHTML = '<h2 class="rv-title">Gym overrides</h2><p class="rv-subtitle">None yet. Finish a gym session with Use these in future to store them.</p>';
+      return;
+    }
+    host.innerHTML = '<h2 class="rv-title">Gym overrides</h2>' + rows.map(function (r) {
+      var ov = r.override || {};
+      var detail = ov.replacement ? ('→ ' + ov.replacement) : (ov.kg != null ? (ov.kg + ' kg') : JSON.stringify(ov));
+      return '<div class="rv-row" data-override-id="' + r.id + '"><span>' + esc(r.template_key) +
+        ' · ' + esc(r.exercise_key) + ' ' + esc(detail) +
+        '</span><button type="button" class="rv-btn rv-btn--secondary" data-remove-override="' + r.id +
+        '">Remove</button></div>';
+    }).join('');
+    host.querySelectorAll('[data-remove-override]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        fetch('/api/plan/template-overrides/' + encodeURIComponent(b.getAttribute('data-remove-override')), {
+          method: 'DELETE',
+          credentials: 'same-origin',
+        }).then(function () { loadOverrides(); });
+      });
+    });
+  }
+
+  function loadOverrides() {
+    fetch('/api/plan/template-overrides', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : { overrides: [] }; })
+      .then(function (data) { renderOverrides((data && data.overrides) || []); })
+      .catch(function () { renderOverrides([]); });
+  }
+
   function init() {
     fetch('/api/plan/revamp-settings', { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         state = data;
         renderForm(data);
+        loadOverrides();
       });
   }
 

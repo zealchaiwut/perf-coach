@@ -1,19 +1,43 @@
-/* Phone-side strength TSS estimate — same formula as backend.services.strength_tss. */
+/* Phone-side strength TSS — same formula as backend.services.strength_tss. */
 (function (global) {
   "use strict";
-  function fromExercises(exercises) {
-    var tss = 0;
-    (exercises || []).forEach(function (ex) {
+  var STRENGTH_SET_TSS = 3.3;
+
+  function fromExercises(exercises, multipliers) {
+    multipliers = multipliers || {};
+    if (!exercises || !exercises.length) {
+      return { tss: null, method: "exercises", per_exercise: [], reason: "no exercises" };
+    }
+    var per = [];
+    var total = 0;
+    exercises.forEach(function (ex) {
+      var name = (ex.name || "").trim();
       var sets = Array.isArray(ex.sets) ? ex.sets : [];
-      var w = Number(ex.tss_weight || 1);
-      tss += sets.length * w;
+      var n = sets.length;
+      var mult = multipliers[name.toLowerCase()] != null ? multipliers[name.toLowerCase()] : 1;
+      var tss = Math.round(n * STRENGTH_SET_TSS * mult * 10) / 10;
+      per.push({ name: name, tss: tss, set_count: n, multiplier: mult });
+      total += tss;
     });
-    return Math.round(tss * 10) / 10;
+    return { tss: Math.round(total * 10) / 10, method: "exercises", per_exercise: per };
   }
-  function fromEffortTime(durationSeconds, sessionEffort) {
-    if (!durationSeconds) return 0;
-    var effort = Number(sessionEffort || 5);
-    return Math.round((durationSeconds / 3600) * effort * 10 * 10) / 10;
+
+  function fromEffortTime(durationMin, effort) {
+    effort = Number(effort);
+    durationMin = Number(durationMin);
+    if (effort < 1 || effort > 10) {
+      return { tss: null, method: "effort_time", reason: "effort must be 1–10" };
+    }
+    if (!(durationMin > 0)) {
+      return { tss: null, method: "effort_time", reason: "duration required" };
+    }
+    var raw = (durationMin / 60) * Math.pow(effort / 10, 2) * 100;
+    return { tss: Math.round(raw), method: "effort_time" };
   }
-  global.MTss = { fromExercises: fromExercises, fromEffortTime: fromEffortTime };
+
+  global.MTss = {
+    STRENGTH_SET_TSS: STRENGTH_SET_TSS,
+    fromExercises: fromExercises,
+    fromEffortTime: fromEffortTime
+  };
 })(window);

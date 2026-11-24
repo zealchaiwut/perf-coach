@@ -320,4 +320,28 @@ body.m-app--gym .m-primary { min-height: 56px; border-radius: 14px; font-size: 1
 .m-page-head { display: flex; align-items: center; gap: 10px; color: #fff; padding: 4px 0 8px; }
 .m-page-head h1 { margin: 0; font-size: 22px; }
 .m-chart { min-height: 110px; }
+.m-rest {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(228,255,82,0.12);
+  border: 1px solid rgba(228,255,82,0.35);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: #e3ecff;
+}
+.m-set-done { background: rgba(74,222,128,0.12); border-radius: 12px; padding: 10px 12px; display: flex; justify-content: space-between; min-height: 44px; }
+.m-set-todo { background: rgba(255,255,255,0.06); border-radius: 12px; padding: 10px 12px; color: #a8b6d6; display: flex; justify-content: space-between; min-height: 44px; }
+.m-finish-tiles { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; }
+.m-finish-tiles div { background: rgba(255,255,255,0.07); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px; }
+.m-finish-tiles span { font-size: 11px; color: #a8b6d6; }
+.m-sync-bar { display: flex; align-items: center; gap: 10px; background: rgba(251,191,36,0.14); border: 1px solid rgba(251,191,36,0.4); border-radius: 12px; padding: 10px 12px; font-size: 13px; }
+.m-sync-bar button { appearance: none; border: 0; background: transparent; color: #fbbf24; font-weight: 700; min-height: 40px; }
+.m-swap-row { appearance: none; width: 100%; text-align: left; border: 1px solid #dfe5f1; background: #fff; border-radius: 12px; padding: 11px 12px; min-height: 56px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.m-swap-row.on { border-color: #1f3b8a; background: #f6f9ff; }
+.m-usual { font-size: 10px; font-weight: 800; background: #dff5d6; color: #2d5e10; padding: 3px 7px; border-radius: 999px; }
+#m-swap-q { border: 1px solid #c9d2e3; border-radius: 12px; padding: 12px; font: inherit; min-height: 46px; width: 100%; }
+.m-keep-row { display: flex; justify-content: space-between; align-items: center; background: #f7f9fd; border-radius: 12px; padding: 10px 12px; }
+.m-check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.m-rpe button.on { background: var(--lime); color: var(--ink); border: 0; }
 [hidden] { display: none !important; }

@@ -19475,6 +19475,37 @@ def get_plan_revamp_settings(user: User = Depends(resolve_user)):
         return JSONResponse(settings_payload(db, user.id))
 
 
+@app.get("/api/plan/template-overrides")
+def get_plan_template_overrides(user: User = Depends(resolve_user)):
+    from backend.services.session_template_overrides import list_overrides
+
+    with Session(engine) as db:
+        rows = list_overrides(db, user.id)
+        return JSONResponse({
+            "overrides": [
+                {
+                    "id": str(r.id),
+                    "template_key": r.template_key,
+                    "exercise_key": r.exercise_key,
+                    "override": r.override,
+                }
+                for r in rows
+            ]
+        })
+
+
+@app.delete("/api/plan/template-overrides/{override_id}")
+def delete_plan_template_override(override_id: str, user: User = Depends(resolve_user)):
+    from backend.services.session_template_overrides import delete_override
+
+    with Session(engine) as db:
+        ok = delete_override(db, user.id, override_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="override not found")
+        db.commit()
+    return JSONResponse({"ok": True})
+
+
 @app.post("/api/plan/revamp-settings/preview")
 def post_plan_revamp_settings_preview(body: RevampPlanSettingsIn, user: User = Depends(resolve_user)):
     from backend.services.revamp_plan_settings import preview_settings_change

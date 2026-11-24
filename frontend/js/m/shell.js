@@ -69,7 +69,7 @@
     });
     MSync.boot();
     if (r === "gym") MGym.mount();
-    else if (r === "body") MBody.mount();
+    else if (r === "body" && global.MBody) MBody.mount();
     else MToday.mount();
     registerSw();
   }

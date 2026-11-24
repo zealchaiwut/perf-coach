@@ -2653,3 +2653,21 @@ class DeviceSession(Base):
     __table_args__ = (
         Index("ix_device_sessions_user_id", "user_id"),
     )
+
+
+class SessionTemplateOverride(Base):
+    """Gym apply_to_future edits that the generator replays (PWA P3-8)."""
+
+    __tablename__ = "session_template_overrides"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    template_key = Column(String(120), nullable=False)
+    exercise_key = Column(String(160), nullable=False)
+    override = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "template_key", "exercise_key", name="uq_session_template_overrides"),
+        Index("ix_session_template_overrides_user", "user_id"),
+    )

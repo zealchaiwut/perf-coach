@@ -144,6 +144,24 @@ def _library(session: Session) -> list[dict[str, Any]]:
     return out
 
 
+def _swap_history(session: Session, user_id) -> dict[str, Any]:
+    from backend.models import SessionTemplateOverride
+
+    rows = (
+        session.query(SessionTemplateOverride)
+        .filter(SessionTemplateOverride.user_id == user_id)
+        .all()
+    )
+    out: dict[str, Any] = {}
+    for r in rows:
+        ov = r.override or {}
+        name = ov.get("replacement")
+        if not name:
+            continue
+        out[r.exercise_key] = {"usual": name, "replacement": name, "count": 1}
+    return out
+
+
 def _recent_runs(session: Session, user_id, today: date) -> list[dict[str, Any]]:
     rows = (
         session.query(Workout)
@@ -273,9 +291,8 @@ def build_bundle(
             if ex.get("name"):
                 names.add(ex["name"])
         est = planned_tss_estimate(session, p)
-        duration = None
-        if isinstance(p.structure, dict):
-            duration = p.structure.get("duration_minutes") or p.structure.get("duration_min")
+        structure = p.structure if isinstance(p.structure, dict) else {}
+        duration = structure.get("duration_minutes") or structure.get("duration_min")
         sessions_out.append(
             {
                 "id": str(p.id),
@@ -284,6 +301,8 @@ def build_bundle(
                 "session_type": p.session_type,
                 "status": p.status,
                 "plan_source": p.plan_source,
+                "template_key": structure.get("pattern_name") or p.name,
+                "pattern_name": structure.get("pattern_name"),
                 "exercises": exercises,
                 "estimated_tss": est,
                 "duration_minutes": duration,
@@ -300,7 +319,7 @@ def build_bundle(
         "last_numbers": _last_numbers(session, uid, names),
         "anchors": get_anchor_lifts(session, uid),
         "library": _library(session),
-        "swap_history": {},
+        "swap_history": _swap_history(session, uid),
         "recent_runs": _recent_runs(session, uid, today),
         "body": _body(session, uid, today),
         "server_time": datetime.now(timezone.utc).isoformat(),

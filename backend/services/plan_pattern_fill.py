@@ -1398,6 +1398,14 @@ def fill_slot(
             pattern, slot, pool, rng=rng, avoid_parts=avoid_parts,
             pre_placed=pre_placed or None,
         )
+        uid = (week_ctx or {}).get("user_id")
+        if db is not None and uid and content.get("exercises"):
+            from backend.services.session_template_overrides import apply_overrides, override_dicts
+
+            key = str(content.get("pattern_name") or slot.get("name") or "")
+            ovs = override_dicts(db, uid, key)
+            if ovs:
+                content["exercises"] = apply_overrides(content["exercises"], ovs)
         pick_log = content.pop("_pick_log", None) or []
         budget_trace = content.pop("_budget_trace", None) or []
         band_meta = content.pop("_band", None) or {}
@@ -1437,6 +1445,14 @@ def fill_slot(
         )
         pick_log = content.pop("_pick_log", None) or []
         budget_trace = content.pop("_budget_trace", None) or []
+        uid = (week_ctx or {}).get("user_id")
+        if db is not None and uid and content.get("exercises"):
+            from backend.services.session_template_overrides import apply_overrides, override_dicts
+
+            key = str(content.get("pattern_name") or slot.get("name") or "")
+            ovs = override_dicts(db, uid, key)
+            if ovs:
+                content["exercises"] = apply_overrides(content["exercises"], ovs)
         log["budget_trace"] = budget_trace
         log["steps"].append({
             "op": "fill_strength",

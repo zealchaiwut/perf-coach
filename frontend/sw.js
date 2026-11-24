@@ -12,6 +12,7 @@ var PRECACHE = [
   "/js/m/shell.js",
   "/js/m/today.js",
   "/js/m/gym.js",
+  "/js/m/gym-swap.js",
   "/js/m/timer.js",
   "/js/m/body.js",
   "/js/m/tss.js",
