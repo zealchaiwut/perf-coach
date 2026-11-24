@@ -9,7 +9,14 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.models import StravaToken, StrydCredentials, SyncJob
+from backend.models import (
+    StravaActivity,
+    StravaToken,
+    StrydActivity,
+    StrydCredentials,
+    SyncJob,
+    WorkerJobRun,
+)
 
 
 # Rows left in pending/running after a crash (UAT has June 2026 Stryd
@@ -144,6 +151,28 @@ _REAUTH_HINTS = (
 _TEMP_UNAVAILABLE = "temporarily unavailable"
 
 
+def _snapshot_source(job_snapshot: Optional[dict]) -> Optional[str]:
+    """Which provider an in-memory / worker snapshot belongs to, if any."""
+    if not job_snapshot:
+        return None
+    job_type = (job_snapshot.get("job_type") or "").lower()
+    if job_type in _NON_SYNC_JOB_TYPES:
+        return None
+    if job_type in ("strava_sync", "strava"):
+        return "strava"
+    if job_type in ("stryd_sync", "stryd"):
+        return "stryd"
+    phase = (job_snapshot.get("phase") or "").lower()
+    if phase == "pulling_strava":
+        return "strava"
+    if phase == "pulling_stryd":
+        return "stryd"
+    provider = (job_snapshot.get("provider") or "").lower()
+    if provider in ("strava", "stryd"):
+        return provider
+    return None
+
+
 def _snapshot_running(job_snapshot: Optional[dict], source: str) -> bool:
     """True when the in-memory / worker snapshot is actively pulling this source."""
     if not job_snapshot:
@@ -151,22 +180,89 @@ def _snapshot_running(job_snapshot: Optional[dict], source: str) -> bool:
     st = (job_snapshot.get("status") or "").lower()
     if st not in ("running", "pending"):
         return False
-    job_type = (job_snapshot.get("job_type") or "").lower()
-    if job_type in _NON_SYNC_JOB_TYPES:
-        return False
-    if job_type in ("strava_sync", "strava"):
-        return source == "strava"
-    if job_type in ("stryd_sync", "stryd"):
-        return source == "stryd"
-    phase = (job_snapshot.get("phase") or "").lower()
-    if phase == "pulling_strava":
-        return source == "strava"
-    if phase == "pulling_stryd":
-        return source == "stryd"
-    provider = (job_snapshot.get("provider") or "").lower()
-    if provider in ("strava", "stryd"):
-        return source == provider
-    return False
+    return _snapshot_source(job_snapshot) == source
+
+
+def _snapshot_success_at(job_snapshot: Optional[dict], source: str) -> Optional[datetime]:
+    """finished_at from a successful in-memory / worker snapshot for this source."""
+    if _snapshot_source(job_snapshot) != source:
+        return None
+    st = (job_snapshot.get("status") or "").lower()
+    if st not in ("success", "completed", "ok"):
+        return None
+    return _parse_snapshot_ts((job_snapshot or {}).get("finished_at"))
+
+
+def _later(*dts: Optional[datetime]) -> Optional[datetime]:
+    present = [d for d in (_as_utc(x) for x in dts) if d is not None]
+    return max(present) if present else None
+
+
+def _last_worker_success_at(
+    session: Session, user_id: uuid.UUID, source: str
+) -> Optional[datetime]:
+    try:
+        val = session.execute(
+            select(WorkerJobRun.finished_at)
+            .where(WorkerJobRun.user_id == user_id)
+            .where(WorkerJobRun.job_type == f"{source}_sync")
+            .where(WorkerJobRun.status == "success")
+            .where(WorkerJobRun.finished_at.isnot(None))
+            .order_by(WorkerJobRun.finished_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+    except Exception:
+        return None
+    return _as_utc(val) if isinstance(val, datetime) else None
+
+
+def _last_activity_synced_at(
+    session: Session, user_id: uuid.UUID, source: str
+) -> Optional[datetime]:
+    model = StravaActivity if source == "strava" else StrydActivity
+    try:
+        val = session.execute(
+            select(func.max(model.synced_at)).where(model.user_id == user_id)
+        ).scalar()
+    except Exception:
+        return None
+    return _as_utc(val) if isinstance(val, datetime) else None
+
+
+def record_provider_sync_outcome(
+    user_id: uuid.UUID,
+    source: str,
+    *,
+    ok: bool,
+    error: Optional[str] = None,
+    items_synced: int = 0,
+    started_at: Optional[datetime] = None,
+    job_type: str = "incremental",
+) -> None:
+    """Write a completed/failed SyncJob so the toolbar last-synced clock persists.
+
+    The in-process Strava pull (``run_strava_sync``) previously only updated the
+    in-memory job registry. The toolbar reads last_success_at from this table,
+    so a successful Sync now still showed "last synced unknown".
+    """
+    from backend.db import engine
+
+    now = _utc_now()
+    uid = uuid.UUID(str(user_id))
+    with Session(engine) as session:
+        session.add(
+            SyncJob(
+                user_id=uid,
+                source=source,
+                job_type=job_type,
+                status="completed" if ok else "failed",
+                started_at=_as_utc(started_at) or now,
+                completed_at=now,
+                activities_fetched=int(items_synced or 0),
+                error_message=None if ok else (error or "Sync failed"),
+            )
+        )
+        session.commit()
 
 
 def _needs_reauth(source: str, last_error: Optional[str]) -> bool:
@@ -187,14 +283,19 @@ def _one_provider(
     running = _snapshot_running(job_snapshot, source) or _provider_running(session, user_id, source)
     last_ok = _last_completed(session, user_id, source)
     last_fail = _last_failed(session, user_id, source)
+    last_success_dt = _later(
+        last_ok.completed_at if last_ok is not None else None,
+        _snapshot_success_at(job_snapshot, source),
+        _last_worker_success_at(session, user_id, source),
+        _last_activity_synced_at(session, user_id, source),
+    )
     last_error = None
-    if last_fail is not None and (last_ok is None or (_as_utc(last_fail.completed_at) or last_fail.created_at)
-                                >= (_as_utc(last_ok.completed_at) if last_ok else datetime.min.replace(tzinfo=timezone.utc))):
+    fail_at = None
+    if last_fail is not None:
+        fail_at = _as_utc(last_fail.completed_at) or _as_utc(last_fail.created_at)
+    if fail_at is not None and (last_success_dt is None or fail_at >= last_success_dt):
         last_error = last_fail.error_message or "Sync failed"
-
-    last_success_at = None
-    if last_ok is not None and last_ok.completed_at is not None:
-        last_success_at = _as_utc(last_ok.completed_at).isoformat()
+    last_success_at = last_success_dt.isoformat() if last_success_dt is not None else None
 
     return {
         "connected": connected,
