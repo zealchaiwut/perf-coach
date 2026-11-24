@@ -159,7 +159,7 @@ body.rv-page .rv-sync-dot--green { background: #22c55e; }
 body.rv-page .rv-sync-dot--amber { background: #f59e0b; }
 body.rv-page .rv-sync-dot--red { background: #ef4444; }
 body.rv-page .rv-tabnav .rv-settings-gear { width: 18px; height: 18px; opacity: 0.85; }
-@media (max-width: 520px) {
+@media (max-width: 600px) {
   body.rv-page .rv-tab--util .rv-settings-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 }
 

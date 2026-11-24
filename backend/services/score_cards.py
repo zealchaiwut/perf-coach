@@ -38,14 +38,43 @@ def _anchor_name(anchor: dict[str, Any]) -> str:
     return anchor.get("title") or "anchor effort"
 
 
-def reason_sentence(breakdown: Optional[dict[str, Any]]) -> Optional[str]:
-    """Plain-language reason from the decomposition, or None."""
+def _fmt_anchor_date(iso: Optional[str]) -> Optional[str]:
+    if not iso:
+        return None
+    try:
+        from datetime import date as _date
+
+        d = _date.fromisoformat(str(iso)[:10])
+        return f"{d.day} {d.strftime('%b')}"
+    except ValueError:
+        return str(iso)
+
+
+def reason_sentence(
+    breakdown: Optional[dict[str, Any]],
+    *,
+    delta_28d: Optional[float] = None,
+) -> Optional[str]:
+    """Plain-language reason from the decomposition and the 28-day delta."""
     if not isinstance(breakdown, dict) or "decay" not in breakdown or "efforts" not in breakdown:
         return None
     decay = float(breakdown.get("decay") or 0.0)
     efforts = float(breakdown.get("efforts") or 0.0)
     anchors = [a for a in (breakdown.get("anchors") or []) if a.get("date")]
+    delta = None if delta_28d is None else int(round(float(delta_28d)))
+    stale_n = sum(1 for a in anchors if a.get("is_stale"))
+    if delta is not None and delta > 0 and stale_n >= 2 and len(anchors) >= 3:
+        old = [a for a in anchors if float(a.get("age_weeks") or 0) >= 5]
+        n_old = len(old) if old else stale_n
+        return (
+            f"Up {delta}, but {n_old} of {len(anchors)} anchors are over five weeks old and decaying."
+        )
     if decay < 0 and -decay > efforts + EPS:
+        if delta is not None and delta > 0:
+            newest = min(anchors, key=lambda a: float(a.get("age_weeks") or 0.0)) if anchors else None
+            if newest:
+                return f"Up {delta}. Lifted by the effort on {newest['date']}."
+            return f"Up {delta}."
         if not anchors:
             return None
         aged = max(anchors, key=lambda a: float(a.get("age_weeks") or 0.0))
@@ -57,8 +86,57 @@ def reason_sentence(breakdown: Optional[dict[str, Any]]) -> Optional[str]:
         if not anchors:
             return None
         newest = min(anchors, key=lambda a: float(a.get("age_weeks") or 0.0))
-        return f"Lifted by the effort on {newest['date']}."
+        return f"Lifted by the hard effort on {newest['date']}."
+    if delta is not None and delta > 0:
+        return f"Up {delta}."
     return None
+
+
+def breakdown_rows(breakdown: Optional[dict[str, Any]], *, top_k: int = 3) -> Optional[list[dict[str, Any]]]:
+    """Structured 'Where N comes from' rows. Score row is max(avg, floor) + bonus."""
+    if not isinstance(breakdown, dict) or "error" in breakdown:
+        return None
+    if breakdown.get("anchor_mean_now") is None and breakdown.get("score_now") is None:
+        return None
+    avg = float(breakdown.get("anchor_mean_now") or 0.0)
+    floor = breakdown.get("race_floor_now")
+    floor_f = None if floor is None else float(floor)
+    bonus = float(breakdown.get("consistency_bonus_now") or 0.0)
+    used_floor = floor_f is not None and floor_f > avg + EPS
+    inner = floor_f if used_floor else avg
+    raw = round(inner + bonus, 1)
+    shown = breakdown.get("score_now")
+    if shown is not None:
+        raw = round(float(shown), 1)
+    rows = [
+        {
+            "key": "anchor_mean",
+            "label": f"Average of {top_k} anchor efforts, after decay",
+            "value": round(avg, 1),
+            "muted": used_floor,
+        },
+        {
+            "key": "race_floor",
+            "label": "Race floor, used only if higher",
+            "value": None if floor_f is None else round(floor_f, 1),
+            "muted": not used_floor,
+        },
+        {
+            "key": "consistency",
+            "label": "Consistency bonus",
+            "value": round(bonus, 1),
+            "muted": False,
+            "signed": True,
+        },
+        {
+            "key": "score",
+            "label": "Score",
+            "value": raw,
+            "display": display_score(raw),
+            "muted": False,
+        },
+    ]
+    return rows
 
 
 def formula_line(breakdown: Optional[dict[str, Any]], *, top_k: int = 3) -> Optional[str]:
@@ -148,10 +226,15 @@ def build_card(axis: str, reader_block: dict[str, Any], perf_block: Optional[dic
         "sparkline": {"dates": list(dates), "values": list(values)} if dates and values else None,
         "decomposition": decomposition,
         "formula_line": formula_line(breakdown, top_k=top_k) if valid else None,
-        "split": split_bar(breakdown) if valid else None,
-        "reason": reason_sentence(breakdown) if valid else None,
+        "split": None,
+        "breakdown_rows": breakdown_rows(breakdown, top_k=top_k) if valid else None,
+        "reason": reason_sentence(breakdown, delta_28d=reader_block.get("delta_28d")) if valid else None,
         "to_reach": to_reach_line(axis, perf_block.get("improve_hint")),
-        "anchors": anchors,
+        "target_score": (perf_block.get("improve_hint") or {}).get("target_score") if isinstance(perf_block.get("improve_hint"), dict) else None,
+        "anchors": [
+            {**a, "display_date": _fmt_anchor_date(a.get("date"))}
+            for a in anchors
+        ],
     }
 
 

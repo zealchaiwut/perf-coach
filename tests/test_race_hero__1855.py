@@ -126,7 +126,7 @@ def test_after_race_card_shows_next_checkpoint_with_projection_estimate():
     assert nc["label"] == "Half checkpoint" and nc["estimate"]["est_sec"] == 6000
     pseudo = e.call_args[0][1]
     assert pseudo.distance_km == 21.0975 and pseudo.race_date == cp.target_date and pseudo.id is None
-    assert "replaces" in block["copy"] and "anchors" in block["copy"]
+    assert "re-anchors" in block["copy"] and "projection" in block["copy"]
 
 
 def test_checkpoint_without_distance_has_no_estimate():

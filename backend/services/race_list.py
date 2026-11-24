@@ -28,7 +28,7 @@ _UNSET = object()
 MATCH_DAY_WINDOW = 1
 MATCH_DISTANCE_TOLERANCE = 0.05
 UPCOMING_LIMIT = 8
-COMPLETED_LIMIT = 6
+COMPLETED_LIMIT = 1
 
 
 def _wval(w, key):
@@ -73,6 +73,25 @@ def match_run(race_date: date, race_distance_km: Optional[float], workouts: list
     }
 
 
+def _gap_chip(delta_sec: Optional[int], *, vs_goal: bool) -> Optional[dict[str, Any]]:
+    """Server-side status chip. Positive delta means faster than / under goal."""
+    if delta_sec is None:
+        return None
+    faster = delta_sec >= 0
+    secs = abs(int(delta_sec))
+    from backend.services.race_finish_estimate import _fmt_hms
+
+    label = _fmt_hms(secs) or "0:00"
+    if vs_goal:
+        # upcoming estimate vs goal
+        tone = "good" if faster else "warn"
+        text = f"{label} {'faster' if faster else 'slower'} than goal"
+    else:
+        tone = "good" if faster else "bad"
+        text = f"{label} {'under' if faster else 'over'} goal"
+    return {"tone": tone, "text": text, "faster": faster, "delta_sec": int(delta_sec)}
+
+
 def _pace(sec: Optional[int], km: Optional[float]) -> Optional[int]:
     if sec is None or not km:
         return None
@@ -97,7 +116,7 @@ def _base(race) -> dict[str, Any]:
         "role_label": ROLE_LABELS[role],
         "role_target": role_target_summary(race),
         "goal_sec": goal,
-        "goal_pace_seconds_per_km": race.goal_pace_seconds_per_km if race.goal_pace_seconds_per_km else _pace(goal, distance),
+        "goal_pace_seconds_per_km": _pace(goal, distance) or race.goal_pace_seconds_per_km,
     }
 
 
@@ -149,6 +168,10 @@ def needs_result_row(race, workouts: list) -> dict[str, Any]:
     suggestion = match_run(race.race_date, distance, workouts)
     row["suggested_actual"] = suggestion
     row["suggestion_reason"] = None if suggestion else "No synced run matched"
+    if row["role"] == "long_run":
+        row["status_chip"] = {"tone": "warn", "text": "not recorded", "faster": None, "delta_sec": None}
+    else:
+        row["status_chip"] = None
     return row
 
 
@@ -156,11 +179,13 @@ def completed_row(race, workouts: list) -> dict[str, Any]:
     row = _base(race)
     actual = int(race.actual_time_seconds) if race.actual_time_seconds is not None else None
     run = match_run(race.race_date, row["distance_km"], workouts)
+    gap = (row["goal_sec"] - actual) if (row["goal_sec"] is not None and actual is not None) else None
     row.update(
         chip_time_sec=actual,
         moving_time_sec=run["moving_seconds"] if run else None,
-        goal_minus_actual_sec=(row["goal_sec"] - actual) if (row["goal_sec"] is not None and actual is not None) else None,
+        goal_minus_actual_sec=gap,
         actual_pace_seconds_per_km=_pace(actual, row["distance_km"]),
+        status_chip=_gap_chip(gap, vs_goal=False),
     )
     return row
 
@@ -177,6 +202,12 @@ def upcoming_row(session, user_id, race, today: date, target_id) -> dict[str, An
     row["is_target"] = target_id is not None and race.id == target_id
     row["recalibrates_here"] = recalibrates(race)
     row["days_to_race"] = (race.race_date - today).days
+    est_block = row.get("estimate") or {}
+    est_sec = est_block.get("est_sec") if est_block.get("available") else None
+    goal = row.get("goal_sec")
+    gap = (goal - est_sec) if (goal is not None and est_sec is not None) else None
+    row["status_chip"] = _gap_chip(gap, vs_goal=True)
+    row["estimate_vs_goal"] = "faster" if gap is not None and gap >= 0 else ("slower" if gap is not None else None)
     return row
 
 
@@ -235,6 +266,7 @@ def build_race_list(
         ],
         "total_upcoming": len(upcoming),
         "total_completed": len(done_all),
+        "hidden_completed": max(0, len(done_all) - len(done_rows)),
         "completed": done_rows,
         "showing_all": show_all,
     }

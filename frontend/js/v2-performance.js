@@ -409,6 +409,19 @@
         chart.innerHTML = data.svg || "";
         chart.removeAttribute("aria-busy");
       }
+      chart.onclick = function (ev) {
+        var t = ev.target;
+        var href = "";
+        while (t && t !== chart) {
+          if (t.getAttribute) href = t.getAttribute("href") || href;
+          if (t.tagName === "A" || href) break;
+          t = t.parentNode;
+        }
+        if (href === "#v2-mobility-log") {
+          ev.preventDefault();
+          openMobilityDrawer();
+        }
+      };
     }
     if (focusHost) {
       if (sectionFailed(data.focus)) renderSectionError(focusHost, "Focus", loadFocus);
@@ -458,8 +471,9 @@
   function renderHero(host, afterHost, data) {
     var r = data.race;
     if (!r) {
-      host.innerHTML = '<span class="rv-label">A race</span><p class="rv-subtitle">No upcoming A race. Add one on the race list below.</p>' +
-        '<button type="button" class="rv-btn rv-btn--primary rv-btn--sm" data-scroll-races>Add a race</button>';
+      host.innerHTML = '<div class="rv-perf-hero-empty"><div><span class="rv-label">A race</span>' +
+        '<p class="rv-subtitle">No upcoming A race. Pick the race this block is building to, and the radar targets switch to its distance and goal time.</p></div>' +
+        '<button type="button" class="rv-btn rv-btn--secondary" data-scroll-races>+ Add an A race</button></div>';
       var scrollBtn = host.querySelector("[data-scroll-races]");
       if (scrollBtn) {
         scrollBtn.addEventListener("click", function () {
@@ -650,36 +664,54 @@
   function renderScoreCard(c) {
     var chip = c.delta_28d == null ? "" :
       '<span class="rv-chip" data-card-delta>' + esc(signed(c.delta_28d)) + ' in 28 days</span>';
-    var d = c.decomposition;
-    var formula = c.formula_line
-      ? '<p class="rv-mono rv-subtitle" data-card-formula style="font-size:12.5px">' + esc(c.formula_line) + "</p>"
-      : (d ? '<p class="rv-subtitle" data-card-decomposition>' +
-        esc(num(d.score_then)) + ' then · ' + esc(num(d.decay)) + ' decay · ' + esc(num(d.efforts)) +
-        ' efforts · ' + esc(num(d.consistency)) + ' consistency · ' + esc(num(d.score_now)) + ' now</p>' : "");
-    var split = c.split && (c.split.decay || c.split.gains) ?
-      '<div class="rv-zone-bar" role="img" aria-label="Decay ' + esc(num(c.split.decay)) + ' points versus gains ' + esc(num(c.split.gains)) + ' points" data-card-split>' +
-      '<span class="rv-zone-seg" style="width:' + (c.split.decay_share * 100).toFixed(1) + '%;background:#f4a5a5"></span>' +
-      '<span class="rv-zone-seg" style="width:' + (c.split.gains_share * 100).toFixed(1) + '%;background:#4ade80"></span></div>' +
-      '<div class="rv-split-legend"><span class="rv-k"><span class="rv-k-swatch" style="background:#f4a5a5"></span>decay</span>' +
-      '<span class="rv-k"><span class="rv-k-swatch" style="background:#4ade80"></span>consistency</span></div>' : "";
     var axisMod = c.axis === "speed" ? " rv-score-card--speed" : "";
     var scoreCls = c.axis === "speed" ? " rv-score-num--speed" : " rv-score-num--endurance";
+    var rows = (c.breakdown_rows || []).map(function (row) {
+      var muted = row.muted ? " rv-score-bd-row--muted" : "";
+      var val;
+      if (row.key === "score") {
+        val = esc(num(row.value)) + " \u2192 " + esc(row.display != null ? row.display : scoreText(c));
+      } else if (row.signed) {
+        val = (row.value > 0 ? "+" : "") + esc(num(row.value));
+      } else {
+        val = esc(num(row.value));
+      }
+      var valStyle = row.signed && row.value > 0 ? ' style="color:#2d5e10"' : "";
+      return '<div class="rv-score-bd-row' + muted + '" data-breakdown="' + esc(row.key) + '">' +
+        '<span class="rv-score-bd-dot"></span><span>' + esc(row.label) + '</span>' +
+        '<span class="rv-mono rv-score-bd-val"' + valStyle + '>' + val + '</span></div>';
+    }).join("");
+    var where = rows
+      ? '<div class="rv-score-bd"><span class="rv-score-bd-title">Where ' + esc(scoreText(c)) +
+        ' comes from</span><div class="rv-score-bd-list" data-card-breakdown>' + rows + '</div></div>'
+      : "";
     var callout = c.to_reach
       ? '<div class="rv-to-reach' + (c.axis === "speed" ? " rv-to-reach--speed" : "") + '" data-card-to-reach>' +
-        esc(c.to_reach) + "</div>"
+        (c.target_score != null ? '<span class="rv-mono rv-to-reach-arrow">\u2192 ' + esc(c.target_score) + '</span>' : "") +
+        '<span>' + esc(c.to_reach) + '</span></div>'
       : "";
-    var reason = c.reason ? '<p data-card-reason>' + esc(c.reason) + '</p>' : "";
-    var anchors = (c.anchors || []).map(function (a) {
-      return '<li>' + esc(a.date) + ' · raw ' + esc(num(a.raw_score)) + ' · ' + esc(num(a.age_weeks)) + ' wk' +
-        (a.is_stale ? ' · <strong>stale</strong>' : '') + '</li>';
+    var reason = c.reason ? '<p class="rv-score-headline" data-card-reason>' + esc(c.reason) + '</p>' : "";
+    var ancHead = '<div class="rv-score-anc rv-score-anc--head"><span>Date</span><span>Raw</span><span>Age</span><span>Status</span></div>';
+    var ancRows = (c.anchors || []).map(function (a) {
+      var st = a.is_stale
+        ? '<span class="rv-chip rv-chip--warn" data-anchor-stale>Stale \u00b7 decaying</span>'
+        : '<span class="rv-chip rv-chip--good" data-anchor-fresh>Fresh</span>';
+      return '<div class="rv-score-anc" data-anchor>' +
+        '<span class="rv-mono">' + esc(a.display_date || a.date) + '</span>' +
+        '<span class="rv-mono">' + esc(num(a.raw_score)) + '</span>' +
+        '<span class="rv-mono">' + esc(num(a.age_weeks)) + ' wk</span>' +
+        '<span>' + st + '</span></div>';
     }).join("");
+    var anchors = ancRows
+      ? '<div class="rv-score-anchors" data-card-anchors><span class="rv-score-bd-title">Anchor efforts</span>' +
+        ancHead + ancRows + '</div>'
+      : "";
     return '<div class="rv-card rv-stack rv-score-card' + axisMod + '" data-score-card="' + esc(c.axis) + '">' +
       '<div class="rv-row rv-score-card-head"><span class="rv-label">' + esc(c.label) + '</span>' +
       '<a href="/v2/training/trends" class="rv-score-trend-link">Trend</a></div>' +
       '<div class="rv-score-hero-row">' +
       '<strong class="rv-score-num' + scoreCls + '">' + esc(scoreText(c)) + "</strong>" +
-      chip + sparkline(c.sparkline, c.axis) + "</div>" + formula + split + reason + callout +
-      (anchors ? '<details><summary>Anchor efforts and other runs</summary><ul>' + anchors + '</ul></details>' : "") + '</div>';
+      chip + sparkline(c.sparkline, c.axis) + "</div>" + reason + where + callout + anchors + '</div>';
   }
 
   function applyScoreCards(data) {
@@ -718,11 +750,20 @@
     return '<span class="rv-chip' + (good ? " rv-chip--good" : "") + '">' + esc(val) + '</span>';
   }
 
-  function renderTiles(t) {
+  function renderTiles(t, built) {
     t = t || {};
+    built = built || {};
     return '<div class="rv-perf-proj-tiles">' +
       projTile("Last recalibrated", t.last_recalibrated, function (d) {
-        return esc(d.date) + (d.race_name ? ' · ' + esc(d.race_name) : "");
+        var sub = "";
+        if (built.race_time_sec != null || built.cp_w != null) {
+          sub = '<span class="rv-subtitle" style="font-size:12px;font-weight:500;display:block">' +
+            (built.race_time_sec != null ? esc(fmtHMS(built.race_time_sec)) : "") +
+            (built.cp_w != null ? (built.race_time_sec != null ? " \u00b7 " : "") + "CP " + esc(built.cp_w) + " W" : "") +
+            (built.cp_stale ? ' <span class="rv-chip rv-chip--warn">CP stale</span>' : "") +
+            "</span>";
+        }
+        return esc(d.date) + (d.race_name ? " \u00b7 " + esc(d.race_name) : "") + sub;
       }) +
       projTile("Data", t.data_sufficiency, function (d) { return goodChip(d.value); }) +
       projTile("Band confidence", t.band_confidence, function (d) { return goodChip(d.value); }) +
@@ -738,44 +779,64 @@
       '<span class="rv-subtitle">' + NA + '</span>';
   }
 
-  function renderChain(chain) {
+  function corrLabel(c) {
+    if (!c || !c.available) return null;
+    if (c.formatted) return c.formatted;
+    if (c.factor == null) return null;
+    return "\u00d7" + Number(c.factor).toFixed(3);
+  }
+
+  function renderChain(chain, race) {
     if (!chain) return "";
-    var e = chain.endurance || {}, sp = chain.speed || {}, b = chain.blended || {}, c = chain.correction || {}, f = chain.final || {};
+    var e = chain.endurance || {}, sp = chain.speed || {}, b = chain.blended || {};
+    var fit = chain.fitness || {}, c = chain.correction || {}, f = chain.final || {};
     var arrow = '<span class="rv-proj-chain__arrow" aria-hidden="true">\u2192</span>';
     var scoreLine = function (name, st) {
       return '<div><span class="rv-subtitle" style="font-size:12px">' + name + (st.score != null ? ' <b style="color:var(--rv-ink)">' + esc(scoreText(st)) + '</b>' : "") + '</span>' + paceOrNA(st) + '</div>';
     };
-    var goal = f.goal || {};
-    var finalSide = f.available
-      ? '<div class="rv-mono rv-subtitle" style="font-size:12.5px;line-height:1.8;text-align:right">' +
-        '<div><span class="rv-subtitle">pace</span> ' + esc(fmtPace(f.pace_seconds_per_km)) + '</div>' +
-        '<div><span class="rv-subtitle">band</span> ' + (f.band_sec != null ? '\u00b1' + esc(fmtHMS(f.band_sec)) : NA) + '</div>' +
-        '<div><span class="rv-subtitle">goal</span> ' + esc(fmtHMS(goal.time_sec)) + '</div></div>'
-      : "";
+    var vs = f.vs_goal;
+    var finalMod = vs === "slower" ? " rv-proj-final--warn" : (f.available ? " rv-proj-final--good" : "");
+    var dateBit = race && race.race_date ? " \u00b7 " + esc(race.race_date) : "";
+    var gapBit = "";
+    if (f.available && f.goal && f.goal.time_sec != null && f.est_sec != null) {
+      var g = f.goal.time_sec - f.est_sec;
+      gapBit = " \u00b7 " + esc(fmtHMS(Math.abs(g))) + (g >= 0 ? " faster than goal" : " slower than goal");
+    }
     var finalHtml = f.available
-      ? '<div class="rv-proj-final" data-chain="final"><div><span style="font-size:12px;font-weight:700;color:var(--rv-good-ink)">Projected finish \u00b7 ' + esc(f.race_name) + '</span>' +
-        '<div class="rv-proj-final-val" data-chain-final>' + esc(fmtHMS(f.est_sec)) + '</div></div>' + finalSide + '</div>'
-      : '<div class="rv-proj-final" data-chain="final"><span class="rv-subtitle">' + NA + '</span></div>';
-  var blendLabel = b.available ? "Blended \u00b7 " + esc(b.speed_weight_pct) + "% speed" : "Blended";
-    var corrInner = c.available
+      ? '<div class="rv-proj-final' + finalMod + '" data-chain="final"><span class="rv-proj-final-lbl">' +
+        esc(f.race_name || "") + dateBit + '</span>' +
+        '<div class="rv-proj-final-val" data-chain-final>' + esc(fmtHMS(f.est_sec)) +
+        (f.band_sec != null ? ' <span style="font-size:13px;font-weight:600">\u00b1' + esc(fmtHMS(f.band_sec)).replace(/^0:/, "") + "</span>" : "") +
+        '</div><span class="rv-subtitle" style="font-size:11.5px">' + esc(fmtPace(f.pace_seconds_per_km)) + gapBit + "</span></div>"
+      : '<div class="rv-proj-final" data-chain="final"><span class="rv-subtitle">' +
+        esc((f && f.reason) || NA) + "</span></div>";
+    var blendLabel = b.available ? "Blend \u00b7 " + esc(b.speed_weight_pct) + "% speed" : "Blend";
+    var corrTxt = corrLabel(c);
+    var corrInner = corrTxt
       ? '<span class="rv-subtitle" style="font-size:12px;font-weight:700;color:var(--rv-secondary)">Model correction</span>' +
-        '<span class="rv-mono" style="font-size:20px;font-weight:600">' + esc(c.factor) + '\u00d7</span>'
-      : '<span class="rv-subtitle">' + NA + '</span>';
+        '<span class="rv-mono" style="font-size:18px;font-weight:700">' + esc(corrTxt) + "</span>"
+      : '<span class="rv-subtitle">' + NA + "</span>";
     var blendInner = b.available
-      ? '<span style="font-size:12px;font-weight:700;color:var(--rv-primary)">' + blendLabel + '</span>' + paceOrNA(b)
-      : '<span class="rv-subtitle">' + NA + '</span>';
+      ? '<span style="font-size:12px;font-weight:700;color:var(--rv-primary)">' + blendLabel + "</span>" + paceOrNA(b)
+      : '<span class="rv-subtitle">' + NA + "</span>";
+    var fitInner = fit.available
+      ? '<span class="rv-subtitle" style="font-size:12px;font-weight:700">Race-day fitness</span>' +
+        '<span class="rv-mono" style="font-size:18px;font-weight:700">' + esc(fit.formatted || corrLabel(fit) || "\u00d71.000") + "</span>" +
+        (fit.projected_ctl != null ? '<span class="rv-subtitle" style="font-size:11.5px">projected CTL ' + esc(num(fit.projected_ctl)) + "</span>" : "")
+      : '<span class="rv-subtitle">' + NA + "</span>";
     return '<div class="rv-proj-chain" data-chain-row>' +
-      '<div class="rv-proj-stage rv-proj-stage--scores" data-chain="scores">' + scoreLine("Endurance", e) + scoreLine("Speed", sp) + '</div>' +
-      arrow + '<div class="rv-proj-stage rv-proj-stage--blend" data-chain="blended">' + blendInner + '</div>' +
-      arrow + '<div class="rv-proj-stage rv-proj-stage--corr" data-chain="correction">' + corrInner + '</div>' +
-      arrow + finalHtml + '</div>';
+      '<div class="rv-proj-stage rv-proj-stage--scores" data-chain="scores">' + scoreLine("Endurance", e) + scoreLine("Speed", sp) + "</div>" +
+      arrow + '<div class="rv-proj-stage rv-proj-stage--blend" data-chain="blended">' + blendInner + "</div>" +
+      arrow + '<div class="rv-proj-stage rv-proj-stage--fitness" data-chain="fitness">' + fitInner + "</div>" +
+      arrow + '<div class="rv-proj-stage rv-proj-stage--corr" data-chain="correction">' + corrInner + "</div>" +
+      arrow + finalHtml + "</div>";
   }
 
   function renderChart(ch) {
     if (!ch || !ch.available) {
       return '<p class="rv-subtitle" data-chart-na>Chart ' + NA + '.</p>';
     }
-    var W = 1000, top = 20, bottom = 220;
+    var W = 1000, top = 20, bottom = 210, tagY = 228;
     var lo = ch.y_min_sec, hi = ch.y_max_sec, pad = Math.max(60, (hi - lo) * 0.08);
     lo -= pad; hi += pad;
     var X = function (f) { return Math.round(f * W * 10) / 10; };
@@ -783,19 +844,31 @@
     var parts = [];
     parts.push('<line x1="0" y1="' + bottom + '" x2="' + W + '" y2="' + bottom + '" stroke="#dfe5f1"/>');
     if (ch.goal_sec != null) {
-      parts.push('<line data-chart="goal" x1="0" y1="' + Y(ch.goal_sec) + '" x2="' + W + '" y2="' + Y(ch.goal_sec) + '" stroke="#15803d" stroke-width="2" stroke-dasharray="7 6"/>' +
-        '<text x="6" y="' + (Y(ch.goal_sec) - 6) + '" font-size="12" font-weight="700" fill="#15803d">Goal ' + esc(ch.goal_label) + '</text>');
+      parts.push('<line data-chart="goal" x1="0" y1="' + Y(ch.goal_sec) + '" x2="' + W + '" y2="' + Y(ch.goal_sec) + '" stroke="#15803d" stroke-width="2" stroke-dasharray="7 6"/>');
+    }
+    function chartTag(m, fill, ink, label) {
+      var cx = X(m.x);
+      var lane = m.tag_lane || 0;
+      var y = tagY + lane * 26;
+      var w = Math.max(64, String(label).length * 7.2 + 16);
+      parts.push('<circle cx="' + cx + '" cy="' + Y((ch.history || []).reduce(function (found, h) {
+        return Math.abs(h.x - m.x) < 0.01 ? h.est_sec : found;
+      }, (ch.projection && ch.projection.est_sec) || lo)) + '" r="4" fill="#ffffff" stroke="#1f3b8a" stroke-width="2"/>');
+      parts.push('<line x1="' + cx + '" y1="' + bottom + '" x2="' + cx + '" y2="' + y + '" stroke="#c3cbdb" stroke-dasharray="2 3"/>');
+      parts.push('<rect data-chart-tag x="' + (cx - w / 2) + '" y="' + y + '" width="' + w + '" height="22" rx="6" fill="' + fill + '"/>' +
+        '<text x="' + cx + '" y="' + (y + 15) + '" text-anchor="middle" font-size="11.5" font-weight="700" fill="' + ink + '">' + esc(label) + "</text>");
     }
     (ch.ticks || []).forEach(function (m) {
-      parts.push('<line data-chart-tick="' + esc(m.role) + '" x1="' + X(m.x) + '" y1="' + (bottom - 16) + '" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-width="2"><title>' + esc(m.name) + '</title></line>');
+      parts.push('<line data-chart-tick="' + esc(m.role) + '" x1="' + X(m.x) + '" y1="' + (bottom - 16) + '" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-width="2"><title>' + esc(m.name) + "</title></line>");
+      chartTag(m, "#eef2fb", "#33405e", m.name);
     });
     (ch.recalibrations || []).forEach(function (m) {
-      parts.push('<line data-chart-recal x1="' + X(m.x) + '" y1="20" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-dasharray="3 4"/>' +
-        '<text x="' + (X(m.x) + 6) + '" y="32" font-size="11" fill="#56627f">' + esc(m.name) + ' \u00b7 recalibrated</text>');
+      parts.push('<line data-chart-recal x1="' + X(m.x) + '" y1="20" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-dasharray="3 4"/>');
+      chartTag(m, "#eef2fb", "#33405e", m.name);
     });
     (ch.pending || []).forEach(function (m) {
-      parts.push('<line data-chart-pending x1="' + X(m.x) + '" y1="40" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#e0a56b" stroke-dasharray="3 4"/>' +
-        '<text x="' + (X(m.x) + 6) + '" y="52" font-size="11" fill="#7a3a10">' + esc(m.name) + ' \u00b7 not recorded</text>');
+      parts.push('<line data-chart-pending x1="' + X(m.x) + '" y1="40" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#e0a56b" stroke-dasharray="3 4"/>');
+      chartTag(m, "#fff1dc", "#7a3a10", "CP \u00b7 not recorded");
     });
     var nowX = X(ch.now_x), p = ch.projection, band = ch.band;
     if (band && p) {
@@ -812,21 +885,26 @@
       parts.push('<line data-chart="projection" x1="' + nowX + '" y1="' + fromY + '" x2="' + W + '" y2="' + Y(p.est_sec) + '" stroke="#1f3b8a" stroke-width="3" stroke-dasharray="6 5"/>');
     }
     parts.push('<line x1="' + nowX + '" y1="10" x2="' + nowX + '" y2="' + bottom + '" stroke="#0b1530" stroke-width="1.5"/>' +
-      '<text x="' + (nowX - 6) + '" y="22" font-size="11" font-weight="700" fill="#0b1530" text-anchor="end">Now</text>');
+      '<text x="' + (nowX + 6) + '" y="22" font-size="12" font-weight="700" fill="#0b1530">Now' +
+      (p && p.est_label ? " \u00b7 " + esc(p.est_label) : "") + "</text>");
+    if (!ch.history_only) {
+      parts.push('<line x1="' + W + '" y1="10" x2="' + W + '" y2="' + bottom + '" stroke="#b45309" stroke-width="1.2" stroke-dasharray="3 3"/>' +
+        '<text x="' + (W - 4) + '" y="22" text-anchor="end" font-size="12" font-weight="700" fill="#7a3a10">Race day</text>');
+    }
     var mono = ' font-size="11.5" text-anchor="end" font-family="JetBrains Mono, monospace"';
     if (band && p) {
       parts.push('<text data-band-label="high" x="' + (W - 4) + '" y="' + (Y(band.high_sec) - 4) + '" fill="#56627f"' + mono + '>' + esc(band.high_label) + '</text>');
       parts.push('<text data-band-label="low" x="' + (W - 4) + '" y="' + (Y(band.low_sec) + 14) + '" fill="#56627f"' + mono + '>' + esc(band.low_label) + '</text>');
       parts.push('<text data-band-label="estimate" x="' + (W - 4) + '" y="' + (Y(p.est_sec) - 4) + '" fill="#0b1530" font-weight="700"' + mono + '>' + esc(p.est_label) + '</text>');
     }
-    var endLabel = ch.history_only ? esc(ch.end) : "Race " + esc(ch.end);
-    parts.push('<text x="0" y="242" font-size="11.5" fill="#56627f">' + esc(ch.start) + '</text>' +
-      '<text x="' + W + '" y="242" font-size="11.5" fill="#56627f" text-anchor="end">' + endLabel + '</text>');
+    var endLabel = ch.history_only ? esc(ch.end) : esc(ch.end);
+    parts.push('<text x="0" y="280" font-size="11.5" fill="#56627f" font-family="JetBrains Mono, monospace">' + esc(ch.start) + "</text>" +
+      '<text x="' + W + '" y="280" font-size="11.5" fill="#56627f" text-anchor="end" font-family="JetBrains Mono, monospace">' + endLabel + "</text>");
     var label = ch.history_only
       ? ("Finish estimate trend for " + ch.race_name + " from " + ch.start + " to " + ch.end + ".")
       : ("Projected " + ch.race_name + " time from " + ch.start + " to race day " + ch.end + ", ending at " + p.est_label +
         (band ? " with a band from " + band.low_label + " to " + band.high_label : "") + (ch.goal_label ? ". Goal " + ch.goal_label : "") + ".");
-    return '<svg viewBox="0 0 1000 250" style="width:100%;height:250px;display:block" role="img" aria-label="' + esc(label) + '" data-projection-chart>' + parts.join("") + '</svg>';
+    return '<svg viewBox="0 0 1000 290" style="width:100%;height:290px;display:block" role="img" aria-label="' + esc(label) + '" data-projection-chart>' + parts.join("") + "</svg>";
   }
 
   function renderBuiltFrom(b) {
@@ -843,18 +921,28 @@
       : "";
   }
 
+  function chartLegend(ch) {
+    if (!ch || !ch.available) return "";
+    return '<div class="rv-row" style="align-items:center"><span class="rv-score-bd-title">' +
+      esc(ch.race_name || "") + ' estimate over time</span>' +
+      '<span class="rv-chart-legend"><span><span style="width:18px;height:0;border-top:2px solid #1f3b8a;display:inline-block"></span>Estimate</span>' +
+      '<span><span style="width:14px;height:10px;background:#dbe7ff;border-radius:2px;display:inline-block"></span>Band to race day</span>' +
+      (ch.goal_label ? '<span><span style="width:18px;height:0;border-top:2px dashed #15803d;display:inline-block"></span>Goal ' +
+        esc(ch.goal_label) + "</span>" : "") +
+      "</span></div>";
+  }
+
   function renderProjection(host, data) {
     host.innerHTML =
       '<div class="rv-perf-proj-head">' +
       '<div><h2 class="rv-perf-proj-title">Races and projections</h2>' +
-      '<p class="rv-subtitle" style="margin:4px 0 0">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p>' +
-      renderBuiltFrom(data.built_from) + '</div>' +
+      '<p class="rv-subtitle" style="margin:4px 0 0;font-size:13px">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p></div>' +
       '<div class="rv-row rv-perf-proj-actions">' +
       '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-proj-recalibrate">Recalibrate</button>' +
-      '<button type="button" class="rv-btn rv-btn--primary rv-btn--sm" id="v2-race-add">Add a race</button></div></div>' +
-      renderTiles(data.tiles) +
-      (data.chain ? renderChain(data.chain) : '<p class="rv-subtitle" data-chain-na>Pace blend is ' + NA + ' until an upcoming A race is set.</p>') +
-      ((data.chart && data.chart.available) ? renderChart(data.chart) : "");
+      '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-race-add">+ Add a race</button></div></div>' +
+      renderTiles(data.tiles, data.built_from) +
+      (data.chain ? renderChain(data.chain, data.race) : '<p class="rv-subtitle" data-chain-na>Pace blend is ' + NA + " until an upcoming race is set.</p>") +
+      ((data.chart && data.chart.available) ? chartLegend(data.chart) + renderChart(data.chart) : "");
     var recal = host.querySelector("#v2-proj-recalibrate");
     if (recal) {
       recal.addEventListener("click", function () {
@@ -940,11 +1028,11 @@
       (pace ? ' <span class="rv-subtitle rv-mono">' + esc(pace) + '</span>' : "") + '</div>';
   }
 
-  function scorePill(label, c) {
-    if (!c || c.score == null) return '<span class="rv-race-pill">' + label + ' \u2014</span>';
-    var d = c.delta_28d == null ? "" : " " + signed(c.delta_28d);
-    var cls = "rv-race-pill" + (c.delta_28d != null && c.delta_28d > 0 ? " rv-race-pill--up" : "");
-    return '<span class="' + cls + '">' + label + " " + esc(scoreText(c)) + esc(d) + '</span>';
+  function statusChip(chip) {
+    if (!chip || !chip.text) return '<div class="rv-race-row__status"></div>';
+    var tone = chip.tone || "warn";
+    return '<div class="rv-race-row__status"><span class="rv-status-chip rv-status-chip--' + esc(tone) +
+      '" data-status-chip>' + esc(chip.text) + "</span></div>";
   }
 
   function debriefChip(r) {
@@ -956,46 +1044,50 @@
 
   function renderNeedsResult(r) {
     var sug = r.suggested_actual;
-    var rs = r.race_specific || {};
     var actual = sug
-      ? '<span class="rv-mono rv-race-time" data-suggested-actual>' + esc(fmtHMS(sug.moving_seconds)) + '</span>' +
-        ' <span class="rv-subtitle">suggested \u00b7 ' + esc(sug.date) + ' \u00b7 ' + esc(sug.distance_km) + ' km</span>'
-      : '<span class="rv-subtitle" data-no-match>' + esc(r.suggestion_reason || "No synced run matched") + '</span>';
+      ? '<span class="rv-mono rv-race-time" data-suggested-actual>' + esc(fmtHMS(sug.moving_seconds)) + "</span>" +
+        ' <span class="rv-subtitle">suggested \u00b7 ' + esc(sug.date) + " \u00b7 " + esc(sug.distance_km) + " km</span>"
+      : '<span class="rv-subtitle" data-no-match>' + esc(r.suggestion_reason || "No synced run matched") + "</span>";
     return '<div class="rv-race-row rv-race-row--needs" data-needs-result="' + esc(r.id) + '">' +
-      raceNameCell(r, debriefChip(r)) + goalCell(r) +
-      '<div class="rv-race-row__actual"><span class="rv-race-col-lbl">Actual</span>' + actual + '</div>' +
-      '<div class="rv-race-row__scores">' + scorePill("End", rs.endurance) + scorePill("Spd", rs.speed) + '</div>' +
+      raceNameCell(r) + goalCell(r) +
+      '<div class="rv-race-row__actual"><span class="rv-race-col-lbl">Actual</span>' + actual + "</div>" +
+      statusChip(r.status_chip) +
       '<div class="rv-race-row__actions"><div class="rv-race-record">' +
-      '<label class="rv-race-col-lbl">Time<input type="text" inputmode="numeric" placeholder="h:mm:ss" data-actual-input value="' +
-      esc(sug ? fmtHMS(sug.moving_seconds) : "") + '"></label>' +
-      '<button type="button" class="rv-btn rv-btn--accent rv-btn--sm" data-record="' + esc(r.id) + '">Record and recalibrate</button></div></div></div>';
+      '<label class="sr-only" for="actual-' + esc(r.id) + '">Finish time</label>' +
+      '<input id="actual-' + esc(r.id) + '" type="text" inputmode="numeric" placeholder="h:mm:ss" data-actual-input value="' +
+      esc(sug ? fmtHMS(sug.moving_seconds) : "") + '">' +
+      '<button type="button" class="rv-btn rv-btn--accent rv-btn--sm" data-record="' + esc(r.id) + '">Record</button></div></div></div>';
   }
 
   function renderUpcoming(r) {
     var est = r.estimate || {};
+    var timeCls = "rv-mono rv-race-time";
+    if (r.estimate_vs_goal === "slower") timeCls += " rv-race-time--warn";
+    else if (r.estimate_vs_goal === "faster") timeCls += " rv-race-time--good";
     var estHtml = est.available
-      ? '<span class="rv-mono rv-race-time rv-race-time--good" data-race-estimate>' + esc(fmtHMS(est.est_sec)) + '</span>' +
-        (est.band_sec != null ? ' <span class="rv-subtitle rv-mono">\u00b1' + esc(fmtHMS(est.band_sec)).replace(/^0:/, "") + '</span>' : "")
-      : '<span class="rv-subtitle">not available</span>';
-    var rs = r.race_specific || {};
+      ? '<span class="' + timeCls + '" data-race-estimate>' + esc(fmtHMS(est.est_sec)) + "</span>" +
+        (est.band_sec != null ? ' <span class="rv-subtitle rv-mono">\u00b1' + esc(fmtHMS(est.band_sec)).replace(/^0:/, "") + "</span>" : "")
+      : '<span class="rv-subtitle">' + esc(est.reason || "not available") + "</span>";
     var rowCls = "rv-race-row" + (r.is_target || r.priority === "A" ? " rv-race-row--upcoming-a" : "");
     return '<div class="' + rowCls + '" data-upcoming="' + esc(r.id) + '">' +
       raceNameCell(r) + goalCell(r) +
-      '<div class="rv-race-row__est"><span class="rv-race-col-lbl">Estimate</span>' + estHtml + '</div>' +
-      '<div class="rv-race-row__scores">' + scorePill("End", rs.endurance) + scorePill("Spd", rs.speed) + '</div>' +
+      '<div class="rv-race-row__est"><span class="rv-race-col-lbl">Estimate</span>' + estHtml + "</div>" +
+      statusChip(r.status_chip) +
       '<div class="rv-race-row__actions"><button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-edit-race="' + esc(r.id) + '">Edit</button></div></div>';
   }
 
   function renderCompleted(r) {
-    var g = r.goal_minus_actual_sec;
-    var vs = g == null ? "no goal set" : g >= 0 ? "beat goal by " + fmtHMS(g) : "missed goal by " + fmtHMS(Math.abs(g));
-    return '<div class="rv-completed-card" data-completed="' + esc(r.id) + '">' +
-      '<div class="rv-completed-card__head">' + prBadge(r) + '<span style="font-size:14px;font-weight:700">' + esc(r.name) + '</span>' + debriefChip(r) + '</div>' +
-      '<span class="rv-mono rv-subtitle" style="font-size:12px">' + esc(r.race_date) + (r.distance_km ? " \u00b7 " + esc(r.distance_km) + " km" : "") + '</span>' +
-      '<div class="rv-row" style="gap:8px;flex-wrap:wrap">' +
-      '<span class="rv-mono" style="font-size:16px;font-weight:600" data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + '</span>' +
-      (r.moving_time_sec != null ? '<span class="rv-mono rv-subtitle" style="font-size:12px" data-moving-time>moving ' + esc(fmtHMS(r.moving_time_sec)) + '</span>' : "") +
-      '</div><span class="rv-mono rv-subtitle" style="font-size:12px">goal ' + esc(fmtHMS(r.goal_sec)) + " \u00b7 " + esc(vs) + '</span></div>';
+    var d = r.debrief;
+    var action = d
+      ? '<a class="rv-score-trend-link" data-debrief-chip href="' + esc(d.link) + '">Debrief \u203a</a>'
+      : "";
+    return '<div class="rv-race-row" data-completed="' + esc(r.id) + '">' +
+      raceNameCell(r) + goalCell(r) +
+      '<div class="rv-race-row__actual"><span class="rv-race-col-lbl">Actual</span>' +
+      '<span class="rv-mono rv-race-time" data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + "</span>" +
+      (r.moving_time_sec != null ? ' <span class="rv-mono rv-subtitle" data-moving-time>' + esc(fmtHMS(r.moving_time_sec)) + "</span>" : "") +
+      "</div>" + statusChip(r.status_chip) +
+      '<div class="rv-race-row__actions">' + action + "</div></div>";
   }
 
   function renderRaces(host, data) {
@@ -1007,13 +1099,19 @@
       more = '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-show-all-races>Show all ' +
         esc(data.total_upcoming) + " upcoming</button>";
     }
+    var earlier = "";
+    if (data.hidden_completed > 0 && !data.showing_all) {
+      earlier = '<button type="button" class="rv-btn rv-show-earlier" data-show-earlier-completed>Show ' +
+        esc(data.hidden_completed) + " earlier race" + (data.hidden_completed === 1 ? "" : "s") + "</button>";
+    }
     host.innerHTML =
       (needs.length ? '<span class="rv-race-sec">Needs a result</span>' + needs.map(renderNeedsResult).join("") : "") +
       '<div class="rv-row rv-race-sec-row"><span class="rv-race-sec">Upcoming</span>' +
-      '<a href="/v2/performance/season-road" data-season-road-link style="font-size:13px;font-weight:700">Season road</a></div>' +
-      (up.length ? '<div class="rv-stack" style="gap:8px" data-section="upcoming">' + up.map(renderUpcoming).join("") + more + '</div>' :
+      '<a href="/v2/performance/season-road" data-season-road-link style="font-size:13px;font-weight:700">Season road \u203a</a></div>' +
+      (up.length ? '<div class="rv-stack" style="gap:8px" data-section="upcoming">' + up.map(renderUpcoming).join("") + more + "</div>" :
         '<p class="rv-subtitle">No upcoming races.</p>') +
-      (done.length ? '<span class="rv-race-sec">Completed</span><div class="rv-completed-grid" data-section="completed">' + done.map(renderCompleted).join("") + '</div>' : "");
+      (done.length ? '<span class="rv-race-sec">Completed</span><div class="rv-stack" style="gap:8px" data-section="completed">' +
+        done.map(renderCompleted).join("") + earlier + "</div>" : "");
     Array.prototype.forEach.call(host.querySelectorAll("[data-edit-race]"), function (b) {
       b.addEventListener("click", function () { openRaceDrawer(raceIndex[b.getAttribute("data-edit-race")]); });
     });
@@ -1023,17 +1121,21 @@
         recordResult(b.getAttribute("data-record"), row.querySelector("[data-actual-input]").value, b);
       });
     });
+    function loadAllRaces(b) {
+      b.disabled = true;
+      fetch("/api/performance/races?all=1", { credentials: "same-origin" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(applyRaces)
+        .catch(function (e) { toast("Could not load all races: " + e.message); b.disabled = false; });
+    }
     Array.prototype.forEach.call(host.querySelectorAll("[data-show-all-races]"), function (b) {
-      b.addEventListener("click", function () {
-        b.disabled = true;
-        fetch("/api/performance/races?all=1", { credentials: "same-origin" })
-          .then(function (r) {
-            if (!r.ok) throw new Error("HTTP " + r.status);
-            return r.json();
-          })
-          .then(applyRaces)
-          .catch(function (e) { toast("Could not load all races: " + e.message); b.disabled = false; });
-      });
+      b.addEventListener("click", function () { loadAllRaces(b); });
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-show-earlier-completed]"), function (b) {
+      b.addEventListener("click", function () { loadAllRaces(b); });
     });
   }
 

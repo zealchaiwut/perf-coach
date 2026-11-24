@@ -45,7 +45,7 @@ def test_decay_branch_falls_back_to_generic_anchor_name():
 
 def test_effort_branch_reads_lifted_by_effort_on_date():
     s = sc.reason_sentence(breakdown(decay=-1.0, efforts=5.5))
-    assert s == "Lifted by the effort on 2026-10-30."
+    assert s == "Lifted by the hard effort on 2026-10-30."
 
 
 def test_no_sentence_when_balanced_or_zero_or_missing():
@@ -128,12 +128,13 @@ def test_all_numbers_flow_from_the_patched_readers():
         "score_then": 50.0, "decay": -4.5, "efforts": 1.0, "consistency": 0.0, "score_now": 46.5}
     assert end["sparkline"] == {"dates": ["2026-11-01", "2026-11-10", "2026-11-20"], "values": [43.0, 42.0, 41.0]}
     assert spd["sparkline"] is None
-    assert end["reason"].startswith("Down from decay") and spd["reason"].startswith("Lifted by the effort")
+    assert end["reason"].startswith("Up 7, but") and spd["reason"].startswith("Lifted by the hard effort")
     assert end["formula_line"] and "38.3 race floor" in end["formula_line"]
+    assert end["breakdown_rows"] and end["breakdown_rows"][-1]["key"] == "score"
     assert end["to_reach"].startswith("To reach 45:")
     assert spd["to_reach"].startswith("To reach 49:")
     assert [a["date"] for a in end["anchors"]][:1] == ["2026-10-30"]
-    assert set(end["anchors"][0]) == {"date", "raw_score", "age_weeks", "is_stale"}
+    assert set(end["anchors"][0]) == {"date", "raw_score", "age_weeks", "is_stale", "display_date"}
 
 
 def test_invalid_breakdown_still_returns_a_card_without_reason():
@@ -163,6 +164,6 @@ def test_page_wiring():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert "v2-perf-score-cards" in html
-    for needle in ("applyScoreCards", "data-card-reason", "data-card-split", "data-card-formula", "data-card-to-reach",
-                   "<summary>Anchor efforts and other runs</summary>", "data-sparkline"):
+    for needle in ("applyScoreCards", "data-card-reason", "data-card-breakdown", "data-card-to-reach",
+                   "data-card-anchors", "data-sparkline"):
         assert needle in js

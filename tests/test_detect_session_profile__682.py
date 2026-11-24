@@ -339,7 +339,7 @@ def test_integration_pipeline_order_classify_then_phase_then_interval():
 
     # Wrap each dependency function to record call order without changing output
     import backend.services.session_profile as sp_mod
-    import backend.services.lap_classifier as lc_mod
+    import backend.services.lap_classify as lc_mod
     import backend.services.lap_phase_grouper as lpg_mod
     import backend.services.interval_detector as id_mod
 
@@ -471,7 +471,7 @@ def test_helper_get_docstring_has_example():
 
 def test_no_breaking_change_classify_laps():
     """AC14: classify_laps interface unchanged."""
-    from backend.services.lap_classifier import classify_laps
+    from backend.services.lap_classify import classify_laps
     import inspect
     sig = inspect.signature(classify_laps)
     params = list(sig.parameters.keys())

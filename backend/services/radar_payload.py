@@ -54,12 +54,26 @@ def axis_status(axis: dict[str, Any]) -> str:
     return fmt_delta(axis.get("delta_28d")) or ""
 
 
+AXIS_ACTIONS: dict[str, tuple[str, Optional[str]]] = {
+    "mobility": ("Log a test", "#v2-mobility-log"),
+    "durability": ("Needs a 90-min easy run", "#v2-durability-help"),
+}
+
+
+def axis_action(name: str) -> tuple[str, Optional[str]]:
+    """Copy + href for an unmeasured axis. Other axes have no destination."""
+    if name in AXIS_ACTIONS:
+        return AXIS_ACTIONS[name]
+    return ("Not measured yet", None)
+
+
 def legend_flags(axes: list[dict[str, Any]]) -> dict[str, bool]:
     """Which legend items the SVG actually draws."""
     return {
         "past": sum(1 for a in axes if a.get("score_28d_ago") is not None) >= 2,
-        "stale": any(bool(a.get("stale")) for a in axes),
+        "stale": any(bool(a.get("stale")) and not a.get("never_measured") for a in axes),
         "focus": any(bool(a.get("focus")) for a in axes),
+        "not_measured": any(bool(a.get("never_measured")) for a in axes),
     }
 
 
@@ -118,6 +132,13 @@ def build_axes(
             "days_since_test": block.get("days_since_test") if name == "mobility" else None,
         }
         axis["status"] = axis_status(axis)
+        if never:
+            label, href = axis_action(name)
+            axis["action_label"] = label
+            axis["action_href"] = href
+        else:
+            axis["action_label"] = None
+            axis["action_href"] = None
         axes.append(axis)
     return axes
 
