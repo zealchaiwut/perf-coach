@@ -82,7 +82,29 @@
     }
   }
 
+  function ensurePwaMeta() {
+    if (!document.querySelector('link[rel="manifest"]')) {
+      var man = document.createElement("link");
+      man.rel = "manifest";
+      man.href = "/manifest.webmanifest";
+      document.head.appendChild(man);
+    }
+    if (!document.querySelector('meta[name="theme-color"]')) {
+      var theme = document.createElement("meta");
+      theme.name = "theme-color";
+      theme.content = "#1f3b8a";
+      document.head.appendChild(theme);
+    }
+    if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+      var icon = document.createElement("link");
+      icon.rel = "apple-touch-icon";
+      icon.href = "/icons/icon-192.png";
+      document.head.appendChild(icon);
+    }
+  }
+
   function init() {
+    ensurePwaMeta();
     var host = document.getElementById("rv-primary-nav");
     if (host) renderNav(host);
   }

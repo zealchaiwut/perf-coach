@@ -225,6 +225,7 @@ def _today_bkk() -> _date:
 _static_root = Path(__file__).parent.parent
 app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
 app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
+app.mount("/icons", StaticFiles(directory=str(_static_root / "frontend" / "icons")), name="icons")
 
 
 @app.middleware("http")
@@ -296,6 +297,8 @@ def _is_guarded_path(path: str) -> bool:
     """Return True if this path requires authentication (HTML page guard only)."""
     if path == "/":
         return True
+    if path == "/m" or path.startswith("/m/"):
+        return True
     if path.startswith("/v2/") and _revamp_ui_enabled():
         return True
     clean = path.lstrip("/")
@@ -318,6 +321,10 @@ async def _auth_guard(request: Request, call_next):
             return await call_next(request)
         except ValueError:
             pass
+    from backend.services.device_sessions import DEVICE_COOKIE_NAME as _DEVICE_COOKIE
+
+    if request.cookies.get(_DEVICE_COOKIE):
+        return await call_next(request)
     accept = request.headers.get("accept", "")
     if "application/json" in accept:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
@@ -5935,6 +5942,35 @@ async def serve_v2_training_admin(user: User = Depends(get_current_user)):
 
 
 app.add_api_route("/v2/training", _redirect_v2_training_root, include_in_schema=False)
+
+
+def _serve_sw():
+    resp = FileResponse(
+        str(_static_root / "frontend" / "sw.js"),
+        media_type="application/javascript",
+    )
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+def _serve_manifest():
+    return FileResponse(
+        str(_static_root / "frontend" / "manifest.webmanifest"),
+        media_type="application/manifest+json",
+    )
+
+
+def _serve_m_shell():
+    """Phone PWA shell — not gated by the revamp flag."""
+    return FileResponse(str(_static_root / "frontend" / "pages" / "m-shell.html"))
+
+
+app.add_api_route("/sw.js", _serve_sw, include_in_schema=False)
+app.add_api_route("/manifest.webmanifest", _serve_manifest, include_in_schema=False)
+app.add_api_route("/m", _serve_m_shell, include_in_schema=False)
+app.add_api_route("/m/", _serve_m_shell, include_in_schema=False)
+app.add_api_route("/m/{path:path}", _serve_m_shell, include_in_schema=False)
 
 
 @app.get("/api/revamp-ui")
