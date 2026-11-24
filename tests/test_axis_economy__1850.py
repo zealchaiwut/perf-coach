@@ -75,6 +75,23 @@ def test_median_power_for_power_to_weight():
     assert e.median_power_w(e.easy_pool([row(1, power=200), row(2, power=220), row(3, power=300)], AS_OF)) == 220.0
 
 
+def test_form_power_from_live_stryd_streams_fixture():
+    import json
+    from backend.services.form_metrics_extractor import form_power_w_from_streams
+    from backend.services.stryd_sync import map_stryd_activity
+
+    fixture = json.loads(Path("tests/fixtures/stryd_activity_form_power.json").read_text())
+    assert "average_form_power" not in fixture and "form_power" not in fixture
+    mapped = map_stryd_activity(fixture, "u")
+    assert mapped["form_metrics"].get("form_power_w") is None  # calendar has no key
+    assert form_power_w_from_streams(fixture) == 46.0
+    r = extract_form_metrics_row(
+        user_id="u", stryd_activity_pk="a", run_date=AS_OF, avg_power_w=200,
+        form_metrics={"form_power_w": form_power_w_from_streams(fixture)},
+    )
+    assert r["form_power_ratio"] == 0.23
+
+
 def test_extractor_derives_form_power_ratio():
     base = dict(user_id="u", stryd_activity_pk="a", run_date=AS_OF, avg_power_w=200)
     r = extract_form_metrics_row(form_metrics={"form_power_w": 46}, **base)

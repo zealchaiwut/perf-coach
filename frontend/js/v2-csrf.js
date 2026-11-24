@@ -1,4 +1,5 @@
-// CSRF-aware fetch + shared /api/auth/me (v2 pages; subset of nav.js).
+// Back-compat copy of /js/lib/csrf-fetch.js (#1893).
+// CSRF-aware fetch + sendJSON + /api/auth/me (revamp pages; subset of nav.js).
 (function () {
   "use strict";
   if (window._csrfFetchPatched) return;
@@ -71,6 +72,27 @@
 
   window.ensureCsrfReady = ensureCsrfReady;
   ensureCsrfReady().catch(function () {});
+
+  window.sendJSON = function (method, url, body) {
+    return fetch(url, {
+      method: method,
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: body == null ? undefined : JSON.stringify(body),
+    }).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) {
+          var d = data && data.detail;
+          var msg = "HTTP " + r.status;
+          if (Array.isArray(d) && d.length) msg = d[0].msg || msg;
+          else if (d && typeof d === "object") msg = d.error || msg;
+          else if (d) msg = d;
+          throw new Error(msg);
+        }
+        return data;
+      });
+    });
+  };
 
   var _currentUserPromise = null;
   window.fetchCurrentUser = function () {

@@ -31,8 +31,18 @@ GOAL = {"time_sec": 16200, "pace_seconds_per_km": 384, "state": "provisional", "
 def race_obj(**kw):
     base = dict(id=uuid.uuid4(), name="Bangsaen42", race_date=RACE_DATE, distance_km=42.195,
                 goal_time_seconds=16200, goal_pace_seconds_per_km=384, priority="A",
-                race_type="race", status="planned", actual_time_seconds=None, user_id=UID)
+                race_type="race", status="planned", actual_time_seconds=None, user_id=UID,
+                role="a_race")
     base.update(kw)
+    if "role" not in kw:
+        if base.get("race_type") == "checkpoint":
+            base["role"] = "long_run"
+        elif base.get("priority") == "A":
+            base["role"] = "a_race"
+        elif base.get("priority") == "B":
+            base["role"] = "pb"
+        else:
+            base["role"] = "fun"
     return SimpleNamespace(**base)
 
 
@@ -139,12 +149,14 @@ def test_unavailable_estimate_keeps_card_and_chain_stages():
 # ── roles: only pb / a_race recalibrate ──────────────────────────────────────
 
 def test_roles_derived_and_explicit():
-    assert race_role(race_obj(priority="A")) == "a_race"
-    assert race_role(race_obj(priority="B")) == "pb"
-    assert race_role(race_obj(priority="C")) == "fun"
-    assert race_role(race_obj(priority="B", race_type="checkpoint")) == "long_run"
-    assert race_role(race_obj(priority="C", role="pb")) == "pb"  # P6-4 column wins when present
-    assert recalibrates(race_obj(priority="B")) and not recalibrates(race_obj(priority="C"))
+    assert race_role(race_obj(priority="A", role="a_race")) == "a_race"
+    assert race_role(race_obj(priority="B", role="pb")) == "pb"
+    assert race_role(race_obj(priority="C", role="fun")) == "fun"
+    assert race_role(race_obj(priority="B", race_type="checkpoint", role="long_run")) == "long_run"
+    assert race_role(race_obj(priority="C", role="pb")) == "pb"
+    assert race_role(race_obj(priority="A", role=None)) == "fun"  # missing column does not recalibrate
+    assert recalibrates(race_obj(role="pb")) and not recalibrates(race_obj(priority="C", role="fun"))
+    assert not recalibrates(race_obj(priority="A", role=None))
 
 
 def test_ensure_calibrations_skips_long_run_and_fun():
@@ -152,11 +164,11 @@ def test_ensure_calibrations_skips_long_run_and_fun():
 
     pb = SimpleNamespace(
         id=uuid.uuid4(), status="done", actual_time_seconds=6000, distance_km=21.1,
-        priority="B", race_type="race", role=None,
+        priority="B", race_type="race", role="pb",
     )
     lr = SimpleNamespace(
         id=uuid.uuid4(), status="done", actual_time_seconds=5000, distance_km=18.0,
-        priority="B", race_type="checkpoint", role=None,
+        priority="B", race_type="checkpoint", role="long_run",
     )
     db = MagicMock()
     db.query.return_value.filter.return_value.all.side_effect = [
@@ -180,7 +192,7 @@ def test_long_run_result_leaves_blend_unchanged_pb_moves_it():
             race_id=rid, race_date=date(2026, 10, 4), distance_km=18.0, correction=0.80,
             predicted_seconds=5000, actual_seconds=4000, created_at=None,
         )
-        return cal, SimpleNamespace(id=rid, priority=prio, race_type=rtype)
+        return cal, SimpleNamespace(id=rid, priority=prio, race_type=rtype, role="long_run")
 
     db = MagicMock()
     db.query.return_value.join.return_value.filter.return_value.order_by.return_value.all.return_value = [
@@ -216,7 +228,8 @@ def test_load_calibrations_excludes_long_run_and_fun():
         rid = uuid.uuid4()
         cal = SimpleNamespace(race_id=rid, race_date=date(2026, 9, 27), distance_km=21.1, correction=0.95,
                               predicted_seconds=7000, actual_seconds=6650, created_at=None)
-        return cal, SimpleNamespace(id=rid, priority=prio, race_type=rtype)
+        role = "long_run" if rtype == "checkpoint" else {"A": "a_race", "B": "pb"}.get(prio, "fun")
+        return cal, SimpleNamespace(id=rid, priority=prio, race_type=rtype, role=role)
 
     rows = [row("B"), row("A"), row("C"), row("B", "checkpoint")]
     db = MagicMock()

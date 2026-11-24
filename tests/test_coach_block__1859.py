@@ -107,10 +107,14 @@ def test_chip_misses_are_silently_absent():
 
 def test_checkin_due_or_done_for_this_week():
     assert cb.week_bounds(TODAY) == (date(2026, 11, 2), date(2026, 11, 8))
-    done = cb.checkin_state([decision(decided_on=date(2026, 11, 2))], TODAY)
-    assert done["state"] == "done" and done["link"] == "/v2/performance/check-in" and done["week_start"] == "2026-11-02"
-    assert cb.checkin_state([decision(decided_on=date(2026, 11, 1))], TODAY)["state"] == "due"
+    # A decision dated this week is not the check-in record (#1897).
+    due = cb.checkin_state([decision(decided_on=date(2026, 11, 2))], TODAY)
+    assert due["state"] == "due" and due["link"] == "/v2/performance/check-in" and due["week_start"] == "2026-11-02"
     assert cb.checkin_state([], TODAY)["state"] == "due"
+    uid = uuid.uuid4()
+    with patch("backend.services.weekly_checkin.is_week_checkin_done", return_value=True):
+        done = cb.checkin_state([], TODAY, session=object(), user_id=uid)
+    assert done["state"] == "done"
 
 
 # ── assembled block ──────────────────────────────────────────────────────────
@@ -211,7 +215,7 @@ def test_page_wiring_and_paste_anchor():
     js = Path("frontend/js/v2-performance.js").read_text()
     coach_html = Path("frontend/pages/coach.html").read_text()
     assert 'id="v2-perf-coach"' in html and 'id="paste"' in coach_html
-    csrf = Path("frontend/js/v2-csrf.js").read_text()
+    csrf = Path("frontend/js/lib/csrf-fetch.js").read_text()
     for needle in ("window.NavCopy.copyForClaude", "NavCopy.CONSULT_ENDPOINT", "/api/coach/consult", "data-review-due",
                    "data-save-outcome", "data-not-applied", "outcome_note", "applied: false", "data-evidence",
                    "data-paste-link", "data-checkin-state", "applyCoach"):

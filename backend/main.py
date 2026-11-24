@@ -6007,6 +6007,7 @@ class WorkoutIn(BaseModel):
     # unknown must never read as "no". Only consulted for long runs, by the
     # long-run-fuel habit.
     fuelled: Optional[bool] = None
+    first_gel_minute: Optional[int] = None
     # Running drills alongside this session — a duration only, no TSS.
     drills_minutes: Optional[int] = None
 
@@ -6040,6 +6041,7 @@ class WorkoutPatch(BaseModel):
     # Did this session take on fuel? null clears it back to unknown.
     fuelled: Optional[bool] = None
     gel_count: Optional[int] = None
+    first_gel_minute: Optional[int] = None
     fluid_level: Optional[str] = None
     stomach_ok: Optional[bool] = None
     shoe_id: Optional[str] = None
@@ -6620,6 +6622,7 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "feeling": w.feeling,
         "fuelled": w.fuelled,
         "gel_count": getattr(w, "gel_count", None),
+        "first_gel_minute": getattr(w, "first_gel_minute", None),
         "fluid_level": getattr(w, "fluid_level", None),
         "stomach_ok": getattr(w, "stomach_ok", None),
         "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
@@ -6886,6 +6889,7 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "feeling": w.feeling,
         "fuelled": w.fuelled,
         "gel_count": getattr(w, "gel_count", None),
+        "first_gel_minute": getattr(w, "first_gel_minute", None),
         "fluid_level": getattr(w, "fluid_level", None),
         "stomach_ok": getattr(w, "stomach_ok", None),
         "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
@@ -7456,6 +7460,8 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
     if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
         raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
     _validate_drills_minutes(body.drills_minutes)
+    if body.first_gel_minute is not None and not (0 <= body.first_gel_minute <= 300):
+        raise HTTPException(status_code=422, detail="first_gel_minute must be 0–300")
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     if body.strava_activity_url is not None and body.strava_activity_url != "":
@@ -7488,6 +7494,7 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             temperature_c=body.temperature_c,
             humidity_pct=body.humidity_pct,
             fuelled=body.fuelled,
+            first_gel_minute=body.first_gel_minute,
             drills_minutes=body.drills_minutes,
         )
         session.add(workout)
@@ -7703,6 +7710,11 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             workout.gel_count = body.gel_count
             if body.gel_count is not None:
                 workout.fuelled = body.gel_count > 0
+        if "first_gel_minute" in body.model_fields_set:
+            fg = body.first_gel_minute
+            if fg is not None and not (0 <= fg <= 300):
+                raise HTTPException(status_code=422, detail="first_gel_minute must be 0–300")
+            workout.first_gel_minute = fg
         if "fluid_level" in body.model_fields_set:
             fl = body.fluid_level
             if fl is not None:

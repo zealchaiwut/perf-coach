@@ -248,9 +248,11 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "vertical_ratio": _first(raw, "average_vertical_ratio"),
         "stride_length_m": _first(raw, "average_stride_length"),
         "cadence_spm": _first(raw, "average_cadence"),
-        # Form power (W) — the share of power spent on oscillation; used to derive
-        # form_power_ratio = form_power_w / average power (P4-3 economy axis).
-        "form_power_w": _first(raw, "average_form_power", "form_power"),
+        # Form power (W). Calendar JSON has no form-power key (verified live
+        # 2026-11-24); enrichment fills this from streams.vertical_power_list.
+        "form_power_w": _first(
+            raw, "average_form_power", "form_power", "average_vertical_power", "vertical_power"
+        ),
     }
     form = {k: v for k, v in form.items() if v is not None}
     # Power zones: definition (zones[]) + time-in-zone (seconds_in_zones) + CP (ftp).
@@ -338,6 +340,11 @@ def _enrich_one(token: str, aid, base_form: dict | None = None, *, user_id: Opti
             fm["np_w"] = round(float(np_val))
         if powers:
             fm["max_power_w"] = round(max(powers))
+        from backend.services.form_metrics_extractor import form_power_w_from_streams
+
+        form_w = form_power_w_from_streams(streams)
+        if form_w is not None:
+            fm["form_power_w"] = form_w
         from backend.services.stryd_laps import compute_manual_laps
         manual_laps = compute_manual_laps(streams)
         vals: dict = {}

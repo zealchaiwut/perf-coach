@@ -186,6 +186,7 @@ def build_race_list(
     today: date,
     *,
     race: Any = _UNSET,
+    show_all: bool = False,
 ) -> dict[str, Any]:
     from backend.models import Race, Workout
 
@@ -198,7 +199,8 @@ def build_race_list(
     needs = [r for r in races if r.status == "planned" and r.race_date < today and r.actual_time_seconds is None]
     upcoming = [r for r in races if r.status == "planned" and r.race_date >= today]
     done = [r for r in races if r.status == "done" and r.actual_time_seconds is not None]
-    done = sorted(done, key=lambda r: r.race_date, reverse=True)[:COMPLETED_LIMIT]
+    done_all = sorted(done, key=lambda r: r.race_date, reverse=True)
+    done = done_all if show_all else done_all[:COMPLETED_LIMIT]
 
     need_rows_races = needs + done
     runs: list = []
@@ -227,7 +229,12 @@ def build_race_list(
     return {
         "today": today.isoformat(),
         "needs_result": needs_rows,
-        "upcoming": [upcoming_row(session, user_id, r, today, target_id) for r in upcoming[:UPCOMING_LIMIT]],
+        "upcoming": [
+            upcoming_row(session, user_id, r, today, target_id)
+            for r in (upcoming if show_all else upcoming[:UPCOMING_LIMIT])
+        ],
         "total_upcoming": len(upcoming),
+        "total_completed": len(done_all),
         "completed": done_rows,
+        "showing_all": show_all,
     }

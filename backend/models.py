@@ -361,6 +361,7 @@ class Workout(Base):
     # read as "no". Only consulted for long runs, by the long-run-fuel habit.
     fuelled = Column(Boolean, nullable=True)
     gel_count = Column(Integer, nullable=True)
+    first_gel_minute = Column(Integer, nullable=True)
     fluid_level = Column(String(10), nullable=True)
     stomach_ok = Column(Boolean, nullable=True)
     shoe_id = Column(UUID(as_uuid=True), ForeignKey("athlete_shoes.id", ondelete="SET NULL"), nullable=True)
@@ -391,6 +392,10 @@ class Workout(Base):
         CheckConstraint("max_hr IS NULL OR (max_hr >= 20 AND max_hr <= 250)", name="ck_workouts_max_hr_range"),
         CheckConstraint("feeling IS NULL OR feeling IN ('hard', 'ok', 'easy')", name="ck_workouts_feeling_values"),
         CheckConstraint("drills_minutes IS NULL OR (drills_minutes >= 0 AND drills_minutes <= 120)", name="ck_workouts_drills_minutes_range"),
+        CheckConstraint(
+            "first_gel_minute IS NULL OR (first_gel_minute >= 0 AND first_gel_minute <= 300)",
+            name="ck_workouts_first_gel_minute_range",
+        ),
         # Matches alembic/versions/c3d4e5f6a7b8_create_workouts_table.py's raw-SQL
         # index (already in the DB) — declared here so autogenerate stays quiet.
         Index("ix_workouts_user_id_workout_date", "user_id", workout_date.desc()),
