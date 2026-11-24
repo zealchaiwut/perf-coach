@@ -473,15 +473,7 @@
     if (!r) {
       host.innerHTML = '<div class="rv-perf-hero-empty"><div><span class="rv-label">A race</span>' +
         '<p class="rv-subtitle">No upcoming A race. Pick the race this block is building to, and the radar targets switch to its distance and goal time.</p></div>' +
-        '<button type="button" class="rv-btn rv-btn--secondary" data-scroll-races>+ Add an A race</button></div>';
-      var scrollBtn = host.querySelector("[data-scroll-races]");
-      if (scrollBtn) {
-        scrollBtn.addEventListener("click", function () {
-          var list = document.getElementById("v2-perf-races");
-          if (list && list.scrollIntoView) list.scrollIntoView({ behavior: "smooth" });
-          openRaceDrawer(null);
-        });
-      }
+        '<a href="/v2/training/plan?setup=1" class="rv-btn rv-btn--secondary">+ Add an A race</a></div>';
     } else {
       var est = data.estimate || {};
       var goal = data.goal || {};
@@ -978,6 +970,33 @@
   // POST /api/races/{id}/calibrate flow; edits use PATCH /api/races/{id}.
 
   var raceIndex = {};
+  var raceRoleCatalog = null;
+  var raceRoleCatalogPromise = null;
+  var raceModalInitial = "";
+  var raceModalOpener = null;
+  var DISTANCE_PRESETS = [
+    { label: "5K", km: 5 },
+    { label: "10K", km: 10 },
+    { label: "Half", km: 21.0975 },
+    { label: "Marathon", km: 42.195 },
+  ];
+  var ROLE_BLURBS = {
+    a_race: "Run for the goal time. The result re-anchors Endurance, Speed and the projection.",
+    pb: "All out for a personal best. Also recalibrates.",
+    long_run: "Run it as a supported long run.",
+    fun: "Just for the day; logged, not scored.",
+  };
+  var PRIORITY_OPTS = [
+    { value: "A", label: "A \u00b7 the goal race" },
+    { value: "B", label: "B \u00b7 tune-up" },
+    { value: "C", label: "C \u00b7 training" },
+  ];
+  var FALLBACK_ROLES = [
+    { id: "a_race", label: "A race", recalibrates: null },
+    { id: "pb", label: "PB attempt", recalibrates: null },
+    { id: "long_run", label: "Long run", recalibrates: null },
+    { id: "fun", label: "Fun run", recalibrates: null },
+  ];
 
   function parseHMS(text) {
     var t = String(text || "").trim();
@@ -1176,40 +1195,283 @@
     });
   }
 
-  function openRaceDrawer(race) {
-    var editing = !!race;
-    var body = openDrawer(
-      '<h2 class="rv-label" id="v2-perf-drawer-title">' + (editing ? "Edit race" : "Add a race") + '</h2>' +
-      '<form id="v2-race-form" class="rv-stack" novalidate>' +
-      '<label class="rv-label">Name <input type="text" name="name" required value="' + esc(editing ? race.name : "") + '"></label>' +
-      '<label class="rv-label">Date <input type="date" name="race_date" required value="' + esc(editing ? race.race_date : "") + '"></label>' +
-      '<label class="rv-label">Distance (km) <input type="number" name="distance_km" min="0.1" step="0.001" required value="' + esc(editing && race.distance_km ? race.distance_km : "") + '"></label>' +
-      '<label class="rv-label">Goal time (h:mm:ss, optional) <input type="text" name="goal" placeholder="4:30:00" value="' + esc(editing && race.goal_sec ? fmtHMS(race.goal_sec) : "") + '"></label>' +
-      '<label class="rv-label">Priority <select name="priority">' +
-      [["A", "A"], ["B", "B"], ["C", "C"]].map(function (o) {
-        return '<option value="' + o[0] + '"' + ((editing ? race.priority : "B") === o[0] ? " selected" : "") + '>' + o[1] + '</option>';
-      }).join("") + '</select></label>' +
-      '<label class="rv-label">Role <select name="role">' +
-      [["a_race", "A race"], ["pb", "PB attempt"], ["long_run", "Long run"], ["fun", "Fun run"]].map(function (o) {
-        var current = editing ? (race.role || "pb") : "pb";
-        return '<option value="' + o[0] + '"' + (current === o[0] ? " selected" : "") + '>' + o[1] + '</option>';
-      }).join("") + '</select></label>' +
-      '<p class="rv-subtitle">Role is independent of priority. Only A race and PB attempt recalibrate the projection. Long run and fun run do not.</p>' +
-      '<p class="rv-warn-inline" id="v2-race-error" role="alert" hidden></p>' +
-      '<div class="rv-row"><button type="button" class="rv-btn rv-btn--secondary" data-close>Cancel</button>' +
-      '<button type="submit" class="rv-btn rv-btn--primary">' + (editing ? "Save race" : "Add race") + '</button></div></form>'
-    );
-    if (!body) return;
-    body.querySelector("[data-close]").addEventListener("click", closeDrawer);
-    body.querySelector("#v2-race-form").addEventListener("submit", function (ev) {
+  function loadRaceRoles() {
+    if (raceRoleCatalog) return Promise.resolve(raceRoleCatalog);
+    if (raceRoleCatalogPromise) return raceRoleCatalogPromise;
+    raceRoleCatalogPromise = fetch("/api/races/roles", { credentials: "same-origin" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        raceRoleCatalog = (data && data.roles) || FALLBACK_ROLES;
+        return raceRoleCatalog;
+      })
+      .catch(function () {
+        raceRoleCatalogPromise = null;
+        raceRoleCatalog = FALLBACK_ROLES;
+        return raceRoleCatalog;
+      });
+    return raceRoleCatalogPromise;
+  }
+
+  function roleById(id) {
+    var list = raceRoleCatalog || FALLBACK_ROLES;
+    var i;
+    for (i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+
+  function snapshotRaceForm(f) {
+    return JSON.stringify({
+      name: f.elements.name.value,
+      race_date: f.elements.race_date.value,
+      distance_km: f.elements.distance_km.value,
+      goal: f.elements.goal.value,
+      priority: f.elements.priority.value,
+      role: f.elements.role.value,
+    });
+  }
+
+  function raceModalFocusables(panel) {
+    return Array.prototype.slice.call(panel.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(function (el) { return el.offsetParent !== null || el === document.activeElement; });
+  }
+
+  function closeRaceModal() {
+    var root = document.getElementById("v2-race-modal-root");
+    if (root) root.innerHTML = "";
+    document.removeEventListener("keydown", onRaceModalKey, true);
+    document.body.style.overflow = "";
+    raceModalInitial = "";
+    var opener = raceModalOpener;
+    raceModalOpener = null;
+    if (opener && opener.focus) opener.focus();
+  }
+
+  function raceModalDirty() {
+    var f = document.getElementById("v2-race-form");
+    return !!(f && raceModalInitial && snapshotRaceForm(f) !== raceModalInitial);
+  }
+
+  function requestCloseRaceModal() {
+    if (raceModalDirty() && !window.confirm("Discard unsaved race details?")) return;
+    closeRaceModal();
+  }
+
+  function onRaceModalKey(ev) {
+    var panel = document.getElementById("v2-race-modal");
+    if (!panel) return;
+    if (ev.key === "Escape") {
       ev.preventDefault();
-      var f = ev.target, err = body.querySelector("#v2-race-error");
+      requestCloseRaceModal();
+      return;
+    }
+    if (ev.key !== "Tab") return;
+    var nodes = raceModalFocusables(panel);
+    if (!nodes.length) return;
+    var first = nodes[0], last = nodes[nodes.length - 1];
+    if (ev.shiftKey && document.activeElement === first) {
+      ev.preventDefault();
+      last.focus();
+    } else if (!ev.shiftKey && document.activeElement === last) {
+      ev.preventDefault();
+      first.focus();
+    }
+  }
+
+  function selectRadio(group, btn) {
+    if (!group || !btn) return;
+    Array.prototype.forEach.call(group.querySelectorAll('[role="radio"]'), function (b) {
+      var on = b === btn;
+      b.classList.toggle("is-on", on);
+      b.setAttribute("aria-checked", on ? "true" : "false");
+      b.tabIndex = on ? 0 : -1;
+    });
+    var form = document.getElementById("v2-race-form");
+    var name = group.getAttribute("data-field");
+    if (form && name && form.elements[name]) form.elements[name].value = btn.getAttribute("data-value");
+    updateRaceModalMeta();
+  }
+
+  function bindRadioGroup(group) {
+    group.addEventListener("click", function (ev) {
+      var btn = ev.target.closest('[role="radio"]');
+      if (btn && group.contains(btn)) selectRadio(group, btn);
+    });
+    group.addEventListener("keydown", function (ev) {
+      var dir = ev.key === "ArrowRight" || ev.key === "ArrowDown" ? 1
+        : ev.key === "ArrowLeft" || ev.key === "ArrowUp" ? -1 : 0;
+      if (!dir) return;
+      ev.preventDefault();
+      var btns = Array.prototype.slice.call(group.querySelectorAll('[role="radio"]'));
+      var i = btns.findIndex(function (b) { return b.getAttribute("aria-checked") === "true"; });
+      if (i < 0) i = 0;
+      var next = btns[(i + dir + btns.length) % btns.length];
+      selectRadio(group, next);
+      next.focus();
+    });
+  }
+
+  function distMatches(a, b) {
+    return Math.abs(Number(a) - Number(b)) < 0.00005;
+  }
+
+  function updateRaceModalMeta() {
+    var form = document.getElementById("v2-race-form");
+    if (!form) return;
+    var distEl = form.elements.distance_km;
+    var goalEl = form.elements.goal;
+    var paceEl = document.getElementById("v2-race-pace");
+    var goalErr = document.getElementById("v2-race-goal-error");
+    var summary = document.getElementById("v2-race-summary");
+    var dist = parseFloat(distEl.value);
+    Array.prototype.forEach.call(form.querySelectorAll("[data-dist-chip]"), function (chip) {
+      chip.classList.toggle("is-on", distMatches(chip.getAttribute("data-dist-chip"), dist));
+    });
+    var goalText = String(goalEl.value || "").trim();
+    var goal = parseHMS(goalEl.value);
+    if (goalErr) {
+      if (goalText && isNaN(goal)) {
+        goalErr.textContent = "Goal time must look like 1:50:00";
+        goalErr.hidden = false;
+      } else {
+        goalErr.textContent = "";
+        goalErr.hidden = true;
+      }
+    }
+    if (paceEl) {
+      if (goal != null && !isNaN(goal) && dist > 0) {
+        paceEl.innerHTML = "= <b>" + esc(fmtPace(goal / dist)) + "</b>";
+        paceEl.hidden = false;
+      } else {
+        paceEl.hidden = true;
+        paceEl.textContent = "";
+      }
+    }
+    if (summary) {
+      var pri = form.elements.priority.value || "B";
+      var role = roleById(form.elements.role.value) || {};
+      var bits = [pri + " race", role.label || form.elements.role.value];
+      if (role.recalibrates === true) bits.push("recalibrates the projection");
+      else if (role.recalibrates === false) bits.push("does not recalibrate");
+      summary.textContent = bits.join(" \u00b7 ");
+    }
+  }
+
+  function renderRaceModal(race, opts, roles) {
+    var root = document.getElementById("v2-race-modal-root");
+    if (!root) return;
+    var editing = !!race;
+    var asARace = !!(opts && opts.asARace);
+    var priority = editing ? (race.priority || "B") : (asARace ? "A" : "B");
+    var role = editing ? (race.role || "pb") : (asARace ? "a_race" : "pb");
+    var title = editing ? "Edit race" : "Add a race";
+    var distVal = editing && race.distance_km ? String(race.distance_km) : "";
+    var goalVal = editing && race.goal_sec ? fmtHMS(race.goal_sec) : "";
+    var chips = DISTANCE_PRESETS.map(function (p) {
+      return '<button type="button" class="rv-race-modal__chip" data-dist-chip="' + p.km + '">' + esc(p.label) + "</button>";
+    }).join("");
+    var priBtns = PRIORITY_OPTS.map(function (o) {
+      var on = o.value === priority;
+      return '<button type="button" role="radio" aria-checked="' + (on ? "true" : "false") + '"' +
+        (on ? ' class="is-on"' : "") + ' tabindex="' + (on ? "0" : "-1") + '" data-value="' + o.value + '">' +
+        esc(o.label) + "</button>";
+    }).join("");
+    var roleBtns = (roles || FALLBACK_ROLES).map(function (r) {
+      var on = r.id === role;
+      var tag = r.recalibrates == null ? ""
+        : '<span class="rv-race-role__tag rv-race-role__tag--' + (r.recalibrates ? "on" : "off") + '">' +
+          (r.recalibrates ? "RECALIBRATES" : "NO RECALIBRATE") + "</span>";
+      return '<button type="button" role="radio" class="rv-race-role' + (on ? " is-on" : "") +
+        '" aria-checked="' + (on ? "true" : "false") + '" tabindex="' + (on ? "0" : "-1") +
+        '" data-value="' + esc(r.id) + '"><span class="rv-race-role__top">' + esc(r.label) + tag +
+        '</span><span class="rv-race-role__blurb">' + esc(ROLE_BLURBS[r.id] || "") + "</span></button>";
+    }).join("");
+    root.innerHTML =
+      '<div class="rv-race-modal-backdrop" id="v2-race-modal-backdrop">' +
+      '<div class="rv-race-modal" id="v2-race-modal" role="dialog" aria-modal="true" aria-labelledby="v2-race-modal-title">' +
+      '<form id="v2-race-form" novalidate>' +
+      '<div class="rv-race-modal__head">' +
+      '<div><span class="rv-race-modal__kicker">Races</span>' +
+      '<h2 class="rv-race-modal__title" id="v2-race-modal-title">' + esc(title) + "</h2></div>" +
+      '<button type="button" class="rv-race-modal__close" data-close aria-label="Close">\u00d7</button></div>' +
+      '<div class="rv-race-modal__body">' +
+      '<div class="rv-race-modal__field"><label class="rv-race-modal__label" for="v2-race-name">Race name</label>' +
+      '<input class="rv-race-modal__input" id="v2-race-name" type="text" name="name" required value="' +
+      esc(editing ? race.name : "") + '"></div>' +
+      '<div class="rv-race-modal__pair">' +
+      '<div class="rv-race-modal__field"><label class="rv-race-modal__label" for="v2-race-date">Date</label>' +
+      '<input class="rv-race-modal__input rv-race-modal__input--mono" id="v2-race-date" type="date" name="race_date" required value="' +
+      esc(editing ? race.race_date : "") + '"></div>' +
+      '<div class="rv-race-modal__field"><label class="rv-race-modal__label" for="v2-race-dist">Distance <span class="rv-race-modal__hint">km</span></label>' +
+      '<input class="rv-race-modal__input rv-race-modal__input--mono" id="v2-race-dist" type="number" name="distance_km" min="0.1" step="0.0001" required value="' +
+      esc(distVal) + '"></div></div>' +
+      '<div class="rv-race-modal__chips">' + chips + "</div>" +
+      '<div class="rv-race-modal__field"><label class="rv-race-modal__label" for="v2-race-goal">Goal time <span class="rv-race-modal__hint">optional \u00b7 h:mm:ss</span></label>' +
+      '<div class="rv-race-modal__goal-row">' +
+      '<input class="rv-race-modal__input rv-race-modal__input--mono" id="v2-race-goal" type="text" name="goal" inputmode="numeric" placeholder="1:50:00" value="' +
+      esc(goalVal) + '">' +
+      '<span class="rv-race-modal__pace" id="v2-race-pace" hidden></span></div>' +
+      '<p class="rv-race-modal__field-error" id="v2-race-goal-error" hidden></p></div>' +
+      '<div class="rv-race-modal__field"><span class="rv-race-modal__label" id="v2-race-pri-lbl">Priority</span>' +
+      '<input type="hidden" name="priority" value="' + esc(priority) + '">' +
+      '<div class="rv-race-modal__seg" role="radiogroup" aria-labelledby="v2-race-pri-lbl" data-field="priority">' +
+      priBtns + "</div></div>" +
+      '<div class="rv-race-modal__field"><span class="rv-race-modal__label" id="v2-race-role-lbl">How it is run</span>' +
+      '<input type="hidden" name="role" value="' + esc(role) + '">' +
+      '<div class="rv-race-modal__roles" role="radiogroup" aria-labelledby="v2-race-role-lbl" data-field="role">' +
+      roleBtns + "</div></div></div>" +
+      '<p class="rv-warn-inline rv-race-modal__alert" id="v2-race-error" role="alert" hidden></p>' +
+      '<div class="rv-race-modal__foot"><span class="rv-race-modal__summary" id="v2-race-summary"></span>' +
+      '<div class="rv-race-modal__actions">' +
+      '<button type="button" class="rv-btn rv-btn--secondary" data-close>Cancel</button>' +
+      '<button type="submit" class="rv-btn rv-btn--primary">' + (editing ? "Save race" : "Add race") +
+      "</button></div></div></form></div></div>";
+
+    var form = document.getElementById("v2-race-form");
+    var backdrop = document.getElementById("v2-race-modal-backdrop");
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onRaceModalKey, true);
+    Array.prototype.forEach.call(root.querySelectorAll("[data-close]"), function (b) {
+      b.addEventListener("click", requestCloseRaceModal);
+    });
+    backdrop.addEventListener("click", function (ev) {
+      if (ev.target === backdrop) requestCloseRaceModal();
+    });
+    bindRadioGroup(form.querySelector('[data-field="priority"]'));
+    bindRadioGroup(form.querySelector('[data-field="role"]'));
+    Array.prototype.forEach.call(form.querySelectorAll("[data-dist-chip]"), function (chip) {
+      chip.addEventListener("click", function () {
+        form.elements.distance_km.value = chip.getAttribute("data-dist-chip");
+        updateRaceModalMeta();
+        form.elements.distance_km.focus();
+      });
+    });
+    form.elements.distance_km.addEventListener("input", updateRaceModalMeta);
+    form.elements.goal.addEventListener("input", updateRaceModalMeta);
+    raceModalInitial = snapshotRaceForm(form);
+    updateRaceModalMeta();
+    var nameEl = form.elements.name;
+    if (nameEl) nameEl.focus();
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var f = ev.target, err = document.getElementById("v2-race-error");
       var goal = parseHMS(f.elements.goal.value);
-      if (isNaN(goal)) { err.textContent = "Goal time must look like 4:30:00"; err.hidden = false; return; }
+      if (isNaN(goal)) {
+        updateRaceModalMeta();
+        f.elements.goal.focus();
+        return;
+      }
       var dist = parseFloat(f.elements.distance_km.value);
       if (!f.elements.name.value.trim() || !f.elements.race_date.value || !(dist > 0)) {
-        err.textContent = "Name, date and a distance above zero are required"; err.hidden = false; return;
+        err.textContent = "Name, date and a distance above zero are required";
+        err.hidden = false;
+        return;
       }
+      err.hidden = true;
       var payload = {
         name: f.elements.name.value.trim(),
         distance_km: dist,
@@ -1225,11 +1487,24 @@
         payload.date = f.elements.race_date.value;
         req = sendJSON("POST", "/api/races", payload);
       }
+      var submitBtn = f.querySelector('[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
       req.then(function () {
-        closeDrawer();
+        closeRaceModal();
         toast(editing ? "Race saved" : "Race added");
         reloadProjectionViews();
-      }).catch(function (e) { err.textContent = e.message; err.hidden = false; });
+      }).catch(function (e) {
+        if (submitBtn) submitBtn.disabled = false;
+        err.textContent = e.message;
+        err.hidden = false;
+      });
+    });
+  }
+
+  function openRaceDrawer(race, opts) {
+    raceModalOpener = document.activeElement;
+    loadRaceRoles().then(function (roles) {
+      renderRaceModal(race, opts || {}, roles);
     });
   }
 
@@ -1452,6 +1727,13 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    loadRaceRoles();
+    if (/(?:^|[?&])add=a-race(?:&|$)/.test(location.search)) {
+      openRaceDrawer(null, { asARace: true });
+      if (window.history && history.replaceState) {
+        history.replaceState({}, "", location.pathname + location.hash);
+      }
+    }
     initPerfHeader();
     setRegionLoading(document.getElementById("v2-perf-hero"), "Loading A race");
     setRegionLoading(document.getElementById("v2-perf-after-race"), "Loading");

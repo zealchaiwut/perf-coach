@@ -33,6 +33,14 @@ REVAMP_PLAN_DEFAULTS: dict[str, Any] = {
 REVAMP_PHASES = frozenset(
     {"build", "peak_hold", "taper", "race_week", "recover", "rebuild"}
 )
+PRE_RACE_PHASES = ("build", "peak_hold", "taper", "race_week")
+MIN_BLOCK_WEEKS = 6
+MIN_BUILD_WEEKS = 3
+TAPER_PRESETS: dict[int, list[float]] = {
+    1: [0.70],
+    2: [0.75, 0.55],
+    3: [0.85, 0.70, 0.50],
+}
 
 _SNAPSHOT_UNSET = object()
 
@@ -110,6 +118,33 @@ def weeks_from_block_start_to_race(block_start: date, race_date: date) -> int:
     return ((race_ws - bs).days // 7) + 1
 
 
+def taper_preset(weeks: int) -> list[float]:
+    return list(TAPER_PRESETS.get(int(weeks), TAPER_PRESETS[2]))
+
+
+def pre_race_week_count(settings: Optional[dict[str, Any]] = None) -> int:
+    """Build + peak hold + taper + race week. Recover/rebuild sit after race day."""
+    s = {**REVAMP_PLAN_DEFAULTS, **(settings or {})}
+    return (
+        int(s["build_weeks"])
+        + int(s["peak_hold_weeks"])
+        + len(list(s["taper_factors"]))
+        + 1
+    )
+
+
+def pre_race_series(series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [w for w in series if w.get("phase") in PRE_RACE_PHASES]
+
+
+def next_monday(today: date) -> date:
+    """Today if it is Monday, otherwise the coming Monday."""
+    d = today
+    while d.weekday() != 0:
+        d += timedelta(days=1)
+    return d
+
+
 def validate_block_layout(
     *,
     chronic_baseline: float,
@@ -117,15 +152,16 @@ def validate_block_layout(
     race_date: date,
     settings: Optional[dict[str, Any]] = None,
 ) -> tuple[float, list[dict[str, Any]]]:
-    """Return (peak_tss, weeks) or raise LoadPlanLayoutError — never silent trim."""
+    """Return (peak_tss, pre-race weeks) or raise LoadPlanLayoutError — never silent trim."""
     _peak, series = compute_revamp_block_series(chronic_baseline=chronic_baseline, settings=settings)
     need = weeks_from_block_start_to_race(block_start, race_date)
-    have = len(series)
+    pre = pre_race_series(series)
+    have = len(pre)
     if have != need:
         raise LoadPlanLayoutError(
             f"phase layout is {have} weeks but block needs {need} weeks to the A race"
         )
-    return _peak, series
+    return _peak, pre
 
 
 def _resolve_a_race(session: Session, user_id: uuid.UUID, today: date) -> Optional[Race]:
@@ -143,16 +179,8 @@ def _resolve_a_race(session: Session, user_id: uuid.UUID, today: date) -> Option
 
 
 def block_start_for_race(race_date: date, settings: Optional[dict[str, Any]] = None) -> date:
-    """Block start Monday: enough weeks back for the configured phase layout."""
-    s = {**REVAMP_PLAN_DEFAULTS, **(settings or {})}
-    n = (
-        int(s["build_weeks"])
-        + int(s["peak_hold_weeks"])
-        + len(s["taper_factors"])
-        + 1
-        + int(s["recover_weeks"])
-        + int(s["rebuild_weeks"])
-    )
+    """Block start Monday: enough weeks back for the pre-race phase layout."""
+    n = pre_race_week_count(settings)
     race_ws = normalize_week_start(race_date)
     return race_ws - timedelta(weeks=n - 1)
 

@@ -50,6 +50,11 @@ def test_block_start_fits_race():
     race = date(2026, 8, 10)
     bs = block_start_for_race(race, REVAMP_PLAN_DEFAULTS)
     need = weeks_from_block_start_to_race(bs, race)
-    _peak, series = compute_revamp_block_series(chronic_baseline=250.0, settings=REVAMP_PLAN_DEFAULTS)
+    _peak, series = validate_block_layout(
+        chronic_baseline=250.0,
+        block_start=bs,
+        race_date=race,
+        settings=REVAMP_PLAN_DEFAULTS,
+    )
     assert len(series) == need
     assert len(week_starts_in_block(bs, race)) == need

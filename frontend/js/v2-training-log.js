@@ -98,11 +98,13 @@
 
   function listTypeChip(entry) {
     var t = (entry.type || 'run').toLowerCase();
+    var sub = (entry.run_subtype || '').toLowerCase();
     if (entry.row_kind === 'missed_plan') return '<span class="rv-chip rv-chip--outline">MISSED</span>';
     if (t.indexOf('strength') >= 0) return '<span class="rv-chip rv-chip--who-support">STRENGTH</span>';
     if (t.indexOf('plyo') >= 0) return '<span class="rv-chip rv-chip--who-support">PLYO</span>';
     if (t.indexOf('mobility') >= 0) return '<span class="rv-chip rv-chip--who-support">MOBILITY</span>';
-    if (t.indexOf('race') >= 0) return '<span class="rv-chip rv-chip--who-race">RACE</span>';
+    if (t.indexOf('race') >= 0 || sub === 'race') return '<span class="rv-chip rv-chip--who-race">RACE</span>';
+    if (sub === 'tempo' || sub === 'interval') return '<span class="rv-chip rv-chip--who-quality">QUALITY</span>';
     return '<span class="rv-chip rv-chip--who">RUN</span>';
   }
 
@@ -282,18 +284,26 @@
       ' L' + (x + w) + ',' + (y + h) + ' Z" fill="' + fill + '"/>';
   }
 
+  function isVolumeRaceItem(r) {
+    var typ = String((r && r.race_type) || '').toLowerCase();
+    var role = String((r && r.role) || '').toLowerCase();
+    if (typ === 'checkpoint') return false;
+    if (role === 'long_run') return false;
+    return true;
+  }
+
   function chartRace(wk) {
-    var tss = 0;
+    var tss = Number(wk && wk.tss_race) || 0;
     var name = '';
     var we = (wk && wk.week_end) || (wk && wk.week_start) || '';
     (((wk && wk.race_items) || [])).forEach(function (r) {
+      if (!isVolumeRaceItem(r)) return;
       var rd = r.race_date || '';
-      var src = String(r.tss_source || '').toLowerCase();
       var inWeek = rd && wk.week_start && rd >= wk.week_start && rd <= we;
-      if (src !== 'logged' && !inWeek) return;
+      if (!inWeek) return;
       var rt = Number(r.tss);
       if (!isFinite(rt) || rt <= 0) return;
-      tss += rt;
+      tss = Math.max(tss, rt);
       if (!name && r.name) name = r.name;
     });
     return { tss: tss, name: name };
@@ -650,6 +660,7 @@
   function isRaceLike(entry, roll) {
     var t = (entry.type || '').toLowerCase();
     if (t.indexOf('race') >= 0) return true;
+    if ((entry.run_subtype || '').toLowerCase() === 'race') return true;
     var title = (entry.title || '').toLowerCase();
     return knownRaces(roll).some(function (r) {
       var n = String(r.name || '').toLowerCase();

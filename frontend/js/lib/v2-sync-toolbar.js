@@ -58,7 +58,9 @@
   }
 
   function providerStateOf(p) {
-    return p.state || (global.V2SyncStatus ? global.V2SyncStatus.providerState(p) : 'ok');
+    var ui = p.ui_state || p.state;
+    if (ui === 'attention') return 'stale';
+    return ui || 'ok';
   }
 
   function rowTime(p) {
@@ -299,6 +301,10 @@
     }
 
     function startSync(url, label) {
+      if (global.V2SyncStatus && typeof global.V2SyncStatus.startSync === 'function') {
+        global.V2SyncStatus.startSync(url, label);
+        return;
+      }
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

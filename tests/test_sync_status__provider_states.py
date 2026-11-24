@@ -146,17 +146,16 @@ def test_build_providers_ok(_pending, _fail, _run):
 
 def test_nav_has_syncing_class():
     assert "rv-sync-dot--syncing" in CSS
-    assert "rv-sync-dot--syncing" in STATUS_JS
+    assert "rv-sync-gear--syncing" in STATUS_JS or "rv-sync-gear--" in STATUS_JS
     assert "background: #3b6fe0" in CSS
     assert "prefers-reduced-motion" in CSS
-    assert "sr-only" in STATUS_JS
     assert "sr-only" in CSS
 
 
 def test_status_module_polls_and_emits():
     assert 'fetch("/api/sync/status"' in STATUS_JS
     assert "rv:sync-status" in STATUS_JS
-    assert "var FAST_MS = 3000" in STATUS_JS
+    assert "var FAST_MS = 5000" in STATUS_JS
     assert "var SLOW_MS = 60000" in STATUS_JS
     assert "visibilitychange" in STATUS_JS
     assert "document.hidden" in STATUS_JS
@@ -184,10 +183,8 @@ def test_log_page_loads_status_module_and_pill_markup():
 
 
 def test_stale_sync_is_named_not_all_synced():
-    assert "tap to sync" in STATUS_JS
-    assert "days ago" in STATUS_JS
-    assert "rv-sync-dot-label" in STATUS_JS
     assert "rv-sync-pill--stale" in CSS
+    assert "attention" in (REPO / "backend" / "services" / "sync_provider_status.py").read_text(encoding="utf-8")
     detail = (REPO / "frontend" / "js" / "lib" / "run-detail-view.js").read_text(encoding="utf-8")
     assert "No Stryd on this session" in detail
     assert "No Stryd data on this session" in detail

@@ -12,7 +12,6 @@ from backend.services.revamp_load_plan import (
     REVAMP_PLAN_DEFAULTS,
     LoadPlanLayoutError,
     chronic_weekly_tss,
-    compute_revamp_block_series,
     validate_block_layout,
     weeks_from_block_start_to_race,
 )
@@ -36,8 +35,9 @@ _HINT_ORDER = (
 
 
 def _series_week_count(settings: dict[str, Any]) -> int:
-    _peak, weeks = compute_revamp_block_series(chronic_baseline=100.0, settings=settings)
-    return len(weeks)
+    from backend.services.revamp_load_plan import pre_race_week_count
+
+    return pre_race_week_count(settings)
 
 
 def _layout_hint(settings: dict[str, Any], excess: int) -> str:

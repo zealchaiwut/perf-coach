@@ -75,7 +75,10 @@ def range_etag(
     params: str,
 ) -> str:
     w_max, p_max = max_range_updated_at(session, user_id, range_start, range_end)
-    return make_etag(user_id, params, range_start, range_end, today, w_max, p_max, "target-chronic")
+    return make_etag(
+        user_id, params, range_start, range_end, today, w_max, p_max,
+        "target-chronic-race-type",
+    )
 
 
 def revamp_week_etag(

@@ -1,4 +1,4 @@
-// Shared primary nav for revamp pages + sync status dot.
+// Shared primary nav for revamp pages + Settings gear with sync ring.
 (function () {
   "use strict";
 
@@ -17,34 +17,6 @@
     return "";
   }
 
-  function dotFromProvider(p) {
-    p = p || {};
-    if (!p.connected) return "red";
-    if (p.needs_reauth) return "amber";
-    if (p.last_error) {
-      var err = String(p.last_error || "").toLowerCase();
-      if (err.indexOf("temporarily unavailable") !== -1) return "amber";
-      return "red";
-    }
-    if (!p.last_success_at) return "amber";
-    var last = new Date(p.last_success_at);
-    if (isNaN(last.getTime())) return "amber";
-    var ageH = (Date.now() - last.getTime()) / 3600000;
-    if (ageH >= 48) return "amber";
-    return "green";
-  }
-
-  function worstDot(providers) {
-    providers = providers || {};
-    var order = { red: 3, amber: 2, green: 1 };
-    var best = "green";
-    ["strava", "stryd"].forEach(function (k) {
-      var d = dotFromProvider(providers[k]);
-      if (order[d] > order[best]) best = d;
-    });
-    return best;
-  }
-
   function renderNav(host) {
     var invert = host.getAttribute("data-rv-nav-invert") != null;
     var area = currentArea();
@@ -59,7 +31,7 @@
     }
 
     var settingsOn = area === "settings";
-  var html =
+    var html =
       "<ul class=\"" + ulClass + "\">" +
       tab("/v2/home", "Home", "home") +
       tab("/v2/training/plan", "Training", "training") +
@@ -67,27 +39,31 @@
       '<li id="rv-admin-tab" hidden><a class="rv-tab" href="/v2/training/admin">Admin <span class="rv-admin-badge">ADMINS ONLY</span></a></li>' +
       '<li class="rv-tabnav-divider" aria-hidden="true"></li>' +
       '<li class="rv-nav-util">' +
-      '<a class="rv-sync-dot-link" id="rv-sync-dot-link" href="/v2/settings#integrations" title="Integration status">' +
-      '<span class="rv-sync-dot rv-sync-dot--idle" id="rv-sync-dot" aria-hidden="true"></span>' +
-      '<span class="rv-sync-dot-label" id="rv-sync-dot-label" hidden></span>' +
-      '<span class="sr-only">Sync status</span></a></li>' +
-      '<li class="rv-nav-util"><a class="rv-tab rv-tab--util' + (settingsOn ? " on" : "") + '" href="/v2/settings"' +
-      (settingsOn ? ' aria-current="page"' : "") +
-      ' aria-label="Settings">' + GEAR_SVG + '<span class="rv-settings-label">Settings</span></a></li>' +
+      '<button type="button" class="rv-tab rv-tab--util rv-sync-gear' + (settingsOn ? " on" : "") +
+      '" id="rv-sync-gear" aria-haspopup="dialog" aria-expanded="false" aria-controls="rv-sync-pop"' +
+      ' aria-label="Settings" title="Settings">' + GEAR_SVG + "</button></li>" +
       "</ul>";
 
     host.innerHTML = html;
 
-    if (window.V2SyncStatus && typeof window.V2SyncStatus.poll === "function") {
-      window.V2SyncStatus.poll();
+    if (window.V2SyncStatus) {
+      if (typeof window.V2SyncStatus.paint === "function" && window.V2SyncStatus.lastDetail()) {
+        window.V2SyncStatus.paint(window.V2SyncStatus.lastDetail());
+      } else if (typeof window.V2SyncStatus.poll === "function") {
+        window.V2SyncStatus.poll();
+      }
     } else {
       fetch("/api/sync/status", { credentials: "same-origin" })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
-          var dot = document.getElementById("rv-sync-dot");
-          if (!dot || !data || !data.providers) return;
-          var state = worstDot(data.providers);
-          dot.className = "rv-sync-dot rv-sync-dot--" + state;
+          var btn = document.getElementById("rv-sync-gear");
+          if (!btn || !data) return;
+          var overall = data.overall || "ok";
+          var label = data.overall_label || "Settings";
+          btn.className = "rv-tab rv-tab--util rv-sync-gear rv-sync-gear--" + overall +
+            (settingsOn ? " on" : "");
+          btn.setAttribute("aria-label", label);
+          btn.title = label;
         })
         .catch(function () {});
     }

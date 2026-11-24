@@ -49,6 +49,8 @@ from backend.models import (
 from backend.services import race_list as _race_list_svc
 from backend.services.race_roles import (
     ROLES as _RACE_ROLES,
+    ROLE_LABELS as _RACE_ROLE_LABELS,
+    RECALIBRATING_ROLES as _RECALIBRATING_ROLES,
     compute_role_result as _compute_role_result,
     pb_limit_warning as _pb_limit_warning,
     race_role as _race_role,
@@ -71,7 +73,10 @@ from backend.services.plan_match_payload import (
     planned_source as _planned_source,
     planned_tss_estimate as _planned_tss_estimate,
 )
-from backend.services.sync_provider_status import build_providers as _sync_build_providers
+from backend.services.sync_provider_status import (
+    build_providers as _sync_build_providers,
+    decorate_sync_status as _decorate_sync_status,
+)
 from backend.services.training_month import training_month as _training_month
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
@@ -6145,7 +6150,7 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
     Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
     guardrail) match. Other types are passed through trimmed, unchanged.
-    Run subtypes (interval/longrun/easy/tempo) are a SEPARATE column
+    Run subtypes (interval/longrun/easy/tempo/race) are a SEPARATE column
     (``run_subtype``) — workout_type stays 'run' so the row keeps the full run
     pipeline (detail layout, decoupling, PRs, run counts).
 
@@ -6166,7 +6171,23 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
 
 # Allowed run-subtype values (issue: run subtype as its own column). None clears it.
-_RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
+_RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo", "race"}
+_RUN_SUBTYPE_ALIASES = {
+    "intervals": "interval",
+    "long_run": "longrun",
+    "long-run": "longrun",
+}
+
+
+def _canonical_run_subtype(value: str | None) -> str | None:
+    """Map a PATCH/UI label onto the stored run_subtype, or None if invalid."""
+    if value is None:
+        return None
+    key = value.strip().lower()
+    if not key:
+        return None
+    key = _RUN_SUBTYPE_ALIASES.get(key, key)
+    return key if key in _RUN_SUBTYPE_VALUES else None
 # Self-reported effort feeling (issue #1241).
 _FEELING_VALUES = frozenset({"hard", "ok", "easy"})
 
@@ -7625,13 +7646,13 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             if rs is None or (isinstance(rs, str) and rs.strip() == ""):
                 workout.run_subtype = None
             else:
-                rs = rs.strip().lower()
-                if rs not in _RUN_SUBTYPE_VALUES:
+                canon = _canonical_run_subtype(rs)
+                if canon is None:
                     raise HTTPException(
                         status_code=422,
                         detail="run_subtype must be one of: " + ", ".join(sorted(_RUN_SUBTYPE_VALUES)),
                     )
-                workout.run_subtype = rs
+                workout.run_subtype = canon
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
         if 'tss' in body.model_fields_set:
@@ -14580,6 +14601,7 @@ def _sync_status_with_providers(user: User, payload: dict) -> dict:
     try:
         with Session(engine) as session:
             out["providers"] = _sync_build_providers(session, user.id, job_snapshot=out)
+        _decorate_sync_status(out)
     except Exception as exc:
         _logging.getLogger(__name__).warning("sync_status providers failed: %s", exc)
     return out
@@ -15336,6 +15358,21 @@ def list_athlete_races(athlete_id: str, user: User = Depends(resolve_user)):
             .all()
         )
         return JSONResponse([_race_dict_enriched(session, user, r) for r in rows])
+
+
+@app.get("/api/races/roles")
+def list_race_roles(_user: User = Depends(resolve_user)):
+    """Catalog of race roles plus which ones recalibrate the projection."""
+    return JSONResponse({
+        "roles": [
+            {
+                "id": role,
+                "label": _RACE_ROLE_LABELS[role],
+                "recalibrates": role in _RECALIBRATING_ROLES,
+            }
+            for role in _RACE_ROLES
+        ]
+    })
 
 
 _RACE_CHANGES_RETENTION_DAYS = 30
@@ -19349,6 +19386,24 @@ class RevampPlanSettingsIn(BaseModel):
     rebuild_weeks: Optional[int] = None
     rest_days: Optional[list[int]] = None
     max_consecutive_days: Optional[int] = None
+    race_date: Optional[str] = None
+    distance_km: Optional[float] = None
+    shape: Optional[str] = None
+    taper_weeks: Optional[int] = None
+    weeks_available: Optional[int] = None
+
+
+class RevampFitPhasesIn(BaseModel):
+    weeks_available: int
+    shape: str = "standard"
+    taper_weeks: int = 2
+    build_weeks: Optional[int] = None
+    peak_hold_weeks: Optional[int] = None
+
+
+class RevampWeekCheckIn(BaseModel):
+    rest_days: list[int] = []
+    max_consecutive_days: int = 3
 
 
 def _revamp_settings_body_dict(body: RevampPlanSettingsIn) -> dict:
@@ -19375,6 +19430,38 @@ def post_plan_revamp_settings_preview(body: RevampPlanSettingsIn, user: User = D
             return JSONResponse(preview_settings_change(db, user.id, draft))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
+
+
+@app.post("/api/plan/revamp-settings/fit")
+def post_plan_revamp_settings_fit(body: RevampFitPhasesIn, user: User = Depends(resolve_user)):
+    from backend.services.revamp_load_plan import LoadPlanLayoutError
+    from backend.services.revamp_plan_settings import fit_phases
+
+    overrides = {}
+    if body.build_weeks is not None:
+        overrides["build_weeks"] = body.build_weeks
+    if body.peak_hold_weeks is not None:
+        overrides["peak_hold_weeks"] = body.peak_hold_weeks
+    if body.taper_weeks is not None:
+        overrides["taper_weeks"] = body.taper_weeks
+    try:
+        return JSONResponse(
+            fit_phases(
+                body.weeks_available,
+                body.shape,
+                taper_weeks=body.taper_weeks,
+                overrides=overrides or None,
+            )
+        )
+    except LoadPlanLayoutError as exc:
+        raise HTTPException(status_code=422, detail={"code": "layout_mismatch", "message": str(exc)})
+
+
+@app.post("/api/plan/revamp-settings/week-check")
+def post_plan_revamp_week_check(body: RevampWeekCheckIn, user: User = Depends(resolve_user)):
+    from backend.services.plan_rules_engine import typical_week_check
+
+    return JSONResponse(typical_week_check(body.rest_days, body.max_consecutive_days))
 
 
 @app.put("/api/plan/revamp-settings")

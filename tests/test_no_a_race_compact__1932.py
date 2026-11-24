@@ -64,4 +64,5 @@ def test_frontend_compact_card_and_add_race_link():
     assert "TSS · vs your 28-day average" in PLAN_JS
     assert 'href="/v2/settings/plan"' in PLAN_JS
     assert "Add an A race" in PLAN_JS
+    assert "rv-btn rv-btn--secondary" in PLAN_JS
     assert "mode === 'generic'" in PLAN_JS
