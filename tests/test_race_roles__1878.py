@@ -58,6 +58,12 @@ def test_race_role_uses_db_column_over_priority():
     assert rr.race_role(race(priority="A", role="fun")) == "fun"
 
 
+def test_missing_role_does_not_derive_from_priority():
+    assert rr.race_role(race(priority="A", role=None)) == "fun"
+    assert rr.ROLE_TARGETS["fun"].startswith("Target: enjoy")
+    assert "recalibrates" in rr.ROLE_TARGETS["a_race"]
+
+
 # ── PB limit warning ──────────────────────────────────────────────────────────
 
 def _block_races():

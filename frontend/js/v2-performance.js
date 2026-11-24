@@ -923,12 +923,14 @@
   }
 
   function raceNameCell(r, extra) {
-    var target = r.is_target ? '<span class="rv-race-target-chip">TARGET</span>' : "";
-    var recal = r.recalibrates_here ? ' · <span class="rv-race-recal">recalibrates here</span>' : "";
+    var target = r.is_target ? '<span class="rv-race-target-chip" data-race-target>TARGET</span>' : "";
+    var recal = r.recalibrates_here ? ' · <span class="rv-race-recal" data-recalibrates-here>recalibrates here</span>' : "";
     return '<div class="rv-race-row__name"><div class="rv-race-row__head">' + prBadge(r) +
       '<div><span class="rv-race-row__title">' + esc(r.name) + target + (extra || "") + '</span>' +
       '<span class="rv-mono rv-subtitle rv-race-row__meta">' + esc(r.race_date) +
-      (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") + recal + '</span></div></div></div>';
+      (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") +
+      (r.role_label ? ' · <span data-race-role="' + esc(r.role || "") + '">' + esc(r.role_label) + "</span>" : "") +
+      recal + '</span></div></div></div>';
   }
 
   function goalCell(r) {
@@ -1000,7 +1002,11 @@
     var needs = data.needs_result || [], up = data.upcoming || [], done = data.completed || [];
     raceIndex = {};
     needs.concat(up, done).forEach(function (r) { raceIndex[r.id] = r; });
-    var more = data.total_upcoming > up.length ? '<span class="rv-subtitle">Showing ' + up.length + ' of ' + esc(data.total_upcoming) + ' upcoming races</span>' : "";
+    var more = "";
+    if (data.total_upcoming > up.length && !data.showing_all) {
+      more = '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-show-all-races>Show all ' +
+        esc(data.total_upcoming) + " upcoming</button>";
+    }
     host.innerHTML =
       (needs.length ? '<span class="rv-race-sec">Needs a result</span>' + needs.map(renderNeedsResult).join("") : "") +
       '<div class="rv-row rv-race-sec-row"><span class="rv-race-sec">Upcoming</span>' +
@@ -1015,6 +1021,18 @@
       b.addEventListener("click", function () {
         var row = b.closest("[data-needs-result]");
         recordResult(b.getAttribute("data-record"), row.querySelector("[data-actual-input]").value, b);
+      });
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-show-all-races]"), function (b) {
+      b.addEventListener("click", function () {
+        b.disabled = true;
+        fetch("/api/performance/races?all=1", { credentials: "same-origin" })
+          .then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.json();
+          })
+          .then(applyRaces)
+          .catch(function (e) { toast("Could not load all races: " + e.message); b.disabled = false; });
       });
     });
   }
@@ -1066,10 +1084,15 @@
       '<label class="rv-label">Distance (km) <input type="number" name="distance_km" min="0.1" step="0.001" required value="' + esc(editing && race.distance_km ? race.distance_km : "") + '"></label>' +
       '<label class="rv-label">Goal time (h:mm:ss, optional) <input type="text" name="goal" placeholder="4:30:00" value="' + esc(editing && race.goal_sec ? fmtHMS(race.goal_sec) : "") + '"></label>' +
       '<label class="rv-label">Priority <select name="priority">' +
-      [["A", "A \u00b7 A race"], ["B", "B \u00b7 PB attempt"], ["C", "C \u00b7 Fun run"]].map(function (o) {
+      [["A", "A"], ["B", "B"], ["C", "C"]].map(function (o) {
         return '<option value="' + o[0] + '"' + ((editing ? race.priority : "B") === o[0] ? " selected" : "") + '>' + o[1] + '</option>';
       }).join("") + '</select></label>' +
-      '<p class="rv-subtitle">The race role follows priority: A is the A race, B a PB attempt, C a fun run. Only the first two recalibrate the projection.</p>' +
+      '<label class="rv-label">Role <select name="role">' +
+      [["a_race", "A race"], ["pb", "PB attempt"], ["long_run", "Long run"], ["fun", "Fun run"]].map(function (o) {
+        var current = editing ? (race.role || "pb") : "pb";
+        return '<option value="' + o[0] + '"' + (current === o[0] ? " selected" : "") + '>' + o[1] + '</option>';
+      }).join("") + '</select></label>' +
+      '<p class="rv-subtitle">Role is independent of priority. Only A race and PB attempt recalibrate the projection. Long run and fun run do not.</p>' +
       '<p class="rv-warn-inline" id="v2-race-error" role="alert" hidden></p>' +
       '<div class="rv-row"><button type="button" class="rv-btn rv-btn--secondary" data-close>Cancel</button>' +
       '<button type="submit" class="rv-btn rv-btn--primary">' + (editing ? "Save race" : "Add race") + '</button></div></form>'
@@ -1085,7 +1108,13 @@
       if (!f.elements.name.value.trim() || !f.elements.race_date.value || !(dist > 0)) {
         err.textContent = "Name, date and a distance above zero are required"; err.hidden = false; return;
       }
-      var payload = { name: f.elements.name.value.trim(), distance_km: dist, goal_time_seconds: goal, priority: f.elements.priority.value };
+      var payload = {
+        name: f.elements.name.value.trim(),
+        distance_km: dist,
+        goal_time_seconds: goal,
+        priority: f.elements.priority.value,
+        role: f.elements.role.value,
+      };
       var req;
       if (editing) {
         payload.race_date = f.elements.race_date.value;
@@ -1130,13 +1159,14 @@
   // the existing PATCH /api/decisions/{id}. No model call.
 
   function copyCheckin(btn) {
-    // Preferred path: the shared nav.js helper when it is on the page.
     if (window.NavCopy && typeof window.NavCopy.copyForClaude === "function") {
       window.NavCopy.copyForClaude(btn, window.NavCopy.CONSULT_ENDPOINT, "consult copied");
       return;
     }
-    // Revamp pages do not load nav.js (it would inject the legacy top nav), so use
-    // the same endpoint and the page's own toast.
+    if (window.CopyForClaude && typeof window.CopyForClaude.copy === "function") {
+      window.CopyForClaude.copy(btn, { toast: toast });
+      return;
+    }
     btn.disabled = true;
     toast("Building check-in\u2026");
     fetch("/api/coach/consult", { credentials: "same-origin" })

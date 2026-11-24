@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -404,12 +404,15 @@ def get_performance_projection(user: User = Depends(resolve_user)):
 
 @router.get("/api/performance/races")
 @_query_logged("/api/performance/races")
-def get_performance_races(user: User = Depends(resolve_user)):
+def get_performance_races(
+    user: User = Depends(resolve_user),
+    show_all: bool = Query(False, alias="all"),
+):
     from backend.services.race_list import build_race_list
     from backend.utils.time import today_bangkok
 
     with Session(engine) as db:
-        return JSONResponse(build_race_list(db, user.id, today_bangkok()))
+        return JSONResponse(build_race_list(db, user.id, today_bangkok(), show_all=show_all))
 
 
 # ── Season road (P6-6) ───────────────────────────────────────────────────────

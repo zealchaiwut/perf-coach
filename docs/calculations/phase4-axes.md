@@ -23,10 +23,11 @@ snapshot row for all axes, written by the worker job `axis_snapshot`).
   the last 28 days that have a `run_form_metrics` row. Medians of leg spring
   stiffness, ground contact time and form power ratio.
 - `form_power_ratio` = Stryd form power (W) / running power (W), stored on
-  `run_form_metrics.form_power_ratio` (migration `bf3569410f9f`). Extracted from
-  `form_metrics["form_power_w"]` (mapped from the Stryd payload keys
-  `average_form_power` / `form_power`) or a direct `form_power_ratio` key.
-  Existing rows fill in on the next Stryd sync / form-metrics backfill.
+  `run_form_metrics.form_power_ratio` (migration `bf3569410f9f`). The calendar
+  JSON has no `average_form_power` key (verified live 2026-11-24). Form power
+  is the mean of streams `vertical_power_list`, stored as
+  `form_metrics["form_power_w"]`. Existing rows fill in on the next Stryd
+  sync / form-metrics backfill.
 - Sub-scores (clamped 0..100): `(lss-6)/6x100`, `(300-gct)/90x100`,
   `(0.30-fpr)/0.10x100`. Score = rounded mean of the available sub-scores,
   at least 2 required. lss 9.4, gct 248, fpr 0.23 -> mean(56.67, 57.78, 70.0) = 61.

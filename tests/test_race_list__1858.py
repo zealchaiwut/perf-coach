@@ -17,7 +17,7 @@ TODAY = date(2026, 11, 8)
 
 def race(**kw):
     base = dict(id=uuid.uuid4(), name="Saucony BKK 10K", race_date=date(2026, 10, 25), distance_km=10.0,
-                goal_time_seconds=3240, goal_pace_seconds_per_km=324, priority="C", race_type="race",
+                goal_time_seconds=3240, goal_pace_seconds_per_km=324, priority="C", role="fun", race_type="race",
                 status="planned", actual_time_seconds=None, user_id=UID)
     base.update(kw)
     return SimpleNamespace(**base)
@@ -77,7 +77,7 @@ def test_needs_result_row_suggestion_and_no_match_text():
 
 
 def test_completed_row_chip_time_first_moving_second_and_goal_delta():
-    r = race(status="done", actual_time_seconds=3190, priority="B")
+    r = race(status="done", actual_time_seconds=3190, priority="B", role="pb")
     row = rl.completed_row(r, [run(RACE_DAY, 10.0, 3201)])
     assert row["chip_time_sec"] == 3190 and row["moving_time_sec"] == 3201
     assert row["goal_minus_actual_sec"] == 3240 - 3190 and row["role"] == "pb"
@@ -103,12 +103,13 @@ def fake_session(races, runs):
 
 def test_build_race_list_sections_target_and_recalibrates_note():
     a = race(name="Bangsaen42", race_date=date(2026, 11, 15), distance_km=42.195, priority="A",
-             goal_time_seconds=16200, goal_pace_seconds_per_km=384)
-    b = race(name="Bangsaen21", race_date=date(2026, 12, 20), distance_km=21.1, priority="B", goal_time_seconds=7200)
-    c = race(name="Park run", race_date=date(2026, 11, 30), distance_km=5.0, priority="C")
+             role="a_race", goal_time_seconds=16200, goal_pace_seconds_per_km=384)
+    b = race(name="Bangsaen21", race_date=date(2026, 12, 20), distance_km=21.1, priority="B", role="pb",
+             goal_time_seconds=7200)
+    c = race(name="Park run", race_date=date(2026, 11, 30), distance_km=5.0, priority="C", role="fun")
     pending = race()
-    done = race(name="Chiang Mai", race_date=date(2026, 9, 27), distance_km=21.1, priority="B", status="done",
-                actual_time_seconds=6600)
+    done = race(name="Chiang Mai", race_date=date(2026, 9, 27), distance_km=21.1, priority="B", role="pb",
+                status="done", actual_time_seconds=6600)
     est = {"unavailable": False, "est_sec": 14893, "band_sec": 510, "source": "x"}
     scores = {"race_specific": {"endurance": {"score": 41.0, "delta_28d": -2.0}, "speed": {"score": 51.0, "delta_28d": -4.0}}}
     db = fake_session([done, pending, a, c, b], [run(RACE_DAY, 10.0)])
@@ -126,10 +127,12 @@ def test_build_race_list_sections_target_and_recalibrates_note():
     assert up["Bangsaen42"]["race_specific"]["endurance"] == {"score": 41.0, "delta_28d": -2.0}
     assert [r["name"] for r in out["completed"]] == ["Chiang Mai"]
     assert out["total_upcoming"] == 3
+    assert out["showing_all"] is False
 
 
 def test_a_race_row_estimate_equals_chain_final_before_and_after_recording():
-    a = race(name="Bangsaen42", race_date=date(2026, 11, 15), distance_km=42.195, priority="A", goal_time_seconds=16200)
+    a = race(name="Bangsaen42", race_date=date(2026, 11, 15), distance_km=42.195, priority="A",
+             role="a_race", goal_time_seconds=16200)
     for est_sec in (14893, 14610):  # before / after a recorded result moves the estimate
         est = {"unavailable": False, "est_sec": est_sec, "band_sec": 510}
         db = fake_session([a], [])
@@ -170,11 +173,26 @@ def test_endpoint_requires_session():
         app.dependency_overrides.pop(resolve_user, None)
 
 
+def test_show_all_returns_every_upcoming():
+    races = [
+        race(name=f"R{i}", race_date=date(2026, 11, 10 + i), distance_km=10.0, priority="C", role="fun")
+        for i in range(10)
+    ]
+    db = fake_session(races, [])
+    with patch.object(rl, "next_a_race", return_value=None), \
+            patch.object(rl, "estimate_race_finish", return_value={"unavailable": True, "est_sec": None}), \
+            patch("backend.services.score_reader.get_race_scores", return_value={}):
+        clipped = rl.build_race_list(db, UID, TODAY)
+        full = rl.build_race_list(db, UID, TODAY, show_all=True)
+    assert clipped["total_upcoming"] == 10 and len(clipped["upcoming"]) == 8
+    assert full["showing_all"] and len(full["upcoming"]) == 10
+
+
 def test_page_wiring_drawer_and_rows():
     html = Path("frontend/pages/v2-performance.html").read_text()
     js = Path("frontend/js/v2-performance.js").read_text()
     assert 'id="v2-perf-races"' in html
     for needle in ("data-needs-result", "data-suggested-actual", "data-no-match", "data-race-target", "data-recalibrates-here",
                    "data-race-role", "data-chip-time", "data-moving-time", "Record and recalibrate", "openRaceDrawer",
-                   '"PATCH", "/api/races/"', '"POST", "/api/races"'):
+                   "data-show-all-races", 'name="role"', '"PATCH", "/api/races/"', '"POST", "/api/races"'):
         assert needle in js

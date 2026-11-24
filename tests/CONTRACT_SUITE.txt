@@ -33,3 +33,5 @@ tests/test_v2_home_mock_parity.py
 tests/test_daily_basics__1885.py
 tests/test_weekly_checkin_mock_match.py
 tests/test_weekly_checkin_page__1887.py
+tests/test_revamp_csrf_pages__1893.py
+tests/test_p4_followups_static__1893_1898.py

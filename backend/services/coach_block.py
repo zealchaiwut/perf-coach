@@ -5,9 +5,8 @@ No model call anywhere: review lines and summaries are read straight out of the
 stored ``raw_text`` (``CHANGES TO APPLY`` lines look like ``review:  <text>``),
 and evidence chips are a small fixed phrase -> reader mapping.
 
-Weekly check-in (P6-13): that feature does not exist yet, so "done this week"
-reads the thing a check-in produces — a pasted decision dated this week
-(Monday to Sunday). P6-13's own record can replace ``checkin_state`` later.
+Weekly check-in (P6-13): done/due reads ``weekly_check_ins.completed_at``
+for the target week. A pasted decision is no longer treated as the check-in.
 """
 from __future__ import annotations
 
@@ -106,7 +105,7 @@ def evidence_chips(review: list[str], workouts: Iterable[Any], since: date, toda
 
     - "long run(s)"  -> number of long runs (>= LONG_RUN_MIN_MINUTES) since the decision.
     - "gel" / "fuel" -> first-gel minute of the most recent long run that logged one
-      (P1-9 ``first_gel_minute``; absent until that field exists and has data).
+      (``workouts.first_gel_minute``).
     """
     text = " ".join(review)
     chips: list[dict[str, Any]] = []
@@ -147,7 +146,7 @@ def checkin_state(
     session=None,
     user_id=None,
 ) -> dict[str, Any]:
-    start, end = week_bounds(today)
+    start, _end = week_bounds(today)
     done = False
     if session is not None and user_id is not None:
         try:
@@ -156,8 +155,6 @@ def checkin_state(
             done = is_week_checkin_done(session, user_id, target_checkin_week_start(today))
         except Exception:
             done = False
-    if not done:
-        done = any(start <= d.decided_on <= end for d in decisions)
     return {
         "week_start": start.isoformat(),
         "state": "done" if done else "due",

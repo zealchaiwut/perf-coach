@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 JS = (ROOT / "frontend" / "js" / "v2-performance.js").read_text(encoding="utf-8")
 HTML = (ROOT / "frontend" / "pages" / "v2-performance.html").read_text(encoding="utf-8")
 RADAR = (ROOT / "frontend" / "js" / "lib" / "perf-radar.js").read_text(encoding="utf-8")
-CSRF = (ROOT / "frontend" / "js" / "v2-csrf.js").read_text(encoding="utf-8")
+CSRF = (ROOT / "frontend" / "js" / "lib" / "csrf-fetch.js").read_text(encoding="utf-8")
 
 OLD_GETS = (
     "/api/performance/hero",
@@ -25,6 +25,10 @@ def test_initial_request_is_above_the_fold_page_call():
     assert "fetchPage(FIRST_SECTIONS)" in JS
     assert "PERFORMANCE_PAGE" in JS and "/api/performance/page" in JS
     for path in OLD_GETS:
+        if path == "/api/performance/races":
+            assert "/api/performance/races?all=1" in JS
+            assert JS.count(path) == 1
+            continue
         assert path not in JS
 
 
@@ -57,10 +61,11 @@ def test_hero_error_is_not_no_upcoming_a_race():
 
 
 def test_csrf_uses_shared_v2_csrf():
-    assert "/js/v2-csrf.js" in HTML
+    assert "/js/lib/csrf-fetch.js" in HTML
     assert "function csrfToken" not in JS
     assert "/api/csrf-token" not in JS
     assert "X-CSRF-Token" in CSRF
+    assert "window.sendJSON" in CSRF
     assert "function sendJSON" in JS
 
 

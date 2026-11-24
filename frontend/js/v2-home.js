@@ -564,6 +564,14 @@
       window.NavCopy.copyForClaude(btn, endpoint, "consult copied");
       return;
     }
+    if (window.CopyForClaude && typeof window.CopyForClaude.copy === "function") {
+      window.CopyForClaude.copy(btn, {
+        endpoint: endpoint,
+        toast: function (msg) { if (btn) btn.textContent = msg.indexOf("Could not") === 0 ? "Copy failed" : "Copied"; },
+        okMsg: "Copied",
+      });
+      return;
+    }
     btn.disabled = true;
     fetch(endpoint, { credentials: "same-origin" })
       .then(function (r) { return r.text(); })

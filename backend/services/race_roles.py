@@ -15,29 +15,19 @@ PB_LIMIT_PER_BLOCK = 2
 
 ROLE_LABELS = {"a_race": "A race", "pb": "PB attempt", "long_run": "Long run", "fun": "Fun run"}
 ROLE_TARGETS = {
-    "a_race": "Target: the goal time",
-    "pb": "Target: a personal best",
-    "long_run": "Target: a steady effort",
-    "fun": "Target: enjoy it",
+    "a_race": "Target: the goal time — this result recalibrates the projection",
+    "pb": "Target: a personal best — this result recalibrates the projection",
+    "long_run": "Target: a steady effort under the power cap",
+    "fun": "Target: enjoy it — this does not recalibrate the projection",
 }
 
 
-def _derive_role_from_legacy(race) -> str:
-    if getattr(race, "race_type", None) == "checkpoint":
-        return "long_run"
-    priority = getattr(race, "priority", None)
-    if priority == "A":
-        return "a_race"
-    if priority == "B":
-        return "pb"
-    return "fun"
-
-
 def race_role(race) -> str:
+    """P6-4 ``races.role`` is the source. Missing/unknown does not recalibrate."""
     role: Optional[str] = getattr(race, "role", None)
     if role in ROLES:
         return role
-    return _derive_role_from_legacy(race)
+    return "fun"
 
 
 def recalibrates(race) -> bool:
@@ -46,18 +36,22 @@ def recalibrates(race) -> bool:
 
 def role_target_summary(race) -> str:
     role = race_role(race)
-    if role == "pb" and race.goal_time_seconds:
-        return f"Target: {race.goal_time_seconds // 60} min"
+    goal = getattr(race, "goal_time_seconds", None)
+    if role == "pb" and goal:
+        return f"Target: {goal // 60} min"
     if role == "long_run":
         parts = []
-        if race.power_cap_w:
-            parts.append(f"cap {race.power_cap_w} W")
-        if race.addon_distance_km is not None:
-            parts.append(f"+{float(race.addon_distance_km):g} km add-on")
+        cap = getattr(race, "power_cap_w", None)
+        addon = getattr(race, "addon_distance_km", None)
+        if cap:
+            parts.append(f"cap {cap} W")
+        if addon is not None:
+            parts.append(f"+{float(addon):g} km add-on")
         if parts:
             return "Target: " + ", ".join(parts)
-    if role == "a_race" and race.goal_band_low_seconds and race.goal_band_high_seconds:
-        lo, hi = race.goal_band_low_seconds, race.goal_band_high_seconds
+    lo = getattr(race, "goal_band_low_seconds", None)
+    hi = getattr(race, "goal_band_high_seconds", None)
+    if role == "a_race" and lo and hi:
         return f"Target: {lo // 60}-{hi // 60} min band"
     return ROLE_TARGETS[role]
 
