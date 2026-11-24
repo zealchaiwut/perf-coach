@@ -41,3 +41,4 @@ tests/test_pwa_phase0_static.py
 tests/test_pwa_phase1_static.py
 tests/test_pwa_phase2_static.py
 tests/test_pwa_phase3_static.py
+tests/test_pwa_phase5_static.py

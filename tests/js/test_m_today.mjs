@@ -124,6 +124,27 @@ test("body card hidden when bundle.body is null", () => {
   assert.doesNotMatch(html, /id="m-body-card"/);
 });
 
+test("body card hidden when there is no weight and no runs", () => {
+  const html = htmlOf({
+    ...BASE,
+    recent_runs: [],
+    body: { trend_kg: null, last_weigh_in: null, zone2_week: { total: 0, target: 150 } },
+  });
+  assert.doesNotMatch(html, /id="m-body-card"/);
+});
+
+test("body card shows trend and weigh-in link", () => {
+  const html = htmlOf({
+    ...BASE,
+    recent_runs: [],
+    body: { trend_kg: 68.0, change_28d_kg: -0.4, zone2_week: { total: 62, target: 150 } },
+  });
+  assert.match(html, /id="m-body-card"/);
+  assert.match(html, /68\.0/);
+  assert.match(html, /\/m\/body\/weigh-in/);
+  assert.match(html, /62/);
+});
+
 test("values come from the bundle, not a client TSS formula", () => {
   const src = readFileSync(join(ROOT, "frontend/js/m/today.js"), "utf8");
   assert.match(src, /estimated_tss/);

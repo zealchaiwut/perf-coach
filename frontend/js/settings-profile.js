@@ -21,6 +21,11 @@
           birth_date: document.getElementById('profile-birth-date').value || null,
           height_cm: h === '' ? null : parseFloat(h),
           athlete_context: document.getElementById('profile-athlete-context').value.trim(),
+          weekly_zone2_target_min: (function () {
+            var el = document.getElementById('profile-zone2-target');
+            if (!el || el.value.trim() === '') return 150;
+            return parseInt(el.value, 10);
+          })(),
         };
       }
 
@@ -31,7 +36,8 @@
           || cur.week_start_day !== (_baseline.week_start_day || 1)
           || cur.birth_date !== (_baseline.birth_date || null)
           || cur.height_cm !== (_baseline.height_cm === undefined ? null : _baseline.height_cm)
-          || cur.athlete_context !== (_baseline.athlete_context || '');
+          || cur.athlete_context !== (_baseline.athlete_context || '')
+          || cur.weekly_zone2_target_min !== (_baseline.weekly_zone2_target_min == null ? 150 : _baseline.weekly_zone2_target_min);
       }
 
       function _updateContextCount() {
@@ -47,7 +53,8 @@
 
       function _clearFieldErrors() {
         ['profile-display-name-error', 'profile-timezone-error', 'profile-week-start-error',
-          'profile-birth-date-error', 'profile-height-cm-error', 'profile-athlete-context-error']
+          'profile-birth-date-error', 'profile-height-cm-error', 'profile-athlete-context-error',
+          'profile-weekly-zone2-target-min-error']
           .forEach(window._settingsClearFieldError);
       }
 
@@ -70,6 +77,7 @@
               birth_date: row.birth_date || null,
               height_cm: row.height_cm === undefined ? null : row.height_cm,
               athlete_context: row.athlete_context || '',
+              weekly_zone2_target_min: row.weekly_zone2_target_min == null ? 150 : row.weekly_zone2_target_min,
             };
 
             var bdEl = document.getElementById('profile-birth-date');
@@ -81,6 +89,8 @@
             var acEl = document.getElementById('profile-athlete-context');
             if (acEl) acEl.value = _baseline.athlete_context;
             _updateContextCount();
+            var z2El = document.getElementById('profile-zone2-target');
+            if (z2El) z2El.value = String(_baseline.weekly_zone2_target_min);
 
             var dnEl = document.getElementById('profile-display-name');
             if (dnEl) {
@@ -147,6 +157,8 @@
         if (cur.athlete_context !== (_baseline.athlete_context || '')) {
           patch.athlete_context = cur.athlete_context;
         }
+        var baseZ2 = _baseline.weekly_zone2_target_min == null ? 150 : _baseline.weekly_zone2_target_min;
+        if (cur.weekly_zone2_target_min !== baseZ2) patch.weekly_zone2_target_min = cur.weekly_zone2_target_min;
 
         if (!Object.keys(patch).length) return;
 
@@ -170,6 +182,7 @@
               birth_date: saved.birth_date || null,
               height_cm: saved.height_cm === undefined ? null : saved.height_cm,
               athlete_context: saved.athlete_context || '',
+              weekly_zone2_target_min: saved.weekly_zone2_target_min == null ? 150 : saved.weekly_zone2_target_min,
             };
             var initialsEl = document.getElementById('settings-avatar-initials');
             if (initialsEl) {
@@ -195,7 +208,8 @@
       }
 
       ['profile-display-name', 'profile-timezone', 'profile-week-start',
-        'profile-birth-date', 'profile-height-cm', 'profile-athlete-context'].forEach(function (id) {
+        'profile-birth-date', 'profile-height-cm', 'profile-athlete-context',
+        'profile-zone2-target'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('input', _updateSaveBtn);
         if (el) el.addEventListener('change', _updateSaveBtn);

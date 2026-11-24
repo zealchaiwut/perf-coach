@@ -319,7 +319,18 @@ body.m-app--gym .m-primary { min-height: 56px; border-radius: 14px; font-size: 1
 }
 .m-page-head { display: flex; align-items: center; gap: 10px; color: #fff; padding: 4px 0 8px; }
 .m-page-head h1 { margin: 0; font-size: 22px; }
-.m-chart { min-height: 110px; }
+.m-chart { min-height: 110px; width: 100%; display: block; }
+.m-z2-bars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; align-items: end; height: 70px; }
+.m-z2-bar { display: block; border-radius: 4px 4px 0 0; }
+.m-z2-bar--logged { background: var(--navy); }
+.m-z2-bar--planned { border: 2px dashed #8ba7e6; border-bottom: 0; background: transparent; box-sizing: border-box; }
+.m-z2-bar--stub { height: 4px; background: #eef2fb; border-radius: 3px; }
+.m-z2-labels { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--muted); text-align: center; }
+.m-z2-progress { height: 4px; background: #eef2fb; border-radius: 99px; margin-top: 6px; overflow: hidden; }
+.m-z2-progress span { display: block; height: 100%; background: var(--navy); }
+.m-stepper--lg { justify-content: center; gap: 14px; }
+.m-stepper--lg button { width: 56px; height: 56px; font-size: 26px; }
+.m-kg-num { appearance: none; border: 0; background: transparent; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 42px; font-weight: 700; min-width: 120px; }
 .m-rest {
   display: flex;
   align-items: center;

@@ -15,6 +15,7 @@ from backend.models import (
     PlannedSession,
     Race,
     SessionVersion,
+    UserPreferences,
     WeightEntry,
     Workout,
     WorkoutExercise,
@@ -24,7 +25,7 @@ from backend.services.plan_match_payload import planned_tss_estimate
 from backend.services.session_exercises import enrich_generated_exercises
 from backend.services.session_tss import session_tss
 from backend.services.sync_provider_status import build_providers
-from backend.services.weekly_rollup import weekly_rollup
+from backend.services.weekly_rollup import bangkok_week_start, weekly_rollup
 from backend.services.weight_ewma import compute_ewma
 from backend.utils.time import today_bangkok
 
@@ -192,6 +193,97 @@ def _recent_runs(session: Session, user_id, today: date) -> list[dict[str, Any]]
     return out
 
 
+def build_zone2_week(
+    today: date,
+    logged: dict,
+    planned: dict,
+    target: int | None,
+    hr_ceiling: int | None,
+) -> dict[str, Any]:
+    """Bangkok-week Zone 2 card. Planned minutes never count in the total."""
+    start = bangkok_week_start(today)
+    labels = "MTWTFSS"
+    days = []
+    total = 0
+    for i in range(7):
+        d = start + timedelta(days=i)
+        logged_min = int(logged.get(d) or 0)
+        planned_min = int(planned.get(d) or 0) if d > today else 0
+        if d <= today:
+            total += logged_min
+        days.append(
+            {
+                "date": _iso(d),
+                "label": labels[i],
+                "logged_min": logged_min,
+                "planned_min": planned_min,
+            }
+        )
+    return {
+        "days": days,
+        "total": total,
+        "target": int(target) if target is not None else 150,
+        "hr_ceiling": hr_ceiling,
+    }
+
+
+def _planned_easy_minutes(p: PlannedSession) -> int:
+    st = (p.session_type or "").lower()
+    if st not in ("run", "running"):
+        return 0
+    structure = p.structure if isinstance(p.structure, dict) else {}
+    hints = structure.get("structure_hints") if isinstance(structure.get("structure_hints"), dict) else {}
+    subtype = str(structure.get("subtype") or hints.get("subtype") or "").lower()
+    name = (p.name or "").lower()
+    easy = subtype in ("easy", "easy_run", "z2") or "easy" in name or "zone 2" in name or "z2" in name
+    if not easy:
+        return 0
+    dur = structure.get("duration_minutes") or structure.get("duration_min") or 0
+    try:
+        return max(0, int(dur))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _zone2_week(session: Session, user_id, today: date) -> dict[str, Any]:
+    start = bangkok_week_start(today)
+    end = start + timedelta(days=6)
+    workouts = (
+        session.query(Workout)
+        .filter(
+            Workout.user_id == user_id,
+            Workout.workout_date >= start,
+            Workout.workout_date <= today,
+        )
+        .all()
+    )
+    logged: dict[date, int] = {}
+    for w in workouts:
+        mins = int(w.easy_minutes or 0)
+        if mins:
+            logged[w.workout_date] = logged.get(w.workout_date, 0) + mins
+    planned_rows = (
+        session.query(PlannedSession)
+        .filter(
+            PlannedSession.user_id == user_id,
+            PlannedSession.planned_date > today,
+            PlannedSession.planned_date <= end,
+        )
+        .all()
+    )
+    planned: dict[date, int] = {}
+    for p in planned_rows:
+        mins = _planned_easy_minutes(p)
+        if mins:
+            planned[p.planned_date] = planned.get(p.planned_date, 0) + mins
+    prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user_id).first()
+    target = prefs.weekly_zone2_target_min if prefs is not None else None
+    hr = prefs.zone2_hr_max if prefs is not None else None
+    if target is None:
+        target = 150
+    return build_zone2_week(today, logged, planned, target, hr)
+
+
 def _body(session: Session, user_id, today: date) -> dict[str, Any]:
     trend, _days = fetch_trend_mass(session, user_id, today)
     last = (
@@ -233,7 +325,7 @@ def _body(session: Session, user_id, today: date) -> dict[str, Any]:
             for i, r in enumerate(entries)
             if r.weight_kg is not None
         ],
-        "zone2_week": None,
+        "zone2_week": _zone2_week(session, user_id, today),
     }
 
 
