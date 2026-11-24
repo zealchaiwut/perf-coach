@@ -282,6 +282,41 @@
       ' L' + (x + w) + ',' + (y + h) + ' Z" fill="' + fill + '"/>';
   }
 
+  function chartRace(wk) {
+    var tss = 0;
+    var name = '';
+    var we = (wk && wk.week_end) || (wk && wk.week_start) || '';
+    (((wk && wk.race_items) || [])).forEach(function (r) {
+      var rd = r.race_date || '';
+      var src = String(r.tss_source || '').toLowerCase();
+      var inWeek = rd && wk.week_start && rd >= wk.week_start && rd <= we;
+      if (src !== 'logged' && !inWeek) return;
+      var rt = Number(r.tss);
+      if (!isFinite(rt) || rt <= 0) return;
+      tss += rt;
+      if (!name && r.name) name = r.name;
+    });
+    return { tss: tss, name: name };
+  }
+
+  function paintChartLegend(weeks, uniformTarget) {
+    var el = document.getElementById('v2-chart-legend');
+    if (!el) return;
+    var hasLift = weeks.some(function (w) {
+      return ((w.tss_strength || 0) + (w.tss_support_other || 0)) > 0;
+    });
+    var hasRace = weeks.some(function (w) { return chartRace(w).tss > 0; });
+    function swatch(color, label) {
+      return '<span class="rv-key"><i class="rv-swatch" style="background:' + color + '"></i>' + label + '</span>';
+    }
+    var keys = [swatch('#1f3b8a', 'Run TSS'), swatch('#b45309', 'Over target')];
+    if (hasLift) keys.push(swatch('#8b6fe0', 'Lift TSS'));
+    if (hasRace) keys.push(swatch('#d4e400', 'Race'));
+    var tLabel = uniformTarget != null ? ('Target ' + Math.round(uniformTarget)) : 'Target';
+    keys.push('<span class="rv-key"><i class="rv-swatch rv-swatch--target"></i>' + tLabel + '</span>');
+    el.innerHTML = keys.join('');
+  }
+
   function drawChart(weeks) {
     var el = document.getElementById('v2-chart-body');
     if (!el) return;
@@ -290,110 +325,164 @@
       return;
     }
     if (weeks.length > 9) weeks = weeks.slice(-9);
-    var BASE = 190;
-    var TOP = 20;
-    var PLOT = 170;
-    var BAR_W = 56;
-    var FIRST_CX = 55;
-    var SLOT = 111;
+    var LEFT = 60;
+    var RIGHT = 1140;
+    var BASE = 200;
+    var TOP = 24;
+    var PLOT = BASE - TOP;
+    var BAR_W = 48;
+    var n = weeks.length;
+    var SLOT = (RIGHT - LEFT) / n;
+    var thisMon = mondayISO(todayISO());
     var maxTss = 1;
-    var maxKm = 1;
+    var targetVals = [];
     weeks.forEach(function (w) {
-      var t = (w.tss_run || 0) + (w.tss_strength || 0) + (w.tss_support_other || 0);
-      if ((w.planned_tss || 0) > t) t = w.planned_tss;
-      if (t > maxTss) maxTss = t;
-      if ((w.distance_km || 0) > maxKm) maxKm = w.distance_km;
+      var total = Number(w.tss_total) || 0;
+      var planned = Number(w.planned_tss) || 0;
+      var target = Number(w.target_tss);
+      if (total > maxTss) maxTss = total;
+      if (planned > maxTss) maxTss = planned;
+      if (w.target_tss != null && isFinite(target) && target > 0) {
+        targetVals.push(target);
+        if (target > maxTss) maxTss = target;
+      }
     });
+    maxTss = Math.max(1, maxTss * 1.12);
+    var uniform = targetVals.length === n && targetVals.every(function (t) { return t === targetVals[0]; });
+    var uniformTarget = uniform ? targetVals[0] : null;
     function yTss(v) { return BASE - (v / maxTss) * PLOT; }
-    function yKm(v) { return BASE - (v / maxKm) * PLOT; }
-    function cx(i) { return FIRST_CX + i * SLOT; }
+    function cx(i) { return LEFT + SLOT * (i + 0.5); }
+    function r1(v) { return Math.round(v * 10) / 10; }
 
     var currentIdx = -1;
-    var lastDoneIdx = -1;
-    var peakIdx = 0;
-    var peakVal = -1;
+    var overCount = 0;
+    var raceWeekIso = '';
+    var raceWeekTss = 0;
     weeks.forEach(function (wk, i) {
-      var total = (wk.tss_run || 0) + (wk.tss_strength || 0) + (wk.tss_support_other || 0);
-      if (total > peakVal) { peakVal = total; peakIdx = i; }
-      if (wk.partial) currentIdx = i;
-      if (total > 0 || wk.partial) lastDoneIdx = i;
+      if (wk.week_start === thisMon || wk.partial) currentIdx = i;
+      var total = Number(wk.tss_total) || 0;
+      var tgt = Number(wk.target_tss);
+      if (wk.target_tss != null && isFinite(tgt) && total > tgt) overCount += 1;
+      var rt = chartRace(wk).tss;
+      if (rt > raceWeekTss) {
+        raceWeekTss = rt;
+        raceWeekIso = wk.week_start;
+      }
     });
-    if (currentIdx < 0) currentIdx = lastDoneIdx < 0 ? weeks.length - 1 : lastDoneIdx;
-    if (lastDoneIdx < 0) lastDoneIdx = currentIdx;
+    if (currentIdx < 0) currentIdx = n - 1;
+    paintChartLegend(weeks, uniformTarget);
 
-    var parts = ['<svg viewBox="0 0 1000 220" style="width:100%;height:240px;display:block" role="img" aria-label="Weekly training volume">'];
-    parts.push('<line x1="0" y1="20" x2="1000" y2="20" stroke="#eef1f7"/>');
-    parts.push('<line x1="0" y1="105" x2="1000" y2="105" stroke="#eef1f7"/>');
-    parts.push('<line x1="0" y1="190" x2="1000" y2="190" stroke="#dfe5f1"/>');
+    var aria = 'Weekly TSS for ' + n + ' weeks';
+    if (uniformTarget != null) aria += ', target ' + Math.round(uniformTarget);
+    if (overCount) aria += ', ' + overCount + ' week' + (overCount === 1 ? '' : 's') + ' over target';
+    if (raceWeekIso) aria += ', race week ' + fmtDayMonth(raceWeekIso);
 
-    var kmPts = [];
+    var parts = ['<svg viewBox="0 0 1160 240" style="width:100%;height:auto;display:block" role="img" aria-label="' + esc(aria) + '">'];
+    if (currentIdx >= 0) {
+      var shW = SLOT - 16;
+      var shX = cx(currentIdx) - shW / 2;
+      parts.push('<rect x="' + r1(shX) + '" y="14" width="' + r1(shW) + '" height="222" rx="10" fill="#f3f6fd"/>');
+    }
+    parts.push('<line x1="' + LEFT + '" y1="' + BASE + '" x2="' + RIGHT + '" y2="' + BASE + '" stroke="#dfe5f1"/>');
+    if (uniformTarget != null) {
+      var ty = yTss(uniformTarget);
+      parts.push('<line x1="' + LEFT + '" y1="' + r1(ty) + '" x2="' + RIGHT + '" y2="' + r1(ty) + '" stroke="#0b1530" stroke-width="1.4" stroke-dasharray="6 5"/>');
+      parts.push('<text x="' + RIGHT + '" y="' + r1(ty - 6) + '" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11.5" fill="#0b1530">' + Math.round(uniformTarget) + '</text>');
+    }
+
     weeks.forEach(function (wk, i) {
-      var run = wk.tss_run || 0;
-      var lift = (wk.tss_strength || 0) + (wk.tss_support_other || 0);
-      var total = run + lift;
-      var planned = wk.planned_tss || 0;
+      var run = Number(wk.tss_run) || 0;
+      var lift = (Number(wk.tss_strength) || 0) + (Number(wk.tss_support_other) || 0);
+      var total = Number(wk.tss_total);
+      if (!isFinite(total)) total = run + lift;
+      var planned = Number(wk.planned_tss) || 0;
+      var target = Number(wk.target_tss);
+      var hasTarget = wk.target_tss != null && isFinite(target) && target > 0;
+      var over = hasTarget && total > target;
+      var race = chartRace(wk);
+      var raceTss = Math.min(race.tss, run);
+      var runOnly = Math.max(0, run - raceTss);
       var x = cx(i) - BAR_W / 2;
-      var isCur = i === currentIdx;
       var plannedOnly = total <= 0 && planned > 0;
+      if (!uniform && hasTarget) {
+        var segW = SLOT - 16;
+        var segX = cx(i) - segW / 2;
+        var sty = yTss(target);
+        parts.push('<line x1="' + r1(segX) + '" y1="' + r1(sty) + '" x2="' + r1(segX + segW) + '" y2="' + r1(sty) + '" stroke="#0b1530" stroke-width="1.4" stroke-dasharray="6 5"/>');
+      }
       if (plannedOnly) {
         var ph = Math.max(4, (planned / maxTss) * PLOT);
-        parts.push('<rect x="' + x + '" y="' + (BASE - ph) + '" width="' + BAR_W + '" height="' + ph + '" rx="4" fill="#ffffff" stroke="#6d93e8" stroke-width="2" stroke-dasharray="5 4"/>');
+        parts.push('<rect x="' + r1(x) + '" y="' + r1(BASE - ph) + '" width="' + BAR_W + '" height="' + r1(ph) + '" rx="5" fill="#f8faff" stroke="#8ba7e6" stroke-width="2" stroke-dasharray="5 4"/>');
       } else if (total <= 0) {
-        parts.push('<rect x="' + x + '" y="' + (BASE - 4) + '" width="' + BAR_W + '" height="4" rx="2" fill="#eef1f7"/>');
+        parts.push('<rect x="' + r1(x) + '" y="' + (BASE - 4) + '" width="' + BAR_W + '" height="4" rx="2" fill="#eef1f7"/>');
       } else {
-        var runH = (run / maxTss) * PLOT;
-        var liftH = (lift / maxTss) * PLOT;
-        var fill = isCur ? '#3b6fe0' : '#bfd3f8';
-        if (liftH > 0.5) {
-          parts.push('<rect x="' + x + '" y="' + (BASE - runH) + '" width="' + BAR_W + '" height="' + runH + '" fill="' + fill + '"/>');
-          parts.push(topRoundRect(x, BASE - runH - liftH, BAR_W, liftH, 4, '#c9b6f2'));
-        } else {
-          parts.push('<rect x="' + x + '" y="' + (BASE - runH) + '" width="' + BAR_W + '" height="' + runH + '" rx="4" fill="' + fill + '"/>');
-        }
+        var stack = [];
+        if (runOnly > 0) stack.push({ tss: runOnly, fill: over ? '#b45309' : '#1f3b8a', race: false });
+        if (raceTss > 0) stack.push({ tss: raceTss, fill: '#d4e400', race: true, name: race.name });
+        if (lift > 0) stack.push({ tss: lift, fill: '#8b6fe0', race: false });
+        if (!stack.length) stack.push({ tss: total, fill: over ? '#b45309' : '#1f3b8a', race: false });
+        var cursor = BASE;
+        stack.forEach(function (seg, si) {
+          var h = (seg.tss / maxTss) * PLOT;
+          var y = cursor - h;
+          var top = si === stack.length - 1;
+          if (top) parts.push(topRoundRect(r1(x), r1(y), BAR_W, r1(h), 5, seg.fill));
+          else parts.push('<rect x="' + r1(x) + '" y="' + r1(y) + '" width="' + BAR_W + '" height="' + r1(h) + '" fill="' + seg.fill + '"/>');
+          if (seg.race && h >= 22) {
+            parts.push('<text class="rv-vol-racelabel" x="' + r1(cx(i)) + '" y="' + r1(y + h / 2 + 4) + '" text-anchor="middle" font-size="11" font-weight="800" fill="#4a5200" pointer-events="none">RACE</text>');
+          }
+          cursor = y;
+        });
       }
-      kmPts.push({ x: cx(i), y: yKm(wk.distance_km || 0), i: i, total: total, planned: planned, plannedOnly: plannedOnly, isCur: isCur });
-    });
-
-    var solid = [];
-    weeks.forEach(function (wk, i) {
-      if (i <= lastDoneIdx) solid.push(kmPts[i].x + ',' + kmPts[i].y);
-    });
-    if (solid.length > 1) {
-      parts.push('<polyline points="' + solid.join(' ') + '" fill="none" stroke="#d97706" stroke-width="2.5" stroke-linejoin="round"/>');
-    } else if (solid.length === 1) {
-      parts.push('<polyline points="' + solid[0] + ' ' + solid[0] + '" fill="none" stroke="#d97706" stroke-width="2.5"/>');
-    }
-    for (var d = lastDoneIdx; d < weeks.length - 1; d++) {
-      if (d < 0) continue;
-      var a = kmPts[d];
-      var b = kmPts[d + 1];
-      parts.push('<line x1="' + a.x + '" y1="' + a.y + '" x2="' + b.x + '" y2="' + b.y + '" stroke="#d97706" stroke-width="2.5" stroke-dasharray="5 4"/>');
-    }
-
-    kmPts.forEach(function (pt) {
-      var r = pt.isCur ? 5 : 4;
-      parts.push('<circle cx="' + pt.x + '" cy="' + pt.y + '" r="' + r + '" fill="#d97706"/>');
-    });
-
-    kmPts.forEach(function (pt, i) {
-      if (pt.isCur && pt.total > 0) {
-        parts.push('<text x="' + pt.x + '" y="' + (pt.y + 4) + '" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" font-family="JetBrains Mono, monospace">' + Math.round(pt.total) + '</text>');
-      } else if (pt.plannedOnly && pt.planned > 0) {
-        parts.push('<text x="' + pt.x + '" y="' + (yTss(pt.planned) - 8) + '" font-size="11" fill="#1f3b8a" text-anchor="middle" font-family="JetBrains Mono, monospace">' + Math.round(pt.planned) + '</text>');
-      } else if (i === peakIdx && peakVal > 0 && i !== currentIdx) {
-        parts.push('<text x="' + pt.x + '" y="' + (Math.min(yTss(peakVal), pt.y) - 8) + '" font-size="11" fill="#0b1530" text-anchor="middle" font-family="JetBrains Mono, monospace">' + Math.round(peakVal) + '</text>');
+      var labelVal;
+      var labelFill;
+      var labelY;
+      if (plannedOnly) {
+        labelVal = Math.round(planned);
+        labelFill = '#1f3b8a';
+        labelY = yTss(planned) - 7;
+      } else if (total <= 0) {
+        labelVal = 0;
+        labelFill = '#8792a8';
+        labelY = BASE - 7;
+      } else {
+        labelVal = Math.round(total);
+        labelFill = over ? '#7a3a10' : '#0b1530';
+        labelY = yTss(total) - 7;
       }
+      parts.push('<text class="rv-vol-vallabel" x="' + r1(cx(i)) + '" y="' + r1(labelY) + '" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600" text-anchor="middle" fill="' + labelFill + '">' + labelVal + '</text>');
     });
 
     weeks.forEach(function (wk, i) {
       var isCur = i === currentIdx;
       parts.push(
-        '<text x="' + cx(i) + '" y="208" font-size="11.5" fill="' + (isCur ? '#0b1530' : '#56627f') + '"' +
-        (isCur ? ' font-weight="700"' : '') + ' text-anchor="middle">' + esc(fmtDayMonth(wk.week_start)) + '</text>'
+        '<text x="' + r1(cx(i)) + '" y="224" font-family="JetBrains Mono, monospace" font-size="12" fill="' +
+        (isCur ? '#0b1530' : '#56627f') + '"' + (isCur ? ' font-weight="700"' : '') +
+        ' text-anchor="middle">' + esc(fmtDayMonth(wk.week_start)) + '</text>'
       );
+      var total = Number(wk.tss_total) || 0;
+      var planned = Number(wk.planned_tss) || 0;
+      var target = Number(wk.target_tss);
+      var hasTarget = wk.target_tss != null && isFinite(target) && target > 0;
+      var over = hasTarget && total > target;
+      var under = hasTarget && total > 0 && total <= target;
+      var race = chartRace(wk);
+      var shown = total > 0 ? total : planned;
+      var status = over ? ', over target' : (under ? ', under target' : (total <= 0 && planned > 0 ? ', planned' : ''));
+      var ariaWeek = 'Week of ' + fmtDayMonth(wk.week_start) + ', ' + Math.round(shown) + ' TSS' + status;
+      var title = fmtWeekRange(wk.week_start, wk.week_end);
+      title += ', ' + Math.round(total) + ' TSS';
+      if (hasTarget) {
+        var pct = target > 0 ? Math.round((total / target) * 100) : 0;
+        title += ', ' + pct + '% of ' + Math.round(target) + ' target';
+      }
+      if (race.name) title += ', ' + race.name;
+      var hitW = SLOT - 4;
+      var hitX = cx(i) - hitW / 2;
       parts.push(
-        '<rect tabindex="0" role="button" aria-label="Week ' + esc(wk.week_start) + '" x="' + (cx(i) - BAR_W / 2) +
-        '" y="' + TOP + '" width="' + BAR_W + '" height="' + PLOT + '" fill="transparent" data-week="' + esc(wk.week_start) + '"/>'
+        '<rect tabindex="0" role="button" aria-label="' + esc(ariaWeek) + '" x="' + r1(hitX) +
+        '" y="14" width="' + r1(hitW) + '" height="222" fill="transparent" data-week="' + esc(wk.week_start) +
+        '"><title>' + esc(title) + '</title></rect>'
       );
     });
     parts.push('</svg>');

@@ -14,25 +14,24 @@ CSS = (ROOT / "frontend" / "css" / "revamp.css").read_text(encoding="utf-8")
 def test_log_chart_header_and_legend_in_markup():
     assert 'id="v2-chart-section"' in LOG_HTML
     assert "rv-chart-head" in LOG_HTML
-    assert "rv-chart-legend" in LOG_HTML
+    assert 'id="v2-chart-legend"' in LOG_HTML
     assert "Click a week, here or in the calendar, to jump to it in the list" in LOG_HTML
-    assert "Run TSS" in LOG_HTML
-    assert "Lift TSS" in LOG_HTML
+    assert "paintChartLegend" in LOG_JS
+    assert "Run TSS" in LOG_JS
+    assert "Lift TSS" in LOG_JS
     assert 'id="rv-training-subtitle"' in LOG_HTML
 
 
 def test_log_chart_svg_layout_matches_mock():
-    assert 'viewBox="0 0 1000 220"' in LOG_JS
-    assert "height:240px" in LOG_JS
-    assert 'y1="20"' in LOG_JS
-    assert 'y1="105"' in LOG_JS
-    assert 'y1="190"' in LOG_JS
-    assert "var BAR_W = 56" in LOG_JS
-    assert "var SLOT = 111" in LOG_JS
-    assert "var FIRST_CX = 55" in LOG_JS
-    assert "stroke-dasharray=\"5 4\"" in LOG_JS
+    assert 'viewBox="0 0 1160 240"' in LOG_JS
+    assert "height:auto" in LOG_JS
+    assert "var BAR_W = 48" in LOG_JS
+    assert "stroke-dasharray=\"6 5\"" in LOG_JS
     assert "fmtDayMonth" in LOG_JS
     assert "topRoundRect" in LOG_JS
+    assert "#d97706" not in LOG_JS
+    assert "maxKm" not in LOG_JS
+    assert "yKm" not in LOG_JS
 
 
 def test_log_list_drops_visible_sessions_title():
