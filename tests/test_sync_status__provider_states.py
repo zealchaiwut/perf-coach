@@ -144,6 +144,48 @@ def test_build_providers_ok(_pending, _fail, _run):
     assert provider_ui_state(out["strava"], now=NOW) == "ok"
 
 
+@patch("backend.services.sync_provider_status._provider_running", return_value=False)
+@patch("backend.services.sync_provider_status._last_completed", return_value=None)
+@patch("backend.services.sync_provider_status._last_failed", return_value=None)
+@patch("backend.services.sync_provider_status._pending_count", return_value=0)
+def test_build_providers_uses_in_memory_success_clock(_pending, _fail, _ok, _run):
+    """Toolbar Sync now used to leave last_success_at null after a successful in-process pull."""
+    finished = NOW - timedelta(minutes=2)
+    out = build_providers(
+        _connected_session(),
+        uuid4(),
+        job_snapshot={
+            "status": "success",
+            "provider": "strava",
+            "finished_at": finished.isoformat(),
+        },
+    )
+    assert out["strava"]["last_success_at"]
+    assert out["strava"]["last_success_at"].startswith(finished.isoformat()[:19])
+    assert out["stryd"]["last_success_at"] is None
+    assert provider_ui_state(out["strava"], now=NOW) == "ok"
+
+
+@patch("backend.services.sync_provider_status._provider_running", return_value=False)
+@patch("backend.services.sync_provider_status._last_completed", return_value=None)
+@patch("backend.services.sync_provider_status._last_failed", return_value=None)
+@patch("backend.services.sync_provider_status._pending_count", return_value=0)
+@patch(
+    "backend.services.sync_provider_status._last_worker_success_at",
+    return_value=NOW - timedelta(hours=1),
+)
+def test_build_providers_uses_worker_success_clock(_wjr, _pending, _fail, _ok, _run):
+    out = build_providers(_connected_session(), uuid4())
+    assert out["strava"]["last_success_at"]
+    assert provider_ui_state(out["strava"], now=NOW) == "ok"
+
+
+def test_run_strava_sync_persists_sync_job():
+    src = (REPO / "backend" / "services" / "sync_runner.py").read_text(encoding="utf-8")
+    assert "record_provider_sync_outcome" in src
+    assert "_persist_strava_sync_job" in src
+
+
 def test_nav_has_syncing_class():
     assert "rv-sync-dot--syncing" in CSS
     assert "rv-sync-gear--syncing" in STATUS_JS or "rv-sync-gear--" in STATUS_JS

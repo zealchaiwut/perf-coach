@@ -74,6 +74,26 @@ def run_plan_matcher(uid) -> None:
         )
 
 
+def _persist_strava_sync_job(
+    uid: _uuid.UUID,
+    *,
+    ok: bool,
+    error: Optional[str] = None,
+    items_synced: int = 0,
+) -> None:
+    """Durably record last-success/fail so the Log toolbar clock is not 'unknown'."""
+    try:
+        from backend.services.sync_provider_status import record_provider_sync_outcome
+
+        record_provider_sync_outcome(
+            uid, "strava", ok=ok, error=error, items_synced=items_synced
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logging.getLogger(__name__).warning(
+            "persist Strava SyncJob failed for %s: %s", uid, exc
+        )
+
+
 def run_strava_sync(
     user_id: str,
     since_date: Optional[str] = None,
@@ -101,6 +121,7 @@ def run_strava_sync(
         access_token = refresh_token_if_needed(user_id)
         if access_token is None:
             recorder.mark_error(uid, "Strava account not connected")
+            _persist_strava_sync_job(uid, ok=False, error="Strava account not connected")
             return
 
         page = 1
@@ -115,7 +136,9 @@ def run_strava_sync(
                 with _urllib_request.urlopen(req) as resp:
                     batch = _json.loads(resp.read())
             except _urllib_error.HTTPError as exc:
-                recorder.mark_error(uid, f"Strava API error: {exc.code}")
+                msg = f"Strava API error: {exc.code}"
+                recorder.mark_error(uid, msg)
+                _persist_strava_sync_job(uid, ok=False, error=msg)
                 return
 
             if not batch:
@@ -187,9 +210,11 @@ def run_strava_sync(
             )
         run_plan_matcher(uid)
         recorder.mark_success(uid)
+        _persist_strava_sync_job(uid, ok=True, items_synced=len(synced_strava_ids))
         _post_sync_warm(str(uid))
     except Exception as exc:  # noqa: BLE001
         recorder.mark_error(uid, str(exc))
+        _persist_strava_sync_job(uid, ok=False, error=str(exc))
 
 
 def _stryd_activity_ids_since(uid: _uuid.UUID, since: _date_cls) -> list[str]:
