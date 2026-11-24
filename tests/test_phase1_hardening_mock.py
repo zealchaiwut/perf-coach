@@ -10,6 +10,12 @@ def test_who_label_missed():
     assert who_label(kind="run", source="coach", status="missed") == "MISSED"
 
 
+def test_who_label_tagged_race_workout():
+    assert who_label(kind="race", source="unplanned", status="done") == "RACE"
+    assert who_label(kind="race", source="coach", status="done") == "RACE"
+    assert who_label(kind="race", source="plan", status="planned") == "B RACE"
+
+
 def test_week_target_meta_on_target_within_five_percent():
     meta = _week_target_meta({"tss_total": 102, "target_tss": 100, "partial": False})
     assert meta["on_target"] is True

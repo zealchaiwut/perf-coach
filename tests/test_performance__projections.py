@@ -296,7 +296,7 @@ def test_build_projection_one_estimate_feeds_chain_chart_and_hero():
     db = MagicMock()
     db.query.return_value.filter.return_value.first.return_value = prefs
     scores = {"overall": {"endurance": {"score": 41.0}, "speed": {"score": 45.0}}}
-    with patch.object(pv, "next_a_race", return_value=a), \
+    with patch.object(pv, "next_upcoming_race", return_value=a), \
             patch.object(pv, "estimate_race_finish", return_value=EST) as est_call, \
             patch("backend.services.race_calibration.load_calibrations", return_value=[]), \
             patch("backend.services.race_calibration.record_prediction") as snap, \
@@ -324,7 +324,7 @@ def test_build_projection_one_estimate_feeds_chain_chart_and_hero():
 
 
 def test_no_a_race_still_returns_tiles():
-    with patch.object(pv, "next_a_race", return_value=None), \
+    with patch.object(pv, "next_upcoming_race", return_value=None), \
             patch("backend.services.race_calibration.load_calibrations", return_value=[]), \
             patch.object(pv, "_calibration_tiles", return_value=pv.build_tiles(None, [], None, None)), \
             patch.object(pv, "_reference_race_for_history", return_value=None), \
@@ -338,7 +338,7 @@ def test_no_a_race_returns_partial_chain_and_history_chart():
     scores = {"overall": {"endurance": {"score": 41.0}, "speed": {"score": 45.0}}}
     db = MagicMock()
     db.query.return_value.filter.return_value.first.return_value = None
-    with patch.object(pv, "next_a_race", return_value=None), \
+    with patch.object(pv, "next_upcoming_race", return_value=None), \
             patch("backend.services.race_calibration.load_calibrations", return_value=[{
                 "race_id": str(a.id), "race_date": a.race_date, "actual_seconds": 15000,
             }]), \

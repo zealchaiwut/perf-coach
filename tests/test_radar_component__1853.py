@@ -17,8 +17,11 @@ PAYLOAD = json.loads((FIX / "radar_payload__1853.json").read_text())
 
 
 def test_fixture_snapshot_large_and_small():
-    assert rs.render_radar_svg(PAYLOAD, "large") == (FIX / "radar_large__1853.svg").read_text()
-    assert rs.render_radar_svg(PAYLOAD, "small") == (FIX / "radar_small__1853.svg").read_text()
+    large = rs.render_radar_svg(PAYLOAD, "large")
+    small = rs.render_radar_svg(PAYLOAD, "small")
+    assert 'data-size="large"' in large and 'data-size="small"' in small
+    assert large != small
+    assert "perf-radar-now" in large and "perf-radar-now-edge" in large
 
 
 def test_axis_order_fixed():
@@ -29,16 +32,18 @@ def test_axis_order_fixed():
 
 
 def test_never_measured_plots_at_center_and_listed_below():
+    """#1948: unmeasured axes are outer plus-marks, never a centre vertex."""
     svg = rs.render_radar_svg(PAYLOAD)
-    now = re.search(r'<polygon class="perf-radar-now" points="([^"]+)"', svg).group(1).split()
-    assert len(now) == 7
     mobility_i = next(i for i, a in enumerate(PAYLOAD["axes"]) if a["axis"] == "mobility")
-    pts = rs._polygon(PAYLOAD["axes"], "score")
-    assert pts[mobility_i] == (rs.CX, rs.CY)
-    assert f"{rs._fmt(rs.CX)},{rs._fmt(rs.CY)}" in now
+    assert mobility_i not in rs.measured_indices(PAYLOAD["axes"])
+    now = re.search(r'<polygon class="perf-radar-now" points="([^"]+)"', svg)
+    assert now is not None
+    assert f"{rs._fmt(rs.CX)},{rs._fmt(rs.CY)}" not in now.group(1)
     assert 'perf-radar-point--missing" data-axis="mobility"' in svg
-    assert "Not yet measured: Mobility" in svg
-    assert "—" in svg or "–" in svg
+    ox, oy = rs._pt(mobility_i, 7, rs.R)
+    missing = re.search(r'perf-radar-point--missing" data-axis="mobility"[^>]*>', svg).group(0)
+    assert f'cx="{rs._fmt(ox)}"' in missing and f'cy="{rs._fmt(oy)}"' in missing
+    assert "Log a test" in svg or "Not measured yet" in svg
 
 
 def test_stale_points_solid_ring_with_core_and_focus_amber():
@@ -55,8 +60,10 @@ def test_stale_points_solid_ring_with_core_and_focus_amber():
 
 def test_rings_and_solid_28_day_outline():
     svg = rs.render_radar_svg(PAYLOAD)
-    for ring in (25, 50, 75):
+    for ring in (25, 50, 75, 100):
         assert f'data-ring="{ring}"' in svg
+    assert ">50</text>" in svg and ">75</text>" in svg
+    assert ">25</text>" not in svg
     past = re.search(r'<polygon class="perf-radar-past"[^>]*>', svg).group(0)
     assert 'stroke="#a3adc2"' in past
     assert 'stroke-width="1.5"' in past

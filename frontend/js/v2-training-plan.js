@@ -66,7 +66,7 @@
     host.innerHTML =
       '<div class="rv-plan-road-head"><div><h2 class="rv-label">' + esc(label) + '</h2>' +
       '<p class="rv-chart-sub">' + esc(message) + '</p></div>' +
-      '<a href="/v2/settings/plan" class="rv-plan-settings-link">Add an A race</a></div>';
+      '<button type="button" class="rv-btn rv-btn--secondary" data-plan-setup>Add an A race</button></div>';
   }
 
   function renderCompactNoRace(host, wl) {
@@ -78,7 +78,7 @@
       '<div class="rv-plan-road-head rv-plan-compact-load"><div><h2 class="rv-label">This week</h2>' +
       '<p class="rv-chart-sub">' + esc(String(total)) + ' / ' + esc(String(target)) +
       ' TSS · vs your 28-day average</p></div>' +
-      '<a href="/v2/settings/plan" class="rv-plan-settings-link">Add an A race</a></div>';
+      '<button type="button" class="rv-btn rv-btn--secondary" data-plan-setup>Add an A race</button></div>';
   }
 
   function friendlySectionError(r) {
@@ -286,7 +286,7 @@
     });
 
     var hint = data.plan_hint
-      ? '<p class="rv-plan-hint">' + esc(data.plan_hint) + ' <a href="/v2/settings/plan">Add an A race</a></p>'
+      ? '<p class="rv-plan-hint">' + esc(data.plan_hint) + ' <a href="/v2/training/plan?setup=1" data-plan-setup>Add an A race</a></p>'
       : '';
     var chip = data.changed_chip
       ? '<span class="rv-chip rv-chip--warn">' + esc(data.changed_chip) + '</span>'
@@ -642,6 +642,7 @@
     }
 
     mountWeekBoard(board, state.ws, week, state, navFetch);
+    window.V2TrainingPlan.reload = loadAll;
     loadAll();
   }
 

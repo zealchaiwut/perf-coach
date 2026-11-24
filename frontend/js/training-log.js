@@ -171,6 +171,7 @@
     longrun: "long run",
     easy: "easy",
     tempo: "tempo",
+    race: "race",
   };
 
   // Segment label → intensity key (timeline colors + segment dots), derived
@@ -2075,6 +2076,7 @@
     longrun: "Marked as long run",
     easy: "Marked as easy run",
     tempo: "Marked as tempo",
+    race: "Marked as race",
   };
 
   // issue: perf — the subtype tag is baked into the static HTML string that
@@ -3616,6 +3618,11 @@
           if (feelHost && w.id) {
             feelHost.innerHTML = "";
             feelHost.appendChild(buildFeelingRow(w.id, w.feeling, "dp-feel"));
+          }
+          var typeHost = document.getElementById("rd4-runtype");
+          if (typeHost && window.V2RunTypeButtons && w.id) {
+            typeHost.innerHTML = "";
+            window.V2RunTypeButtons.mount(typeHost, w.id, w.run_subtype);
           }
         }
       } catch (err) {

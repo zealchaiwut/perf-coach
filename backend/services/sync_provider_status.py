@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -264,7 +265,7 @@ def dot_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> st
 
 
 def provider_ui_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> str:
-    """syncing | failed | stale | ok — same rules as frontend/js/v2-sync-status.js."""
+    """syncing | failed | stale | ok — Log toolbar pills. Nav uses nav_ui_state."""
     if provider.get("running"):
         return "syncing"
     if provider.get("needs_reauth"):
@@ -280,3 +281,138 @@ def provider_ui_state(provider: dict[str, Any], *, now: Optional[datetime] = Non
     if colour == "amber":
         return "stale"
     return "ok"
+
+
+_BKK = ZoneInfo("Asia/Bangkok")
+_PROVIDER_NAMES = {"strava": "Strava", "stryd": "Stryd"}
+
+
+def format_sync_clock(iso: Optional[str], *, now: Optional[datetime] = None) -> str:
+    """06:58 same Bangkok day; Yesterday 21:14; 3 Nov otherwise."""
+    if not iso:
+        return ""
+    try:
+        last = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    last = _as_utc(last)
+    if last is None:
+        return ""
+    last_bkk = last.astimezone(_BKK)
+    now_bkk = (now or _utc_now()).astimezone(_BKK)
+    clock = last_bkk.strftime("%H:%M")
+    last_d = last_bkk.date()
+    today = now_bkk.date()
+    if last_d == today:
+        return clock
+    if last_d == today - timedelta(days=1):
+        return f"Yesterday {clock}"
+    return f"{last_bkk.day} {last_bkk.strftime('%b')}"
+
+
+def nav_ui_state(provider: dict[str, Any], *, now: Optional[datetime] = None) -> str:
+    """ok | syncing | attention | failed — ring colour. Maps dot_state amber to attention."""
+    if provider.get("running"):
+        return "syncing"
+    colour = dot_state(provider, now=now)
+    if colour == "red":
+        return "failed"
+    if colour == "amber":
+        return "attention"
+    return "ok"
+
+
+def nav_ui_action(provider: dict[str, Any], state: str) -> Optional[str]:
+    if state == "syncing":
+        return None
+    if not provider.get("connected"):
+        return "reconnect"
+    if provider.get("needs_reauth"):
+        return "reauth"
+    if state == "failed":
+        return "retry"
+    return None
+
+
+def nav_ui_label(provider: dict[str, Any], state: str, *, now: Optional[datetime] = None) -> str:
+    if state == "syncing":
+        return "Syncing…"
+    action = nav_ui_action(provider, state)
+    if action == "reauth":
+        return "Sign in again"
+    if action == "reconnect":
+        return "Reconnect"
+    if action == "retry":
+        return "Retry"
+    clock = format_sync_clock(provider.get("last_success_at"), now=now)
+    return clock or "Never"
+
+
+def annotate_provider(provider: dict[str, Any], *, now: Optional[datetime] = None) -> dict[str, Any]:
+    out = dict(provider)
+    state = nav_ui_state(out, now=now)
+    out["ui_state"] = state
+    out["ui_action"] = nav_ui_action(out, state)
+    out["ui_label"] = nav_ui_label(out, state, now=now)
+    return out
+
+
+def overall_state(
+    providers: dict[str, Any],
+    *,
+    job_status: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> str:
+    """Worst of the two providers. A live job paints syncing ahead of failed/attention."""
+    st = (job_status or "").lower()
+    states = [nav_ui_state(providers.get(k) or {}, now=now) for k in ("strava", "stryd")]
+    if st in ("running", "pending") or "syncing" in states:
+        return "syncing"
+    if "failed" in states:
+        return "failed"
+    if "attention" in states:
+        return "attention"
+    return "ok"
+
+
+def overall_label(
+    providers: dict[str, Any],
+    overall: str,
+    *,
+    now: Optional[datetime] = None,
+) -> str:
+    if overall == "syncing":
+        return "Settings · syncing"
+    if overall == "ok":
+        latest = None
+        for p in providers.values():
+            ts = (p or {}).get("last_success_at")
+            if ts and (latest is None or str(ts) > str(latest)):
+                latest = ts
+        clock = format_sync_clock(latest, now=now)
+        return f"Settings · all synced {clock}".rstrip() if clock else "Settings · all synced"
+    for key in ("strava", "stryd"):
+        p = providers.get(key) or {}
+        name = _PROVIDER_NAMES[key]
+        if overall == "attention" and p.get("ui_state") == "attention":
+            if p.get("needs_reauth") or p.get("ui_action") == "reauth":
+                return f"Settings · {name} needs your password"
+            return f"Settings · {name} needs attention"
+        if overall == "failed" and p.get("ui_state") == "failed":
+            if not p.get("connected"):
+                return f"Settings · {name} not connected"
+            return f"Settings · {name} sync failed"
+    return "Settings"
+
+
+def decorate_sync_status(payload: dict[str, Any], *, now: Optional[datetime] = None) -> dict[str, Any]:
+    """Add ui_state / ui_label / ui_action per provider plus top-level overall."""
+    now = now or _utc_now()
+    raw = payload.get("providers") or {}
+    providers = {
+        key: annotate_provider(raw.get(key) or {}, now=now) for key in ("strava", "stryd")
+    }
+    payload["providers"] = providers
+    payload["overall"] = overall_state(providers, job_status=payload.get("status"), now=now)
+    payload["overall_label"] = overall_label(providers, payload["overall"], now=now)
+    return payload

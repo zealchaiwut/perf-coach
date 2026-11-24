@@ -267,6 +267,11 @@
           feelHost.innerHTML = '';
           global.V2FeelButtons.mount(feelHost, w.id, w.feeling);
         }
+        var typeHost = document.getElementById('rd4-runtype');
+        if (typeHost && global.V2RunTypeButtons && w.id) {
+          typeHost.innerHTML = '';
+          global.V2RunTypeButtons.mount(typeHost, w.id, w.run_subtype);
+        }
       })
       .catch(function () {
         e.body.innerHTML = drawerChrome() + '<p class="rv-section-state">Could not load session.</p>';

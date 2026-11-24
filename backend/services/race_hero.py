@@ -29,8 +29,7 @@ RACE_SPECIFIC_EXPLANATION = (
 )
 
 AFTER_RACE_COPY = (
-    "Once you record a race result, it replaces your current anchors: Endurance, Speed "
-    "and the projection re-anchor on that effort. Record it on the race list to recalibrate."
+    "Record a result on the race list and it re-anchors Endurance, Speed and the projection."
 )
 
 READING_SLOW_END_BEATS = "even the slow end beats goal"

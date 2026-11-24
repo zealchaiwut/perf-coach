@@ -18,7 +18,9 @@ def test_1894_role_column_is_source_no_legacy_derivation():
     assert "_derive_role_from_legacy" not in ROLES
     assert 'return "fun"' in ROLES
     assert 'name="role"' in JS
-    assert "Role is independent of priority" in JS
+    assert "/api/races/roles" in JS
+    assert "How it is run" in JS
+    assert "Role is independent of priority" not in JS
 
 
 def test_1895_form_power_from_vertical_power_list():

@@ -22,6 +22,49 @@ from backend.utils.time import today_bangkok
 
 RuleLevel = Literal["ok", "warn", "block"]
 
+_DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def typical_week_check(rest_days: list[int], max_consecutive: int) -> dict[str, Any]:
+    """Longest training streak implied by rest days vs the consecutive-days cap.
+
+    Uses the same cyclic gap math as ``max_consecutive`` in ``evaluate_plan_change``.
+    """
+    cap = int(max_consecutive)
+    rest = sorted({int(d) % 7 for d in (rest_days or []) if 0 <= int(d) <= 6})
+    longest = _max_consecutive_training_days(rest)
+    if longest is None:
+        longest = 7
+    fits = longest <= cap
+    ranges: list[str] = []
+    if rest:
+        for i, day in enumerate(rest):
+            nxt = rest[(i + 1) % len(rest)]
+            gap = (nxt - day - 1) % 7
+            if gap <= 0:
+                continue
+            start = (day + 1) % 7
+            end = (nxt - 1) % 7
+            if start == end:
+                ranges.append(_DAY_NAMES[start])
+            else:
+                ranges.append(f"{_DAY_NAMES[start]}–{_DAY_NAMES[end]}")
+    range_bit = f" ({', '.join(ranges)})" if ranges else ""
+    if fits:
+        message = f"Longest run of training days: {longest}{range_bit}. Fits your limit."
+    else:
+        message = (
+            f"Longest run of training days: {longest}{range_bit}. "
+            f"Over your {cap}-day limit."
+        )
+    return {
+        "longest": longest,
+        "fits": fits,
+        "max_consecutive": cap,
+        "rest_days": rest,
+        "message": message,
+    }
+
 # Single constants block — per-user overrides arrive in P5-9.
 RULE_THRESHOLDS: dict[str, float | int] = {
     "race_proximity_lifting_days": 10,

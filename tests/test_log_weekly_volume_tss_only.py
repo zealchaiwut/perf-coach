@@ -71,6 +71,14 @@ def test_legend_is_painted_from_js_and_conditional():
     assert "Planned" not in legend
 
 
+def test_chart_race_skips_checkpoints_and_long_runs():
+    src = _fn(LOG_JS, "isVolumeRaceItem") + _fn(LOG_JS, "chartRace")
+    assert "checkpoint" in src
+    assert "long_run" in src
+    assert "tss_race" in src
+    assert "src !== 'logged'" not in src
+
+
 def test_hit_rect_keeps_keyboard_jump_and_title():
     chart = _fn(LOG_JS, "drawChart")
     assert 'role="button"' in chart

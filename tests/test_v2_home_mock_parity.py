@@ -53,9 +53,9 @@ def test_road_uses_existing_plan_chart():
     assert 'id="rv-home-road"' in HOME_HTML
 
 
-def test_sync_dot_starts_idle():
-    assert "rv-sync-dot--idle" in NAV_JS
-    assert "rv-sync-dot--idle" in CSS
+def test_sync_gear_is_in_nav():
+    assert 'id="rv-sync-gear"' in NAV_JS
+    assert "rv-sync-gear" in CSS
 
 
 def test_escape_uses_app_common():

@@ -116,7 +116,9 @@ def test_toolbar_segnav_active_is_white():
 def test_toolbar_sync_now_label_and_nav_dot_only():
     toolbar = (ROOT / "frontend" / "js" / "lib" / "v2-sync-toolbar.js").read_text(encoding="utf-8")
     status = (ROOT / "frontend" / "js" / "v2-sync-status.js").read_text(encoding="utf-8")
+    nav = (ROOT / "frontend" / "js" / "v2-nav.js").read_text(encoding="utf-8")
     assert "Sync now" in toolbar
     assert "v2-sync-now-spin" in toolbar
-    assert "label.hidden = true" in status
+    assert "rv-sync-gear" in status
+    assert "rv-sync-dot-link" not in nav
     assert "synced " in toolbar

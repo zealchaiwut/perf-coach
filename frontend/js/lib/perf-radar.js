@@ -21,6 +21,8 @@
     if (hasStale == null) hasStale = !!host.querySelector(".perf-radar-point--stale");
     var hasFocus = flags.focus;
     if (hasFocus == null) hasFocus = !!host.querySelector(".perf-radar-point--focus");
+    var hasMissing = flags.not_measured;
+    if (hasMissing == null) hasMissing = !!host.querySelector(".perf-radar-point--missing");
     var html = '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--now"></span>Now</span>';
     if (hasPast) {
       html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--past"></span>' +
@@ -31,6 +33,9 @@
     }
     if (hasFocus) {
       html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--focus"></span>Focus</span>';
+    }
+    if (hasMissing) {
+      html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--missing"></span>Not measured yet</span>';
     }
     legend.innerHTML = html;
     host.appendChild(legend);

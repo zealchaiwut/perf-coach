@@ -193,6 +193,6 @@ def test_page_wiring_drawer_and_rows():
     js = Path("frontend/js/v2-performance.js").read_text()
     assert 'id="v2-perf-races"' in html
     for needle in ("data-needs-result", "data-suggested-actual", "data-no-match", "data-race-target", "data-recalibrates-here",
-                   "data-race-role", "data-chip-time", "data-moving-time", "Record and recalibrate", "openRaceDrawer",
+                   "data-race-role", "data-chip-time", "data-moving-time", 'data-record="', "openRaceDrawer",
                    "data-show-all-races", 'name="role"', '"PATCH", "/api/races/"', '"POST", "/api/races"'):
         assert needle in js

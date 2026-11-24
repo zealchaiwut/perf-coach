@@ -305,9 +305,9 @@ class Workout(Base):
     workout_date = Column(Date, nullable=False)
     name = Column(String(200), nullable=False)
     workout_type = Column(String(50), nullable=False)
-    # Optional run subtype (interval | longrun | easy | tempo | NULL). Runs keep
-    # workout_type='run' so they stay in the full run pipeline; this labels the
-    # kind of run for the Performance Speed feed / "what's moving".
+    # Optional run subtype (interval | longrun | easy | tempo | race | NULL).
+    # Runs keep workout_type='run' so they stay in the full run pipeline; this
+    # labels the kind of run for the calendar, volume chart, and Speed feed.
     run_subtype = Column(String(20), nullable=True)
     remarks = Column(Text, nullable=True)
     tss = Column(Float, nullable=True)

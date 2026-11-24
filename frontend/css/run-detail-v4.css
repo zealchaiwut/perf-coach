@@ -101,6 +101,36 @@
 /* Quick-tag feeling row in the run header (shares .feel-row/.feel-btn from the
    log page's inline styles). */
 .rd4-feeling { margin-top: 8px; }
+.rd4-tags .rd4-feeling { margin-top: 0; }
+
+.rd4-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.rd4-runtype {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.rd4-runtype-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8792a8;
+  margin-right: 4px;
+}
+
+.rd4-typebadge--race {
+  background: #fef9c3;
+  color: #854d0e;
+}
 
 .rd4-duration {
   margin-top: 12px;

@@ -181,9 +181,8 @@ def _compute_race_day_estimate(
             reference_date=today,
         )["endurance_ceiling"]
 
-    expressible = base * capped_form_factor(
-        float(day_data["tsb"]), _TIME_CURVE_CEILING_TSB
-    )
+    form_factor = capped_form_factor(float(day_data["tsb"]), _TIME_CURVE_CEILING_TSB)
+    expressible = base * form_factor
     raw = score_to_estimated_finish_time(expressible, thresholds, distance_km)
     seconds = raw.get("estimated_finish_seconds")
     if seconds is None:
@@ -191,7 +190,9 @@ def _compute_race_day_estimate(
 
     cal_rows = load_calibrations(str(user_id), db)
     correction = combined_correction(cal_rows, distance_km, today=today).get("correction") or 1.0
+    pre_correction_sec = int(seconds)
     seconds = int(round(float(seconds) * float(correction)))
+    post_correction_sec = int(seconds)
 
     # Riegel floor from demonstrated races in last 90d
     anchor_cut = today - timedelta(days=90)
@@ -225,6 +226,15 @@ def _compute_race_day_estimate(
         "source": "performance_time_curve",
         "as_of": today.isoformat(),
         "race_day": race_day.isoformat() if hasattr(race_day, "isoformat") else str(race_day),
+        "form_factor": float(form_factor),
+        "correction": float(correction),
+        "pre_correction_sec": pre_correction_sec,
+        "post_correction_sec": post_correction_sec,
+        "end_score": end_score,
+        "spd_score": spd_score,
+        "blend_score": float(blend_base) if blend_base is not None else None,
+        "projected_ctl": float(day_data["ctl"]),
+        "speed_weight": speed_weight_for_distance(distance_km) if spd_score is not None else 0.0,
     }
 
 
@@ -295,7 +305,7 @@ def _estimate_race_finish_uncached(db, user_id, race, today: date) -> dict[str, 
 
         est = live["est_sec"]
         band = live.get("band_sec")
-        return {
+        out = {
             "unavailable": False,
             "est_sec": est,
             "est_label": _fmt_hms(est),
@@ -304,6 +314,14 @@ def _estimate_race_finish_uncached(db, user_id, race, today: date) -> dict[str, 
             "source": live.get("source") or "performance_time_curve",
             "reason": None,
         }
+        for k in (
+            "form_factor", "correction", "pre_correction_sec", "post_correction_sec",
+            "end_score", "spd_score",
+            "blend_score", "projected_ctl", "speed_weight",
+        ):
+            if k in live:
+                out[k] = live[k]
+        return out
     except Exception as exc:
         _log.warning("estimate_race_finish failed: %s", exc, exc_info=True)
         return {

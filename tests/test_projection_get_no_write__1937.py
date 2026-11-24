@@ -119,7 +119,7 @@ def test_missing_today_history_still_returns_stored_days():
     db.query.return_value.filter.return_value.first.return_value = prefs
     scores = {"overall": {"endurance": {"score": 41.0}, "speed": {"score": 45.0}}}
     with (
-        patch.object(pv, "next_a_race", return_value=a),
+        patch.object(pv, "next_upcoming_race", return_value=a),
         patch.object(pv, "estimate_race_finish", return_value=EST),
         patch("backend.services.race_calibration.load_calibrations", return_value=[]),
         patch("backend.services.race_calibration.record_prediction") as rec,

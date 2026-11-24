@@ -129,6 +129,29 @@ def _calibration_tiles(session, user_id: uuid.UUID, today: date, cal_rows: list[
 
 # ── Chain ────────────────────────────────────────────────────────────────────
 
+def _fmt_factor(factor: Optional[float]) -> Optional[str]:
+    if factor is None:
+        return None
+    return f"×{float(factor):.3f}"
+
+
+def next_upcoming_race(session, user_id: uuid.UUID, today: date):
+    """Soonest planned race on or after today (any role). Falls back to the A race."""
+    from backend.models import Race
+
+    row = (
+        session.query(Race)
+        .filter(
+            Race.user_id == user_id,
+            Race.status == "planned",
+            Race.race_date >= today,
+        )
+        .order_by(Race.race_date.asc())
+        .first()
+    )
+    return row if row is not None else next_a_race(session, user_id, today)
+
+
 def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict],
                 distance_km: Optional[float], goal: dict[str, Any], race_name: str) -> dict[str, Any]:
     """Pure: stage values come from the estimate, blend basis and correction blend."""
@@ -160,9 +183,15 @@ def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict
 
     if est.get("unavailable") or est.get("est_sec") is None:
         final = _na(race_name=race_name, goal=goal)
+        vs_goal = None
+        est_sec = None
     else:
         est_sec = int(est["est_sec"])
         band = est.get("band_sec")
+        goal_sec = (goal or {}).get("time_sec")
+        vs_goal = None
+        if goal_sec is not None:
+            vs_goal = "faster" if est_sec <= int(goal_sec) else "slower"
         final = {
             "available": True,
             "race_name": race_name,
@@ -170,13 +199,41 @@ def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict
             "pace_seconds_per_km": _pace(est_sec, distance_km),
             "band_sec": int(band) if band is not None else None,
             "goal": goal,
+            "vs_goal": vs_goal,
         }
+    form_factor = est.get("form_factor")
+    corr_factor = (blend or {}).get("correction") if blend else None
+    if corr_factor is None:
+        corr_factor = est.get("correction")
+    fitness = (
+        {"available": True, "factor": float(form_factor), "formatted": _fmt_factor(form_factor),
+         "projected_ctl": est.get("projected_ctl")}
+        if form_factor is not None else _na()
+    )
+    if correction.get("available") and correction.get("factor") is not None:
+        correction["formatted"] = _fmt_factor(correction["factor"])
+    steps = [
+        {"key": "endurance", "label": "Endurance", **{k: _stage_score("endurance").get(k) for k in ("available", "score", "pace_seconds_per_km")}},
+        {"key": "speed", "label": "Speed", **{k: _stage_score("speed").get(k) for k in ("available", "score", "pace_seconds_per_km")}},
+        {"key": "blend", "label": "Blend", **blended},
+        {"key": "fitness", "label": "Race-day fitness", **fitness},
+        {"key": "correction", "label": "Model correction", **correction},
+        {"key": "final", "label": race_name or "Finish", **final},
+    ]
+    pre = est.get("pre_correction_sec")
+    product = est.get("post_correction_sec")
+    if product is None and pre is not None and corr_factor is not None:
+        product = int(round(float(pre) * float(corr_factor)))
     return {
         "endurance": _stage_score("endurance"),
         "speed": _stage_score("speed"),
         "blended": blended,
+        "fitness": fitness,
         "correction": correction,
         "final": final,
+        "steps": steps,
+        "pre_correction_sec": pre,
+        "product_sec": product,
     }
 
 
@@ -215,6 +272,21 @@ def goal_state(session, user_id: uuid.UUID, race) -> dict[str, Any]:
 
 
 # ── Chart ────────────────────────────────────────────────────────────────────
+
+def _assign_tag_lanes(marks: list[dict[str, Any]], *, min_dx: float = 0.08) -> None:
+    """Offset overlapping race-name tags (two races ~6 days apart on an 84-day window)."""
+    ordered = sorted(marks, key=lambda m: float(m.get("x") or 0.0))
+    prev_x: Optional[float] = None
+    lane = 0
+    for m in ordered:
+        x = float(m.get("x") or 0.0)
+        if prev_x is not None and abs(x - prev_x) < min_dx:
+            lane = 1 - lane
+        else:
+            lane = 0
+        m["tag_lane"] = lane
+        prev_x = x
+
 
 def _x_frac(d: date, start: date, end: date) -> float:
     span = (end - start).days
@@ -259,6 +331,10 @@ def build_chart_history_window(
         d = m["date"]
         return {**m, "date": d.isoformat() if hasattr(d, "isoformat") else d, "x": _x_frac(d, start, end)}
 
+    recal_m = [_mark(m) for m in recalibrations]
+    tick_m = [_mark(m) for m in ticks]
+    pend_m = [_mark(m) for m in pending]
+    _assign_tag_lanes(recal_m + tick_m + pend_m)
     return {
         **base,
         "available": True,
@@ -267,9 +343,9 @@ def build_chart_history_window(
         "band": None,
         "goal_sec": goal_sec,
         "goal_label": _fmt_hms(goal_sec) if goal_sec is not None else None,
-        "recalibrations": [_mark(m) for m in recalibrations],
-        "ticks": [_mark(m) for m in ticks],
-        "pending": [_mark(m) for m in pending],
+        "recalibrations": recal_m,
+        "ticks": tick_m,
+        "pending": pend_m,
         "y_min_sec": min(ys),
         "y_max_sec": max(ys),
     }
@@ -304,6 +380,10 @@ def build_chart(*, start: date, today: date, race, est: dict[str, Any], goal_sec
     def _mark(m: dict) -> dict:
         d = m["date"]
         return {**m, "date": d.isoformat(), "x": _x_frac(d, start, end)}
+    recal_m = [_mark(m) for m in recalibrations]
+    tick_m = [_mark(m) for m in ticks]
+    pend_m = [_mark(m) for m in pending]
+    _assign_tag_lanes(recal_m + tick_m + pend_m)
     return {
         **base,
         "available": True,
@@ -320,9 +400,9 @@ def build_chart(*, start: date, today: date, race, est: dict[str, Any], goal_sec
         ),
         "goal_sec": goal_sec,
         "goal_label": _fmt_hms(goal_sec),
-        "recalibrations": [_mark(m) for m in recalibrations],
-        "ticks": [_mark(m) for m in ticks],
-        "pending": [_mark(m) for m in pending],
+        "recalibrations": recal_m,
+        "ticks": tick_m,
+        "pending": pend_m,
         "y_min_sec": min(ys),
         "y_max_sec": max(ys),
     }
@@ -490,7 +570,7 @@ def build_projection(
     from backend.services.score_reader import get_scores
 
     if race is _UNSET:
-        race = next_a_race(session, user_id, today)
+        race = next_upcoming_race(session, user_id, today)
 
     def _overall() -> dict[str, Any]:
         nonlocal overall

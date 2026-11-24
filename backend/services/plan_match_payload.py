@@ -116,7 +116,7 @@ def who_label(*, kind: str, source: str, status: str) -> str:
     if kind == "rest":
         return "REST"
     if kind == "race":
-        return "B RACE"
+        return "RACE" if source in ("unplanned", "coach") else "B RACE"
     if source == "unplanned":
         if kind in ("strength", "plyo"):
             return "STRENGTH · UNPLANNED" if kind == "strength" else "PLYO · UNPLANNED"
@@ -130,10 +130,10 @@ def who_label(*, kind: str, source: str, status: str) -> str:
 
 def session_kind_for_workout(workout: Workout) -> str:
     wt = (workout.workout_type or "").lower()
-    if "race" in wt:
+    rs = (workout.run_subtype or "").lower()
+    if "race" in wt or rs == "race":
         return "race"
     if wt == "run" or "run" in wt:
-        rs = (workout.run_subtype or "").lower()
         if rs in ("interval", "tempo"):
             return "quality_run"
         return "run"

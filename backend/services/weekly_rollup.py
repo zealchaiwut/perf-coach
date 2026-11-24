@@ -42,6 +42,12 @@ def session_local_date(workout: Workout) -> date:
     return workout.workout_date
 
 
+def _is_race_workout(workout: Any) -> bool:
+    wt = (getattr(workout, "workout_type", None) or "").lower()
+    rs = (getattr(workout, "run_subtype", None) or "").lower()
+    return rs == "race" or "race" in wt
+
+
 def _tss_bucket(workout_type: Optional[str], *, distance_km) -> str:
     wt = (workout_type or "").strip()
     if _RUN_RE.match(wt):
@@ -131,6 +137,7 @@ def _assemble_week(
     tss_run = 0.0
     tss_strength = 0.0
     tss_support_other = 0.0
+    tss_race = 0.0
     distance_km = 0.0
     duration_seconds = 0.0
 
@@ -145,6 +152,8 @@ def _assemble_week(
                 tss_strength += val
             else:
                 tss_support_other += val
+            if _is_race_workout(w):
+                tss_race += val
         if w.distance_km is not None:
             distance_km += float(w.distance_km)
         if w.duration_seconds is not None:
@@ -177,6 +186,7 @@ def _assemble_week(
         "tss_run": round(tss_run, 2),
         "tss_strength": round(tss_strength, 2),
         "tss_support_other": round(tss_support_other, 2),
+        "tss_race": round(tss_race, 2),
         "distance_km": round(distance_km, 2),
         "hours": round(duration_seconds / 3600.0, 2) if duration_seconds else 0.0,
         "session_count": len(in_week),

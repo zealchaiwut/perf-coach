@@ -7,7 +7,13 @@
   var TF = win.TrainingFormat || {};
 
   /** Run-subtype display labels for the header subtype tag (run_subtype column). */
-  var RD4_SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
+  var RD4_SUBTYPE_LABELS = {
+    interval: "interval",
+    longrun: "long run",
+    easy: "easy",
+    tempo: "tempo",
+    race: "race",
+  };
 
   // Zone-2 HR band defaults — read from window.Zone2 (zone2-constants.js)
   // so the same values and the same preference-fetch are shared with run-view
@@ -842,12 +848,14 @@
       '<div class="rd4-header-top">' +
       // Type badge + optional run-subtype tag, grouped left: [RUN] [INTERVAL].
       '<span class="rd4-typebadges">' +
-      '<span class="rd4-typebadge">RUN</span>' +
-      (RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]
-        ? '<span class="rd4-typebadge rd4-subtypebadge">' +
-          esc(RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]) +
-          "</span>"
-        : "") +
+      ((w.run_subtype || "").toLowerCase() === "race"
+        ? '<span class="rd4-typebadge rd4-typebadge--race">RACE</span>'
+        : '<span class="rd4-typebadge">RUN</span>' +
+          (RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]
+            ? '<span class="rd4-typebadge rd4-subtypebadge">' +
+              esc(RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]) +
+              "</span>"
+            : "")) +
       "</span>" +
       '<div class="rd4-srcbadges">' +
       srcBadges +
@@ -868,9 +876,14 @@
       esc(fmtDateShort(w.workout_date)) +
       (startTime ? " · started " + esc(startTime) : "") +
       "</div>" +
-      // Quick-tag effort feeling — host div; the Log tab mounts the interactive
-      // row (needs listeners + shared patchFeeling) after render.
-      (w.id ? '<div class="rd4-feeling" id="rd4-feeling"></div>' : "") +
+      // Quick-tag effort feeling + session type — hosts; the Log tab mounts
+      // the interactive rows after render.
+      (w.id
+        ? '<div class="rd4-tags">' +
+          '<div class="rd4-feeling" id="rd4-feeling"></div>' +
+          '<div class="rd4-runtype" id="rd4-runtype"></div>' +
+          "</div>"
+        : "") +
       buildHeroMetricsHtml(w, "rd4LiveDistGrad") +
       "</section>";
 
