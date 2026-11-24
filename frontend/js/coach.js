@@ -53,7 +53,6 @@
   var decidedEl = document.getElementById("dc-decided-on");
   var reviewEl = document.getElementById("dc-review-on");
   var tagsEl = document.getElementById("dc-tags");
-  var raceEl = document.getElementById("dc-race");
   var saveBtn = document.getElementById("dc-save");
   var feedbackEl = document.getElementById("dc-feedback");
 
@@ -99,20 +98,14 @@
       ? '<div class="dc-outcome">Review on ' + esc(d.review_on) + "</div>"
       : "";
 
-    var lessons = (d.lessons || []).length
-      ? '<ul class="dc-lessons" data-lessons>' + d.lessons.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + "</ul>"
-      : "";
-    if (d.race_id) chips += '<span class="dc-chip" data-race-linked>race debrief</span>';
-
     return (
-      '<article class="dc-entry" id="decision-' + esc(d.id) + '" data-id="' + esc(d.id) + '">' +
+      '<article class="dc-entry" data-id="' + esc(d.id) + '">' +
       '<div class="dc-entry-head">' +
       '<span class="dc-date">' + esc(d.decided_on) + "</span>" +
       '<span class="dc-ago">' + esc(agoLabel(d.decided_on)) + "</span>" +
       chips +
       "</div>" +
       '<pre class="dc-raw">' + esc(d.raw_text) + "</pre>" +
-      lessons +
       review +
       outcome +
       '<div class="dc-entry-actions">' +
@@ -135,59 +128,6 @@
       return;
     }
     listEl.innerHTML = decisions.map(entryHtml).join("");
-    focusHashDecision();
-  }
-
-  // A race row's Debrief chip links to /coach#decision-<id>; open it in the history.
-  function focusHashDecision() {
-    var m = /^#decision-(.+)$/.exec(window.location.hash || "");
-    if (!m || !listEl) return;
-    var el = document.getElementById("decision-" + m[1]);
-    if (!el) return;
-    el.classList.add("is-target");
-    if (el.scrollIntoView) el.scrollIntoView({ block: "center" });
-  }
-
-  // ── Race link (P4-13) ──────────────────────────────────────────────────────
-  // Same markers the server uses: the race-debrief prompt version line, or a
-  // lessons line in the pasted change list. Mirrors decision_lessons.py.
-  var DEBRIEF_VERSION = /prompt_version\s*:\s*race-debrief-v1\b/i;
-  var LESSONS_LINE = /^\s*lessons\s*:/im;
-  var SESSION_LINE = /session_id\s*:\s*([0-9a-fA-F]{8}-[0-9a-fA-F-]{27})/;
-  var raceTouched = false;
-  var recentDoneRaceId = "";
-
-  function looksLikeDebrief(text) {
-    return DEBRIEF_VERSION.test(text) || LESSONS_LINE.test(text);
-  }
-
-  function loadRaceOptions() {
-    if (!raceEl) return;
-    fetch("/api/races", { credentials: "same-origin" })
-      .then(function (res) { return res.ok ? res.json() : []; })
-      .then(function (races) {
-        var done = races.filter(function (r) { return r.status === "done"; })
-          .sort(function (a, b) { return a.race_date < b.race_date ? 1 : -1; });
-        var rest = races.filter(function (r) { return r.status !== "done"; })
-          .sort(function (a, b) { return a.race_date < b.race_date ? 1 : -1; });
-        recentDoneRaceId = done.length ? done[0].id : "";
-        raceEl.innerHTML = '<option value="">None</option>' + done.concat(rest).map(function (r) {
-          return '<option value="' + esc(r.id) + '">' + esc(r.race_date + " \u00b7 " + r.name) + "</option>";
-        }).join("");
-      })
-      .catch(function () {});
-  }
-
-  if (raceEl) {
-    raceEl.addEventListener("change", function () { raceTouched = true; });
-    if (rawEl) {
-      rawEl.addEventListener("input", function () {
-        // Auto-prefill only: never override a choice the user made.
-        if (raceTouched || raceEl.value || !recentDoneRaceId) return;
-        if (looksLikeDebrief(rawEl.value)) raceEl.value = recentDoneRaceId;
-      });
-    }
-    loadRaceOptions();
   }
 
   function load() {
@@ -213,9 +153,6 @@
       return;
     }
     var payload = { raw_text: raw };
-    if (raceEl && raceEl.value) payload.race_id = raceEl.value;
-    var sess = SESSION_LINE.exec(raw);
-    if (sess) payload.session_id = sess[1];
     if (decidedEl && decidedEl.value) payload.decided_on = decidedEl.value;
     if (reviewEl && reviewEl.value) payload.review_on = reviewEl.value;
     if (tagsEl && tagsEl.value.trim()) {
@@ -238,7 +175,6 @@
         rawEl.value = "";
         if (tagsEl) tagsEl.value = "";
         if (reviewEl) reviewEl.value = "";
-        if (raceEl) { raceEl.value = ""; raceTouched = false; }
         setFeedback("Saved.", "success");
         return load();
       })

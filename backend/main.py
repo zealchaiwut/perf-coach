@@ -19,7 +19,7 @@ import urllib.request as _urllib_request
 import urllib.error as _urllib_error
 
 from fastapi import BackgroundTasks, Body, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import cast as _sa_cast, exc as sa_exc, func, or_, select, text
@@ -30,7 +30,6 @@ from zoneinfo import ZoneInfo
 
 from backend.auth import require_admin
 from backend.db import check_db, engine, environment
-from backend.utils.query_log import logged as _query_logged
 from backend.utils.time import today_bangkok as _today_bangkok
 from backend.models import (
     AppConfig, BodyMeasurement, DailyMetric, DailyReadiness, DriveSleepConnection,
@@ -40,44 +39,14 @@ from backend.models import (
     TrainingLoadSnapshot, TrainingPlan, User, UserPreferences, VerdictHistory, WeightEntry,
     WeightTarget, Workout, WorkoutExercise, WorkoutFeel, WorkoutSplit,
     WorkoutTemplate, StrengthSession, PlyoSession, SummaryCache, PlannedSession,
-    PlanExercise, PendingExercise,
 )
-from backend.models import (
-    compute_goal_pace as _compute_goal_pace_tuple,
-    RACE_TYPE_VALUES as _RACE_TYPE_VALUES,
-)
-from backend.services import race_list as _race_list_svc
-from backend.services.race_roles import (
-    ROLES as _RACE_ROLES,
-    ROLE_LABELS as _RACE_ROLE_LABELS,
-    RECALIBRATING_ROLES as _RECALIBRATING_ROLES,
-    compute_role_result as _compute_role_result,
-    pb_limit_warning as _pb_limit_warning,
-    race_role as _race_role,
-    try_auto_link_addon as _try_auto_link_addon,
-)
+from backend.models import compute_goal_pace as _compute_goal_pace_tuple, RACE_TYPE_VALUES as _RACE_TYPE_VALUES
 from backend.services.workout_merge import compute_best_values
 from backend.services.workout_types import WORKOUT_TYPE_RUN, WORKOUT_TYPE_STRENGTH
 from backend.services.tss import compute_running_tss as _compute_running_tss
 from backend.services.tss import compute_strength_tss as _compute_strength_tss
 from backend.services.tss import STRENGTH_TSS_SCALE as _STRENGTH_TSS_SCALE, STRENGTH_TSS_MAX as _STRENGTH_TSS_MAX
 from backend.services.tss import persist_running_tss as _persist_running_tss
-from backend.services.session_tss import (
-    session_tss as _session_tss,
-    tss_dual_values_differ_notice as _tss_dual_values_differ_notice,
-)
-from backend.services.plan_match_payload import (
-    is_missed_planned as _is_missed_planned,
-    plan_match_map as _plan_match_map,
-    planned_item_status as _planned_item_status,
-    planned_source as _planned_source,
-    planned_tss_estimate as _planned_tss_estimate,
-)
-from backend.services.sync_provider_status import (
-    build_providers as _sync_build_providers,
-    decorate_sync_status as _decorate_sync_status,
-)
-from backend.services.training_month import training_month as _training_month
 from backend.services.tss import recompute_user_running_tss as _recompute_user_running_tss
 from backend.services.training_load import (
     current_load,
@@ -165,9 +134,6 @@ from backend.routers.coach import router as _coach_router
 from backend.routers.preferences import router as _preferences_router
 from backend.routers.decisions import router as _decisions_router
 from backend.routers.admin import router as _admin_router
-from backend.routers.performance_axes import router as _performance_axes_router
-from backend.routers.athlete_shoes import router as _athlete_shoes_router
-from backend.routers.mobile import router as _mobile_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -206,9 +172,6 @@ app.include_router(_coach_router)
 app.include_router(_preferences_router)
 app.include_router(_decisions_router)
 app.include_router(_admin_router)
-app.include_router(_performance_axes_router)
-app.include_router(_athlete_shoes_router)
-app.include_router(_mobile_router)
 
 
 def _today_bkk() -> _date:
@@ -225,7 +188,6 @@ def _today_bkk() -> _date:
 _static_root = Path(__file__).parent.parent
 app.mount("/css", StaticFiles(directory=str(_static_root / "frontend" / "css")), name="css")
 app.mount("/js", StaticFiles(directory=str(_static_root / "frontend" / "js")), name="js")
-app.mount("/icons", StaticFiles(directory=str(_static_root / "frontend" / "icons")), name="icons")
 
 
 @app.middleware("http")
@@ -251,55 +213,9 @@ async def _no_cache_frontend(request, call_next):
     return response
 
 
-def _revamp_ui_enabled() -> bool:
-    raw = os.getenv("REVAMP_UI", "1").strip().lower()
-    return raw in ("1", "true", "yes")
-
-
-_REVAMP_ROUTE_REDIRECTS: dict[str, str] = {
-    "/home": "/v2/home",
-    "/log": "/v2/training/log",
-    "/training": "/v2/training/plan",
-    "/settings": "/v2/settings",
-}
-
-
-def _revamp_legacy_escape_allowed() -> bool:
-    deadline = os.getenv("REVAMP_LEGACY_DEADLINE", "2026-12-22").strip()
-    try:
-        from datetime import date as _date
-
-        end = _date.fromisoformat(deadline)
-    except ValueError:
-        return False
-    from datetime import date as _date
-
-    return _date.today() <= end
-
-
-@app.middleware("http")
-async def _revamp_cutover_redirect(request: Request, call_next):
-    """When revamp is default-on, send legacy app routes to /v2 (legacy=1 escape hatch)."""
-    if not _revamp_ui_enabled():
-        return await call_next(request)
-    path = request.url.path
-    target = _REVAMP_ROUTE_REDIRECTS.get(path)
-    if not target:
-        return await call_next(request)
-    if request.query_params.get("legacy") == "1" and _revamp_legacy_escape_allowed():
-        return await call_next(request)
-    q = request.url.query
-    url = target + (("?" + q) if q else "")
-    return RedirectResponse(url=url, status_code=302)
-
-
 def _is_guarded_path(path: str) -> bool:
     """Return True if this path requires authentication (HTML page guard only)."""
     if path == "/":
-        return True
-    if path == "/m" or path.startswith("/m/"):
-        return True
-    if path.startswith("/v2/") and _revamp_ui_enabled():
         return True
     clean = path.lstrip("/")
     if clean in _PAGES:
@@ -321,10 +237,6 @@ async def _auth_guard(request: Request, call_next):
             return await call_next(request)
         except ValueError:
             pass
-    from backend.services.device_sessions import DEVICE_COOKIE_NAME as _DEVICE_COOKIE
-
-    if request.cookies.get(_DEVICE_COOKIE):
-        return await call_next(request)
     accept = request.headers.get("accept", "")
     if "application/json" in accept:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
@@ -349,30 +261,13 @@ async def _csrf_protect(request: Request, call_next):
     defense-in-depth on top of SameSite=Strict for admin-only endpoints.
     """
     if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
-        from backend.services.device_sessions import DEVICE_COOKIE_NAME as _DEVICE_COOKIE
-
         has_auth_cookie = (
-            request.cookies.get(COOKIE_NAME)
-            or request.cookies.get(ADMIN_COOKIE_NAME)
-            or request.cookies.get(_DEVICE_COOKIE)
+            request.cookies.get(COOKIE_NAME) or request.cookies.get(ADMIN_COOKIE_NAME)
         )
         if has_auth_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
             actual = request.headers.get("X-CSRF-Token")
-            ok = bool(expected and actual and _hmac.compare_digest(expected, actual))
-            if not ok and request.url.path.startswith("/api/mobile/"):
-                raw = request.cookies.get(_DEVICE_COOKIE)
-                if raw:
-                    from backend.db import engine as _eng
-                    from backend.services.device_sessions import csrf_header_ok, lookup_device
-                    from sqlalchemy.orm import Session as _Sess
-
-                    with _Sess(_eng) as _db:
-                        row = lookup_device(_db, raw)
-                        if row is not None and csrf_header_ok(row, actual, expected):
-                            ok = True
-                            request.state.device_session_row = row
-            if not ok:
+            if not expected or not actual or not _hmac.compare_digest(expected, actual):
                 return JSONResponse(
                     {"detail": "CSRF token missing or invalid"},
                     status_code=403,
@@ -534,7 +429,6 @@ from backend.auth import (  # noqa: E402
     read_admin_cookie,
     read_session_cookie,
     require_admin,
-    require_user_admin,
     require_write,
     resolve_user,
     set_admin_cookie,
@@ -5901,83 +5795,6 @@ def _serve_dev_mobile():
 app.add_api_route("/dev/mobile", _serve_dev_mobile, include_in_schema=False)
 
 
-_V2_ROUTE_FILES = {
-    "/v2/home": "v2-home.html",
-    "/v2/training/plan": "v2-training-plan.html",
-    "/v2/training/log": "v2-training-log.html",
-    "/v2/training/trends": "v2-training-trends.html",
-    "/v2/performance": "v2-performance.html",
-    "/v2/performance/season-road": "v2-season-road.html",
-    "/v2/performance/check-in": "v2-weekly-check-in.html",
-    "/v2/components": "v2-components.html",
-    "/v2/settings/plan": "v2-settings-plan.html",
-    "/v2/settings": "v2-settings.html",
-}
-
-
-def _serve_v2_page(filename: str):
-    if not _revamp_ui_enabled():
-        raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(str(_static_root / "frontend" / "pages" / filename))
-
-
-def _redirect_v2_training_root():
-    if not _revamp_ui_enabled():
-        raise HTTPException(status_code=404, detail="Not found")
-    return RedirectResponse(url="/v2/training/plan", status_code=302)
-
-
-for _v2_path, _v2_file in _V2_ROUTE_FILES.items():
-    app.add_api_route(_v2_path, lambda f=_v2_file: _serve_v2_page(f), include_in_schema=False)
-
-
-@app.get("/v2/training/admin", include_in_schema=False)
-async def serve_v2_training_admin(user: User = Depends(get_current_user)):
-    if not _revamp_ui_enabled():
-        raise HTTPException(status_code=404, detail="Not found")
-    if not user.is_admin:
-        forbidden = _static_root / "frontend" / "pages" / "v2-forbidden.html"
-        return HTMLResponse(forbidden.read_text(encoding="utf-8"), status_code=403)
-    return _serve_v2_page("v2-training-admin.html")
-
-
-app.add_api_route("/v2/training", _redirect_v2_training_root, include_in_schema=False)
-
-
-def _serve_sw():
-    resp = FileResponse(
-        str(_static_root / "frontend" / "sw.js"),
-        media_type="application/javascript",
-    )
-    resp.headers["Service-Worker-Allowed"] = "/"
-    resp.headers["Cache-Control"] = "no-cache"
-    return resp
-
-
-def _serve_manifest():
-    return FileResponse(
-        str(_static_root / "frontend" / "manifest.webmanifest"),
-        media_type="application/manifest+json",
-    )
-
-
-def _serve_m_shell():
-    """Phone PWA shell — not gated by the revamp flag."""
-    return FileResponse(str(_static_root / "frontend" / "pages" / "m-shell.html"))
-
-
-app.add_api_route("/sw.js", _serve_sw, include_in_schema=False)
-app.add_api_route("/manifest.webmanifest", _serve_manifest, include_in_schema=False)
-app.add_api_route("/m", _serve_m_shell, include_in_schema=False)
-app.add_api_route("/m/", _serve_m_shell, include_in_schema=False)
-app.add_api_route("/m/{path:path}", _serve_m_shell, include_in_schema=False)
-
-
-@app.get("/api/revamp-ui")
-def get_revamp_ui_status():
-    return JSONResponse({"enabled": _revamp_ui_enabled()})
-
-
 def _serve_projection_redirect():
     # Projection was merged into the Training → Projection sub-tab
     # (issue #1226; tab renamed Plan → Projection in feature/performance-tab-rework;
@@ -6051,9 +5868,6 @@ class WorkoutIn(BaseModel):
     source: Optional[str] = None
     strava_activity_url: Optional[str] = None
     exercises: list[ExerciseIn] = []
-    exercises_json: Optional[list] = None
-    session_effort: Optional[int] = None
-    strength_tss_method: Optional[str] = None
     # Stryd workout-level aggregates (Run Builder SYNC fields)
     avg_power: Optional[int] = None
     max_power: Optional[int] = None
@@ -6067,7 +5881,6 @@ class WorkoutIn(BaseModel):
     # unknown must never read as "no". Only consulted for long runs, by the
     # long-run-fuel habit.
     fuelled: Optional[bool] = None
-    first_gel_minute: Optional[int] = None
     # Running drills alongside this session — a duration only, no TSS.
     drills_minutes: Optional[int] = None
 
@@ -6100,24 +5913,14 @@ class WorkoutPatch(BaseModel):
     feeling: Optional[str] = None
     # Did this session take on fuel? null clears it back to unknown.
     fuelled: Optional[bool] = None
-    gel_count: Optional[int] = None
-    first_gel_minute: Optional[int] = None
-    fluid_level: Optional[str] = None
-    stomach_ok: Optional[bool] = None
-    shoe_id: Optional[str] = None
     # Running drills alongside this session. null clears it back to unknown.
     drills_minutes: Optional[int] = None
-    tss_method_override: Optional[str] = None
     # Full exercise list to replace this workout's exercises (same shape as
     # WorkoutIn.exercises / the /exercises/replace endpoint). The Form editor
     # has always sent this on edit; before this field existed pydantic silently
     # dropped it, so per-exercise edits (e.g. RPE) never saved. None = leave
     # exercises untouched.
     exercises: Optional[list[ExerciseIn]] = None
-    reset_synced_name: Optional[bool] = None
-    exercises_json: Optional[list] = None
-    session_effort: Optional[int] = None
-    strength_tss_method: Optional[str] = None
 
 
 class WorkoutDuplicateIn(BaseModel):
@@ -6205,7 +6008,7 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
     Runs must be stored as lowercase 'run' so run-scoped queries (scoring,
     guardrail) match. Other types are passed through trimmed, unchanged.
-    Run subtypes (interval/longrun/easy/tempo/race) are a SEPARATE column
+    Run subtypes (interval/longrun/easy/tempo) are a SEPARATE column
     (``run_subtype``) — workout_type stays 'run' so the row keeps the full run
     pipeline (detail layout, decoupling, PRs, run counts).
 
@@ -6226,23 +6029,7 @@ def _normalize_workout_type(t: str | None) -> str | None:
 
 
 # Allowed run-subtype values (issue: run subtype as its own column). None clears it.
-_RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo", "race"}
-_RUN_SUBTYPE_ALIASES = {
-    "intervals": "interval",
-    "long_run": "longrun",
-    "long-run": "longrun",
-}
-
-
-def _canonical_run_subtype(value: str | None) -> str | None:
-    """Map a PATCH/UI label onto the stored run_subtype, or None if invalid."""
-    if value is None:
-        return None
-    key = value.strip().lower()
-    if not key:
-        return None
-    key = _RUN_SUBTYPE_ALIASES.get(key, key)
-    return key if key in _RUN_SUBTYPE_VALUES else None
+_RUN_SUBTYPE_VALUES = {"interval", "longrun", "easy", "tempo"}
 # Self-reported effort feeling (issue #1241).
 _FEELING_VALUES = frozenset({"hard", "ok", "easy"})
 
@@ -6633,11 +6420,7 @@ def _compute_session_signals(w: Workout) -> dict:
     else:
         hint = "No signal recorded for this session."
 
-    from backend.services.score_reader import session_signal
-
-    block = session_signal(w)["session_signal"]
     return {
-        "session_signal": block,
         "endurance_signal": float(es) if es is not None else None,
         "endurance_signal_note": endurance_note,
         "speed_signal": float(ss) if ss is not None else None,
@@ -6646,12 +6429,8 @@ def _compute_session_signals(w: Workout) -> dict:
     }
 
 
-def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = None) -> dict:
-    from backend.services.strength_tss import canonical_from_workout_exercises
-
+def _workout_dict(w: Workout, exercises: list) -> dict:
     strava_act = getattr(w, "strava_activity", None)
-    _canon = canonical_from_workout_exercises(exercises) if exercises else None
-    _tss = _session_tss(w, prefs=prefs, exercises=_canon)
     return {
         "id": str(w.id),
         "user_id": str(w.user_id),
@@ -6660,17 +6439,9 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "workout_type": w.workout_type,
         "run_subtype": w.run_subtype,
         "remarks": w.remarks,
-        "tss": int(_tss["tss"]) if _tss.get("tss") is not None else None,
+        "tss": int(w.tss) if w.tss is not None else None,
         "tss_source": w.tss_source,
-        "tss_method": _tss.get("method") or w.tss_method,
-        "tss_power": int(_tss["tss_power"]) if _tss.get("tss_power") is not None else None,
-        "tss_stryd": int(_tss["tss_stryd"]) if _tss.get("tss_stryd") is not None else None,
-        "tss_method_override": getattr(w, "tss_method_override", None),
-        "strength_tss_method": getattr(w, "strength_tss_method", None) or _tss.get("strength_tss_method"),
-        "session_effort": getattr(w, "session_effort", None),
-        "strength_tss_exercises": _tss.get("tss_exercises"),
-        "strength_tss_effort_time": _tss.get("tss_effort_time"),
-        "strength_tss_per_exercise": _tss.get("per_exercise") or [],
+        "tss_method": w.tss_method,
         "source": w.source,
         "strava_activity_pk": str(w.strava_activity_pk) if w.strava_activity_pk else None,
         "stryd_activity_pk": str(w.stryd_activity_pk) if w.stryd_activity_pk else None,
@@ -6680,7 +6451,6 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
         "distance_km": float(w.distance_km) if w.distance_km is not None else None,
         "duration_seconds": w.duration_seconds,
-        "elapsed_time_seconds": getattr(w, "elapsed_time_seconds", None),
         "avg_hr": w.avg_hr,
         "max_hr": w.max_hr,
         "elevation_m": w.elevation_m,
@@ -6697,16 +6467,9 @@ def _workout_dict(w: Workout, exercises: list, prefs: UserPreferences | None = N
         "flat_equivalent_pace": float(w.flat_equivalent_pace) if w.flat_equivalent_pace is not None else None,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
-        "gel_count": getattr(w, "gel_count", None),
-        "first_gel_minute": getattr(w, "first_gel_minute", None),
-        "fluid_level": getattr(w, "fluid_level", None),
-        "stomach_ok": getattr(w, "stomach_ok", None),
-        "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
         "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         "exercises": [_exercise_dict(e) for e in exercises],
-        "exercises_json": getattr(w, "exercises_json", None),
-        "recompute_pending": w.recompute_pending.isoformat() if getattr(w, "recompute_pending", None) else None,
         **_best_values_dict(w),
         **_compute_session_signals(w),
     }
@@ -6964,11 +6727,6 @@ def _workout_list_dict(w: Workout, exercise_count: int) -> dict:
         "exercise_count": exercise_count,
         "feeling": w.feeling,
         "fuelled": w.fuelled,
-        "gel_count": getattr(w, "gel_count", None),
-        "first_gel_minute": getattr(w, "first_gel_minute", None),
-        "fluid_level": getattr(w, "fluid_level", None),
-        "stomach_ok": getattr(w, "stomach_ok", None),
-        "shoe_id": str(w.shoe_id) if getattr(w, "shoe_id", None) else None,
         "drills_minutes": w.drills_minutes,
         "created_at": w.created_at.isoformat() if w.created_at else None,
         **_best_values_dict(w),
@@ -7417,72 +7175,6 @@ def get_workout_full(
         }
         if _aerobic_reason is not None:
             response_body["aerobic_decoupling_reason"] = _aerobic_reason
-        # Stop detection + sensor glitches (revamp P6-2, #1876). Strava laps carry
-        # real moving/elapsed per lap; fall back to stored splits.
-        from backend.services import stop_detection as _sd
-        _sd_laps = _sd.laps_from_strava(unified["laps"]) or _sd.laps_from_splits(split_rows)
-        response_body["stop_detection"] = _sd.detect_stops_and_glitches(_sd_laps)
-        _race = (
-            session.query(Race)
-            .filter(
-                Race.user_id == workout.user_id,
-                Race.race_date == workout.workout_date,
-                Race.race_type == "race",
-                Race.status == "done",
-            )
-            .first()
-        )
-        if _race is not None:
-            response_body["race_result"] = _sd.race_result_time(
-                _race.actual_time_seconds, workout.elapsed_time_seconds, workout.duration_seconds
-            )
-        _counted_tss = _session_tss(workout, prefs=prefs)
-        response_body["tss_block"] = {
-            **_counted_tss,
-            "tss_dual_notice": _tss_dual_values_differ_notice(
-                _counted_tss.get("tss_power"), _counted_tss.get("tss_stryd")
-            ),
-        }
-        plan_match = _plan_match_map(session, [wid]).get(str(wid))
-        response_body["plan_match"] = plan_match
-        if plan_match and plan_match.get("planned_tss") is not None:
-            actual_tss = _counted_tss.get("tss")
-            planned_tss = float(plan_match["planned_tss"])
-            delta = (float(actual_tss) - planned_tss) if actual_tss is not None else None
-            pct = (
-                round((delta / planned_tss) * 100, 1)
-                if delta is not None and planned_tss > 0
-                else None
-            )
-            response_body["plan_vs_actual"] = {
-                "planned_tss": planned_tss,
-                "actual_tss": actual_tss,
-                "delta_tss": round(delta, 1) if delta is not None else None,
-                "delta_pct": pct,
-                "warn": abs(pct or 0) > 10 if pct is not None else False,
-                "planned_name": plan_match.get("planned_name"),
-            }
-        else:
-            response_body["plan_vs_actual"] = None
-        form_row = (
-            session.query(RunFormMetrics)
-            .filter(RunFormMetrics.workout_id == wid, RunFormMetrics.user_id == workout.user_id)
-            .first()
-        )
-        if form_row is not None:
-            response_body["form"] = {
-                "gct_ms": float(form_row.gct_ms) if form_row.gct_ms is not None else None,
-                "lss_kn_m": float(form_row.lss_kn_m) if form_row.lss_kn_m is not None else None,
-                "vertical_oscillation_cm": (
-                    float(form_row.vertical_oscillation_cm)
-                    if form_row.vertical_oscillation_cm is not None
-                    else None
-                ),
-                "cadence_spm": float(form_row.cadence_spm) if form_row.cadence_spm is not None else None,
-            }
-        else:
-            response_body["form"] = None
-        response_body.update(_compute_session_signals(workout))
         return JSONResponse(response_body)
 
 
@@ -7536,8 +7228,6 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
     if body.zone2_minutes is not None and not (0 <= body.zone2_minutes <= 600):
         raise HTTPException(status_code=422, detail="zone2_minutes must be between 0 and 600")
     _validate_drills_minutes(body.drills_minutes)
-    if body.first_gel_minute is not None and not (0 <= body.first_gel_minute <= 300):
-        raise HTTPException(status_code=422, detail="first_gel_minute must be 0–300")
     if body.source is not None and body.source not in _VALID_SOURCES:
         raise HTTPException(status_code=422, detail="source must be one of: " + ", ".join(sorted(_VALID_SOURCES)))
     if body.strava_activity_url is not None and body.strava_activity_url != "":
@@ -7570,7 +7260,6 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             temperature_c=body.temperature_c,
             humidity_pct=body.humidity_pct,
             fuelled=body.fuelled,
-            first_gel_minute=body.first_gel_minute,
             drills_minutes=body.drills_minutes,
         )
         session.add(workout)
@@ -7594,28 +7283,10 @@ def post_workout(body: WorkoutIn, user: User = Depends(resolve_user)):
             )
             session.add(e)
             exercises.append(e)
-        if body.exercises_json is not None:
-            from backend.services.session_strength_save import validate_and_apply_json
-
-            result, errors = validate_and_apply_json(
-                session,
-                workout,
-                exercises=body.exercises_json,
-                duration_seconds=body.duration_seconds,
-                session_effort=body.session_effort,
-                strength_tss_method=body.strength_tss_method,
-            )
-            if errors:
-                session.rollback()
-                raise HTTPException(status_code=422, detail={"errors": errors})
         session.commit()
         session.refresh(workout)
-        exercises = (
-            session.query(WorkoutExercise)
-            .filter(WorkoutExercise.workout_id == workout.id)
-            .order_by(WorkoutExercise.display_order)
-            .all()
-        )
+        for e in exercises:
+            session.refresh(e)
         try:
             _persist_running_tss(workout.id, session)
             session.commit()
@@ -7670,18 +7341,13 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             raise HTTPException(status_code=404, detail="Workout not found")
         if workout.user_id != user.id:
             raise HTTPException(status_code=403, detail="Forbidden")
-        from backend.services.workout_overrides import clear_override, set_override
-
         _old_workout_date = workout.workout_date
         _old_workout_type = workout.workout_type
-        if body.reset_synced_name:
-            clear_override(workout, "name")
         if body.name is not None:
             name = body.name.strip()
             if not name:
                 raise HTTPException(status_code=422, detail="Workout name is required")
             workout.name = name
-            set_override(workout, "name", name)
         if body.workout_date is not None:
             try:
                 d = _date.fromisoformat(body.workout_date)
@@ -7701,13 +7367,13 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             if rs is None or (isinstance(rs, str) and rs.strip() == ""):
                 workout.run_subtype = None
             else:
-                canon = _canonical_run_subtype(rs)
-                if canon is None:
+                rs = rs.strip().lower()
+                if rs not in _RUN_SUBTYPE_VALUES:
                     raise HTTPException(
                         status_code=422,
                         detail="run_subtype must be one of: " + ", ".join(sorted(_RUN_SUBTYPE_VALUES)),
                     )
-                workout.run_subtype = canon
+                workout.run_subtype = rs
         if body.remarks is not None:
             workout.remarks = body.remarks.strip() or None
         if 'tss' in body.model_fields_set:
@@ -7723,26 +7389,14 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             if body.distance_km is not None and body.distance_km < 0:
                 raise HTTPException(status_code=422, detail="distance_km must be >= 0")
             workout.distance_km = body.distance_km
-            if body.distance_km is not None:
-                set_override(workout, "distance_km", float(body.distance_km))
-            else:
-                clear_override(workout, "distance_km")
         if 'duration_seconds' in body.model_fields_set:
             if body.duration_seconds is not None and body.duration_seconds < 0:
                 raise HTTPException(status_code=422, detail="duration_seconds must be >= 0")
             workout.duration_seconds = body.duration_seconds
-            if body.duration_seconds is not None:
-                set_override(workout, "duration_seconds", int(body.duration_seconds))
-            else:
-                clear_override(workout, "duration_seconds")
         if 'avg_hr' in body.model_fields_set:
             if body.avg_hr is not None and not (20 <= body.avg_hr <= 250):
                 raise HTTPException(status_code=422, detail="avg_hr must be between 20 and 250")
             workout.avg_hr = body.avg_hr
-            if body.avg_hr is not None:
-                set_override(workout, "avg_hr", int(body.avg_hr))
-            else:
-                clear_override(workout, "avg_hr")
         if 'max_hr' in body.model_fields_set:
             if body.max_hr is not None and not (20 <= body.max_hr <= 250):
                 raise HTTPException(status_code=422, detail="max_hr must be between 20 and 250")
@@ -7780,47 +7434,6 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             # Explicit null returns it to unknown rather than to "no" — the
             # long-run-fuel habit only ticks on a literal True.
             workout.fuelled = body.fuelled
-        if "gel_count" in body.model_fields_set:
-            if body.gel_count is not None and not (0 <= body.gel_count <= 12):
-                raise HTTPException(status_code=422, detail="gel_count must be 0–12")
-            workout.gel_count = body.gel_count
-            if body.gel_count is not None:
-                workout.fuelled = body.gel_count > 0
-        if "first_gel_minute" in body.model_fields_set:
-            fg = body.first_gel_minute
-            if fg is not None and not (0 <= fg <= 300):
-                raise HTTPException(status_code=422, detail="first_gel_minute must be 0–300")
-            workout.first_gel_minute = fg
-        if "fluid_level" in body.model_fields_set:
-            fl = body.fluid_level
-            if fl is not None:
-                fl = fl.strip().lower()
-                if fl not in ("low", "ok", "high"):
-                    raise HTTPException(status_code=422, detail="fluid_level must be low, ok, or high")
-                workout.fluid_level = fl
-            else:
-                workout.fluid_level = None
-        if "stomach_ok" in body.model_fields_set:
-            workout.stomach_ok = body.stomach_ok
-        if "shoe_id" in body.model_fields_set:
-            from backend.models import AthleteShoe
-            from backend.services.athlete_shoes import recompute_shoe_stats
-            old_shoe = workout.shoe_id
-            if body.shoe_id is None or body.shoe_id == "":
-                workout.shoe_id = None
-            else:
-                try:
-                    sid = _uuid.UUID(body.shoe_id)
-                except ValueError:
-                    raise HTTPException(status_code=422, detail="Invalid shoe_id") from None
-                shoe = session.get(AthleteShoe, sid)
-                if shoe is None or shoe.user_id != user.id:
-                    raise HTTPException(status_code=422, detail="Unknown shoe_id")
-                workout.shoe_id = sid
-            session.flush()
-            for sid in {old_shoe, workout.shoe_id}:
-                if sid:
-                    recompute_shoe_stats(session, user.id, sid)
         if 'drills_minutes' in body.model_fields_set:
             # Explicit null returns it to unknown, which is distinct from 0
             # ("logged the session, did no drills").
@@ -7839,18 +7452,6 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                         detail="feeling must be one of: " + ", ".join(sorted(_FEELING_VALUES)),
                     )
                 workout.feeling = fl
-        if "tss_method_override" in body.model_fields_set:
-            ov = body.tss_method_override
-            if ov is None or (isinstance(ov, str) and ov.strip() == ""):
-                workout.tss_method_override = None
-            else:
-                ov = ov.strip().lower()
-                if ov not in ("power", "stryd"):
-                    raise HTTPException(
-                        status_code=422,
-                        detail="tss_method_override must be 'power' or 'stryd'",
-                    )
-                workout.tss_method_override = ov
         # Replace the exercise list when the client sent one (the Form editor
         # always does on edit) — same delete-and-recreate as /exercises/replace,
         # so per-exercise fields like rpe/sets_json actually persist.
@@ -7872,44 +7473,11 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
                     avg_hr=ex.avg_hr,
                     sets_json=ex.sets_json,
                 ))
-        if body.exercises_json is not None:
-            from backend.services.session_strength_save import validate_and_apply_json
-
-            if "session_effort" in body.model_fields_set and body.session_effort is not None:
-                if not (1 <= body.session_effort <= 10):
-                    raise HTTPException(status_code=422, detail="session_effort must be 1–10")
-            if "strength_tss_method" in body.model_fields_set and body.strength_tss_method:
-                sm = body.strength_tss_method.strip().lower()
-                if sm not in ("exercises", "effort_time"):
-                    raise HTTPException(status_code=422, detail="strength_tss_method must be exercises or effort_time")
-            result, errors = validate_and_apply_json(
-                session,
-                workout,
-                exercises=body.exercises_json,
-                duration_seconds=body.duration_seconds if "duration_seconds" in body.model_fields_set else workout.duration_seconds,
-                session_effort=body.session_effort if "session_effort" in body.model_fields_set else workout.session_effort,
-                strength_tss_method=body.strength_tss_method if "strength_tss_method" in body.model_fields_set else workout.strength_tss_method,
-            )
-            if errors:
-                raise HTTPException(status_code=422, detail={"errors": errors})
-        elif "session_effort" in body.model_fields_set or "strength_tss_method" in body.model_fields_set:
-            if "session_effort" in body.model_fields_set:
-                if body.session_effort is not None and not (1 <= body.session_effort <= 10):
-                    raise HTTPException(status_code=422, detail="session_effort must be 1–10")
-                workout.session_effort = body.session_effort
-            if "strength_tss_method" in body.model_fields_set:
-                sm = (body.strength_tss_method or "").strip().lower() or None
-                if sm and sm not in ("exercises", "effort_time"):
-                    raise HTTPException(status_code=422, detail="strength_tss_method must be exercises or effort_time")
-                workout.strength_tss_method = sm
         # Stamp updated_at so edits (e.g. marking a run as an interval) change the
         # workout-set fingerprint — the summary/performance cache signature
         # includes MAX(updated_at), so a type edit busts the cache and the
         # Performance Speed feed refreshes without waiting for a new sync.
         workout.updated_at = _datetime.now(_timezone.utc)
-        from backend.services.data_version import bump_data_version
-
-        bump_data_version(session, user.id)
         session.commit()
         exercises = (
             session.query(WorkoutExercise)
@@ -8031,7 +7599,6 @@ class PlannedSessionIn(BaseModel):
     name: Optional[str] = None
     structure: Optional[dict] = None
     notes: Optional[str] = None
-    plan_source: Optional[str] = None
 
 
 class PlannedSessionPatch(BaseModel):
@@ -8040,17 +7607,6 @@ class PlannedSessionPatch(BaseModel):
     name: Optional[str] = None
     structure: Optional[dict] = None
     notes: Optional[str] = None
-    confirm_warnings: Optional[bool] = False
-
-
-class PlanRuleEvaluateIn(BaseModel):
-    action: str = "move"
-    session_id: Optional[str] = None
-    planned_date: str
-    session_type: Optional[str] = None
-    structure: Optional[dict] = None
-    source: Optional[str] = None
-    estimated_tss: Optional[float] = None
 
 
 class PlannedSessionMatchIn(BaseModel):
@@ -8065,21 +7621,6 @@ def _validate_planned_type(t: str) -> str:
             detail={"field": "session_type", "error": "must be one of: " + ", ".join(sorted(_PLANNED_SESSION_TYPES))},
         )
     return t
-
-
-_PLAN_SOURCE_VALUES = frozenset({"coach", "support", "user"})
-
-
-def _validate_plan_source(s: Optional[str], *, default: str = "support") -> str:
-    if s is None or not str(s).strip():
-        return default
-    val = str(s).strip().lower()
-    if val not in _PLAN_SOURCE_VALUES:
-        raise HTTPException(
-            status_code=422,
-            detail={"field": "plan_source", "error": "must be one of: coach, support, user"},
-        )
-    return val
 
 
 def _validate_planned_date(s: str) -> _date:
@@ -8150,8 +7691,6 @@ def _planned_session_dict(p, matched=None, estimate_baseline=None) -> dict:
         "name": p.name,
         "structure": p.structure,
         "notes": p.notes,
-        "plan_source": (p.plan_source or "user"),
-        "locked": (p.plan_source or "user").lower() == "coach",
         "status": p.status,
         "matched_workout_id": str(p.matched_workout_id) if p.matched_workout_id else None,
         "actual": _workout_actual_summary(matched) if matched is not None else None,
@@ -8353,9 +7892,6 @@ def create_planned_session(body: PlannedSessionIn, user: User = Depends(resolve_
     ptype = _validate_planned_type(body.session_type)
     pdate = _validate_planned_date(body.planned_date)
     with Session(engine) as session:
-        psrc = _validate_plan_source(body.plan_source)
-        if psrc == "coach":
-            raise HTTPException(status_code=403, detail="Coach source is set by import only.")
         row = PlannedSession(
             user_id=user.id,
             planned_date=pdate,
@@ -8363,7 +7899,6 @@ def create_planned_session(body: PlannedSessionIn, user: User = Depends(resolve_
             name=(body.name or None),
             structure=body.structure,
             notes=(body.notes.strip() if body.notes else None),
-            plan_source=psrc,
             status="planned",
         )
         session.add(row)
@@ -8381,7 +7916,6 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
         for item in body:
             ptype = _validate_planned_type(item.session_type)
             pdate = _validate_planned_date(item.planned_date)
-            psrc = _validate_plan_source(item.plan_source, default="support")
             row = PlannedSession(
                 user_id=user.id,
                 planned_date=pdate,
@@ -8389,7 +7923,6 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
                 name=(item.name or None),
                 structure=item.structure,
                 notes=(item.notes.strip() if item.notes else None),
-                plan_source=psrc,
                 status="planned",
             )
             session.add(row)
@@ -8400,68 +7933,13 @@ def create_planned_sessions_bulk(body: list[PlannedSessionIn], user: User = Depe
         return JSONResponse(status_code=201, content=[_planned_session_dict(r) for r in created])
 
 
-def _attach_mutation_sections(
-    payload: dict,
-    session: Session,
-    user_id,
-    week_start: _date,
-    *,
-    today: Optional[_date] = None,
-    return_mode: Optional[str] = None,
-) -> dict:
-    """Merge `{board, week_load, road_column, warnings}` when `?return=sections` (#1929)."""
-    from backend.services.revamp_week import mutation_sections, wants_sections
-
-    if not wants_sections(return_mode):
-        return payload
-    extra = mutation_sections(session, user_id, week_start=week_start, today=today)
-    out = dict(payload)
-    out.update(extra)
-    return out
-
-
 @app.patch("/api/planned-sessions/{ps_id}")
-def patch_planned_session(
-    ps_id: str,
-    body: PlannedSessionPatch,
-    return_mode: Optional[str] = Query(default=None, alias="return"),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.plan_rules_engine import evaluate, summarize
-
+def patch_planned_session(ps_id: str, body: PlannedSessionPatch, user: User = Depends(resolve_user)):
     with Session(engine) as session:
         row = _get_planned_session_or_404(session, ps_id, user)
-        if (row.plan_source or "user").lower() == "coach":
-            fields = body.model_fields_set - {"confirm_warnings"}
-            if fields:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Coach-planned sessions are read-only on the board.",
-                )
-        moving = False
-        new_date = None
         if body.planned_date is not None:
             new_date = _validate_planned_date(body.planned_date)
-            moving = new_date != row.planned_date
-        if moving and new_date is not None:
-            change = {
-                "action": "move",
-                "session_id": str(row.id),
-                "planned_date": new_date.isoformat(),
-                "session_type": row.session_type,
-                "structure": row.structure,
-                "source": row.plan_source or "support",
-            }
-            results = evaluate(user.id, change, session)
-            level = summarize(results)
-            if level == "block":
-                raise HTTPException(status_code=422, detail={"plan_rules": results, "level": level})
-            if level == "warn" and not body.confirm_warnings:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"plan_rules": results, "level": level, "needs_confirm": True},
-                )
-        if body.planned_date is not None and new_date is not None:
+            # Rescheduling a missed session resets it to planned (mock behavior).
             if row.status == "missed" and new_date != row.planned_date:
                 row.status = "planned"
             row.planned_date = new_date
@@ -8477,20 +7955,13 @@ def patch_planned_session(
         session.commit()
         session.refresh(row)
         matched = session.get(Workout, row.matched_workout_id) if row.matched_workout_id else None
-        payload = _planned_session_dict(row, matched)
-        ws = row.planned_date - _timedelta(days=row.planned_date.weekday())
-        payload = _attach_mutation_sections(
-            payload, session, user.id, ws, today=_today_bkk(), return_mode=return_mode
-        )
-        return JSONResponse(payload)
+        return JSONResponse(_planned_session_dict(row, matched))
 
 
 @app.delete("/api/planned-sessions/{ps_id}", status_code=204)
 def delete_planned_session(ps_id: str, user: User = Depends(resolve_user)):
     with Session(engine) as session:
         row = _get_planned_session_or_404(session, ps_id, user)
-        if (row.plan_source or "user").lower() == "coach":
-            raise HTTPException(status_code=409, detail="Coach-planned sessions cannot be deleted.")
         session.delete(row)
         session.commit()
     return Response(status_code=204)
@@ -8935,41 +8406,19 @@ def compute_workout_tss(workout_id: str, body: ComputeTSSIn, user: User = Depend
             def __getitem__(self, k):
                 return getattr(self, k)
 
-        from backend.services.strength_tss import (
-            canonical_from_workout_exercises,
-            is_strength_workout,
-            strength_tss_block,
-        )
+        proxy = _WorkoutProxy(workout, body.session_rpe)
+        prefs_proxy = _PrefsProxy(prefs)
+        result = _compute_strength_tss(proxy, exercises, prefs_proxy)
 
-        if body.session_rpe is not None:
-            workout.session_effort = body.session_rpe
+        if result["tss"] is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Cannot compute TSS: " + result.get("debug", {}).get("reason", "missing inputs")
+            )
 
-        if is_strength_workout(workout):
-            canon = canonical_from_workout_exercises(exercises)
-            result = strength_tss_block(workout, session=session, exercises=canon)
-            if result.get("tss") is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Cannot compute strength TSS: missing exercises or effort/duration",
-                )
-            workout.tss = float(result["tss"])
-            workout.tss_source = "calculated"
-            workout.tss_method = result["method"]
-            workout.strength_tss_method = result.get("strength_tss_method") or result["method"]
-        else:
-            proxy = _WorkoutProxy(workout, body.session_rpe)
-            prefs_proxy = _PrefsProxy(prefs)
-            result = _compute_strength_tss(proxy, exercises, prefs_proxy)
-
-            if result["tss"] is None:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Cannot compute TSS: " + result.get("debug", {}).get("reason", "missing inputs")
-                )
-
-            workout.tss = result["tss"]
-            workout.tss_source = "calculated"
-            workout.tss_method = result["method"]
+        workout.tss = result["tss"]
+        workout.tss_source = "calculated"
+        workout.tss_method = result["method"]
         session.commit()
         session.refresh(workout)
         return JSONResponse({
@@ -9069,12 +8518,6 @@ def list_exercise_catalog(user: User = Depends(resolve_user)):
 class WorkoutTemplateIn(BaseModel):
     name: str
     exercises: list
-    session_type: Optional[str] = "strength"
-    tss_estimate: Optional[float] = None
-
-
-class WorkoutTemplatePatchIn(BaseModel):
-    name: Optional[str] = None
 
 
 def _template_dict(t: WorkoutTemplate) -> dict:
@@ -9083,9 +8526,6 @@ def _template_dict(t: WorkoutTemplate) -> dict:
         "user_id": str(t.user_id),
         "name": t.name,
         "exercises": t.exercises,
-        "session_type": getattr(t, "session_type", None) or "strength",
-        "tss_estimate": float(t.tss_estimate) if t.tss_estimate is not None else None,
-        "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
         "created_at": t.created_at.isoformat() if t.created_at else None,
     }
 
@@ -9096,10 +8536,7 @@ def get_workout_templates(user: User = Depends(resolve_user)):
         templates = (
             session.query(WorkoutTemplate)
             .filter(WorkoutTemplate.user_id == user.id)
-            .order_by(
-                WorkoutTemplate.last_used_at.desc().nullslast(),
-                WorkoutTemplate.created_at.desc(),
-            )
+            .order_by(WorkoutTemplate.created_at.desc())
             .all()
         )
         return JSONResponse([_template_dict(t) for t in templates])
@@ -9130,63 +8567,12 @@ def post_workout_template(body: WorkoutTemplateIn, user: User = Depends(resolve_
     ]
     if not exercises:
         raise HTTPException(status_code=422, detail="Template must have at least one named exercise")
-    st = (body.session_type or "strength").strip().lower()
-    if st not in ("strength", "mobility", "plyo", "stretch"):
-        raise HTTPException(status_code=422, detail="session_type invalid")
     with Session(engine) as session:
-        tmpl = WorkoutTemplate(
-            user_id=user.id,
-            name=name,
-            exercises=exercises,
-            session_type=st,
-            tss_estimate=body.tss_estimate,
-        )
+        tmpl = WorkoutTemplate(user_id=user.id, name=name, exercises=exercises)
         session.add(tmpl)
         session.commit()
         session.refresh(tmpl)
         return JSONResponse(status_code=201, content=_template_dict(tmpl))
-
-
-@app.patch("/api/workout-templates/{template_id}")
-def patch_workout_template(
-    template_id: str, body: WorkoutTemplatePatchIn, user: User = Depends(resolve_user)
-):
-    try:
-        tid = _uuid.UUID(template_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid template_id")
-    with Session(engine) as session:
-        tmpl = session.get(WorkoutTemplate, tid)
-        if tmpl is None:
-            raise HTTPException(status_code=404, detail="Template not found")
-        if tmpl.user_id != user.id:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        if body.name is not None:
-            name = body.name.strip()
-            if not name:
-                raise HTTPException(status_code=422, detail="Template name is required")
-            tmpl.name = name
-        session.commit()
-        session.refresh(tmpl)
-        return JSONResponse(_template_dict(tmpl))
-
-
-@app.post("/api/workout-templates/{template_id}/touch")
-def touch_workout_template(template_id: str, user: User = Depends(resolve_user)):
-    from datetime import datetime, timezone
-
-    try:
-        tid = _uuid.UUID(template_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid template_id")
-    with Session(engine) as session:
-        tmpl = session.get(WorkoutTemplate, tid)
-        if tmpl is None or tmpl.user_id != user.id:
-            raise HTTPException(status_code=404, detail="Template not found")
-        tmpl.last_used_at = datetime.now(timezone.utc)
-        session.commit()
-        session.refresh(tmpl)
-        return JSONResponse(_template_dict(tmpl))
 
 
 @app.delete("/api/workout-templates/{template_id}", status_code=204)
@@ -9230,8 +8616,6 @@ def _split_dict(s: WorkoutSplit) -> dict:
         "split_index": s.split_index,
         "distance_km": str(s.distance_km),
         "duration_seconds": s.duration_seconds,
-        "moving_time_seconds": s.moving_time_seconds,
-        "elapsed_time_seconds": s.elapsed_time_seconds,
         "avg_hr": s.avg_hr,
         "avg_power": s.avg_power,
         "cadence_spm": s.cadence_spm,
@@ -9420,127 +8804,9 @@ def _daily_metric_dict(m: DailyMetric) -> dict:
         "mood": m.mood,
         "notes": m.notes,
         "kcal_intake": m.kcal_intake,
-        "lunch_rule": m.lunch_rule,
-        "feet": m.feet,
-        "steps": m.steps,
-        "steps_source": m.steps_source,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
     }
-
-
-# ── Body log (P6-9) ─────────────────────────────────────────────────────────────
-
-
-class BodyLogPatchIn(BaseModel):
-    weight_kg: Optional[float] = None
-    lunch_rule: Optional[bool] = None
-    feet: Optional[int] = None
-    steps: Optional[int] = None
-
-
-def _validate_body_log_fields(
-    *,
-    weight_kg: Optional[float] = None,
-    feet: Optional[int] = None,
-    steps: Optional[int] = None,
-) -> None:
-    if weight_kg is not None and not (40 <= weight_kg <= 200):
-        raise HTTPException(status_code=422, detail={"field": "weight_kg", "error": "weight_kg must be between 40 and 200"})
-    if feet is not None and not (0 <= feet <= 3):
-        raise HTTPException(status_code=422, detail={"field": "feet", "error": "feet must be between 0 and 3"})
-    if steps is not None and steps < 0:
-        raise HTTPException(status_code=422, detail={"field": "steps", "error": "steps must be a non-negative integer"})
-
-
-@app.get("/api/body-log")
-def get_body_log(
-    log_date: Optional[str] = Query(default=None, alias="date"),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.body_log_store import body_log_day_payload
-
-    today = _today_bkk()
-    if log_date is None:
-        md = today
-    else:
-        try:
-            md = _date.fromisoformat(log_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
-    with Session(engine) as session:
-        return JSONResponse(body_log_day_payload(session, user.id, md))
-
-
-@app.patch("/api/body-log")
-def patch_body_log(
-    body: BodyLogPatchIn,
-    log_date: Optional[str] = Query(default=None, alias="date"),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.body_log_store import patch_body_log as _patch_body_log
-
-    if not body.model_fields_set:
-        raise HTTPException(status_code=422, detail="No fields to update")
-    today = _today_bkk()
-    if log_date is None:
-        md = today
-    else:
-        try:
-            md = _date.fromisoformat(log_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date; use YYYY-MM-DD")
-    _validate_body_log_fields(
-        weight_kg=body.weight_kg if "weight_kg" in body.model_fields_set else None,
-        feet=body.feet if "feet" in body.model_fields_set else None,
-        steps=body.steps if "steps" in body.model_fields_set else None,
-    )
-    with Session(engine) as session:
-        payload = _patch_body_log(
-            session,
-            user.id,
-            md,
-            weight_kg=body.weight_kg if "weight_kg" in body.model_fields_set else None,
-            lunch_rule=body.lunch_rule if "lunch_rule" in body.model_fields_set else None,
-            feet=body.feet if "feet" in body.model_fields_set else None,
-            steps=body.steps if "steps" in body.model_fields_set else None,
-        )
-    if "weight_kg" in body.model_fields_set:
-        _recompute_weigh_in_autofill(user.id, md)
-    return JSONResponse(payload)
-
-
-@app.get("/api/body-log/weekly-rollup")
-def get_body_log_weekly_rollup(
-    week_start: Optional[str] = Query(default=None),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.body_log_store import body_log_week_rollup
-
-    today = _today_bkk()
-    if week_start is None:
-        from backend.services.weekly_rollup import normalize_week_start
-
-        ws = normalize_week_start(today)
-    else:
-        try:
-            ws = _date.fromisoformat(week_start)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid week_start; use YYYY-MM-DD")
-    with Session(engine) as session:
-        return JSONResponse(body_log_week_rollup(session, user.id, ws))
-
-
-@app.get("/api/home/weight-card")
-def get_home_weight_card(user: User = Depends(resolve_user)):
-    from backend.services.body_log_store import _weight_rows
-    from backend.services.body_log_weight_card import weight_card_payload
-
-    today = _today_bkk()
-    fetch_from = today - _timedelta(days=120)
-    with Session(engine) as session:
-        rows = _weight_rows(session, user.id, fetch_from, today)
-        return JSONResponse(weight_card_payload(session, user.id, weight_rows=rows, today=today))
 
 
 @app.get("/api/daily-metrics")
@@ -10899,14 +10165,19 @@ def _pace(workout_type: str, duration_seconds, distance_km) -> float | None:
 
 
 def _workout_list_tss(w, splits, prefs) -> float | None:
-    """Counted session TSS for training-log list/chart rollups (read path — no DB write)."""
-    del splits  # counted TSS uses stored dual-method values, not live recompute
-    val = _session_tss(w, prefs=prefs or None).get("tss")
-    return float(val) if val is not None else None
+    """App-computed TSS for training-log list/chart rollups (read path — no DB write)."""
+    if w.tss_source == "manual" and w.tss is not None:
+        return float(w.tss)
+    wt = (w.workout_type or "").lower()
+    if "run" not in wt:
+        return float(w.tss) if w.tss is not None else None
+    computed = _compute_running_tss(w, splits or [], prefs or UserPreferences())
+    if computed.get("tss") is not None:
+        return float(computed["tss"])
+    return float(w.tss) if w.tss is not None else None
 
 
 @app.get("/api/training-log")
-@_query_logged("/api/training-log")
 def get_training_log(
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
@@ -10914,8 +10185,6 @@ def get_training_log(
     search: Optional[str] = Query(default=None),
     include_rest: bool = Query(default=False),
     include_load_context: bool = Query(default=False),
-    include_plan: bool = Query(default=False),
-    canonical_week_totals: bool = Query(default=False),
     user: User = Depends(resolve_user),
 ):
     from datetime import timedelta
@@ -10997,7 +10266,6 @@ def get_training_log(
                     TrainingLoadSnapshot.snapshot_date == today,
                 ).first()
 
-        rollup_by_week: dict = {}
         splits_by_workout: dict = {}
         run_ids = [w.id for w in workouts if "run" in (w.workout_type or "").lower()]
         if run_ids:
@@ -11010,18 +10278,6 @@ def get_training_log(
         list_prefs = (
             session.query(UserPreferences).filter(UserPreferences.user_id == uid).first()
         )
-
-        exercise_counts: dict = {}
-        wids = [w.id for w in workouts]
-        if wids:
-            for row in (
-                session.query(WorkoutExercise.workout_id, func.count(WorkoutExercise.id))
-                .filter(WorkoutExercise.workout_id.in_(wids))
-                .group_by(WorkoutExercise.workout_id)
-            ):
-                exercise_counts[row[0]] = int(row[1])
-
-        plan_matches = _plan_match_map(session, wids) if wids else {}
 
         if today_snap is not None:
             snap_ctl = round(today_snap.ctl, 1)
@@ -11052,94 +10308,9 @@ def get_training_log(
                 "notes": w.remarks or "",
                 "feeling": w.feeling,
                 "weight_context": w.remarks,
-                "plan_match": plan_matches.get(str(w.id)),
-                "speed_signal": w.speed_signal,
-                "speed_signal_basis": w.speed_signal_basis,
-                "exercise_count": exercise_counts.get(w.id, 0),
-                "start_time": w.start_time.isoformat() if w.start_time else None,
-                "avg_power": w.avg_power,
             }
             for w in workouts
         ]
-
-        if include_plan:
-            missed_rows = (
-                session.query(PlannedSession)
-                .filter(
-                    PlannedSession.user_id == uid,
-                    PlannedSession.planned_date >= from_d,
-                    PlannedSession.planned_date <= to_d,
-                    PlannedSession.matched_workout_id.is_(None),
-                )
-                .all()
-            )
-            for p in missed_rows:
-                if not _is_missed_planned(p, today):
-                    continue
-                if search:
-                    term = search.lower()
-                    hay = ((p.name or "") + " " + (p.notes or "")).lower()
-                    if term not in hay:
-                        continue
-                planned_tss = _planned_tss_estimate(session, p)
-                planned_duration = None
-                try:
-                    from backend.services.training_load import _planned_duration_minutes as _pdm
-                    mins = _pdm(p.session_type, p.structure)
-                    if mins:
-                        planned_duration = int(round(float(mins) * 60))
-                except Exception:
-                    planned_duration = None
-                workout_entries.append(
-                    {
-                        "date": str(p.planned_date),
-                        "type": p.session_type,
-                        "run_subtype": None,
-                        "id": f"plan:{p.id}",
-                        "title": p.name or p.session_type.title(),
-                        "duration_seconds": planned_duration,
-                        "duration_minutes": round(planned_duration / 60, 2) if planned_duration else None,
-                        "distance_km": None,
-                        "avg_hr": None,
-                        "elevation_m": None,
-                        "average_pace_seconds_per_km": None,
-                        "tss": planned_tss,
-                        "source": _planned_source(p.session_type),
-                        "strava_activity_url": None,
-                        "is_stryd_synced": False,
-                        "has_strava": False,
-                        "has_stryd": False,
-                        "notes": p.notes or "",
-                        "feeling": None,
-                        "weight_context": None,
-                        "plan_match": {
-                            "planned_id": str(p.id),
-                            "planned_name": p.name,
-                            "planned_tss": planned_tss,
-                            "source": _planned_source(p.session_type),
-                        },
-                        "speed_signal": None,
-                        "speed_signal_basis": None,
-                        "exercise_count": 0,
-                        "start_time": None,
-                        "avg_power": None,
-                        "row_kind": "missed_plan",
-                        "planned_status": _planned_item_status(p, today),
-                        "planned_structure": p.structure,
-                    }
-                )
-
-        if canonical_week_totals:
-            from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups as _weekly_rollups
-
-            for r in _weekly_rollups(
-                str(uid),
-                bangkok_week_start(from_d),
-                bangkok_week_start(to_d),
-                session=session,
-                today=today,
-            ):
-                rollup_by_week[r["week_start"]] = r
 
     all_entries = workout_entries + rest_entries
     all_entries.sort(key=lambda e: e["date"], reverse=True)
@@ -11169,7 +10340,7 @@ def get_training_log(
     for key in week_order:
         wk = weeks_map[key]
         ws = wk["workouts"]
-        week_row = {
+        weeks.append({
             "week_start": wk["week_start"],
             "week_end": wk["week_end"],
             "label": wk["label"],
@@ -11181,21 +10352,7 @@ def get_training_log(
                 "total_tss": sum((w.get("tss") or 0) for w in ws),
                 "total_time_minutes": sum((w.get("duration_minutes") or 0) for w in ws),
             },
-        }
-        if canonical_week_totals:
-            rollup = rollup_by_week.get(key)
-            if rollup is None:
-                rollup = {}
-            week_row["rollup"] = rollup
-            week_row["summary"] = {
-                "workout_count": rollup.get("session_count", len(ws)),
-                "total_distance_km": rollup.get("distance_km", 0),
-                "total_tss": rollup.get("tss_total", 0),
-                "total_time_minutes": round((rollup.get("hours") or 0) * 60, 1),
-                "planned_tss": rollup.get("planned_tss"),
-                "target_tss": rollup.get("target_tss"),
-            }
-        weeks.append(week_row)
+        })
 
     response: dict = {"weeks": weeks}
     if include_load_context:
@@ -11713,16 +10870,10 @@ def strava_callback(
 
 # ── Stryd ──────────────────────────────────────────────────────────────────────
 
-from backend.services.stryd import (  # noqa: E402
-    StrydAuthError,
-    StrydUnavailable,
-    _call_stryd_signin as _stryd_signin,
-    _expiry_from_signin,
-    mark_stryd_auth_failed,
-    refresh_stryd_session_if_needed,
-)
+from backend.services.stryd import _call_stryd_signin as _stryd_signin  # noqa: E402
 from backend.services.crypto import encrypt_value as _encrypt_value, decrypt_oauth_token as _decrypt_oauth_token  # noqa: E402
 from backend.services.strava import refresh_token_if_needed  # noqa: E402
+from backend.services.stryd import refresh_stryd_session_if_needed  # noqa: E402
 
 
 class _StrydConnectIn(BaseModel):
@@ -11749,7 +10900,6 @@ def _upsert_stryd_credentials(
                 session_token=session_token,
                 session_token_expires_at=session_token_expires_at,
                 athlete_id=athlete_id,
-                auth_failed_at=None,
             )
             .on_conflict_do_update(
                 index_elements=["user_id"],
@@ -11759,7 +10909,6 @@ def _upsert_stryd_credentials(
                     "session_token": session_token,
                     "session_token_expires_at": session_token_expires_at,
                     "athlete_id": athlete_id,
-                    "auth_failed_at": None,
                     "updated_at": now,
                 },
             )
@@ -11771,20 +10920,15 @@ def _upsert_stryd_credentials(
 @app.post("/api/stryd/connect")
 def stryd_connect(body: _StrydConnectIn, user: User = Depends(resolve_user)):
     """Authenticate against Stryd, encrypt and store credentials, return connection status."""
-    try:
-        resp = _stryd_signin(body.email, body.password)
-    except StrydAuthError as exc:
-        raise HTTPException(status_code=401, detail=exc.detail)
-    except StrydUnavailable as exc:
-        raise HTTPException(status_code=502, detail=exc.detail)
+    resp = _stryd_signin(body.email, body.password)
 
     password_encrypted = _encrypt_value(body.password)
     now = _datetime.now(tz=_timezone.utc)
-    session_token = str(resp.get("token") or resp.get("session_token") or "")
-    session_token_expires_at = _expiry_from_signin(resp, session_token, now)
+    session_token_expires_at = now + _timedelta(days=25)
     # Stryd athlete id is a UUID string (not numeric) — store as-is, no int cast.
     athlete_id = resp.get("id") or resp.get("athlete_id") or None
     athlete_id = str(athlete_id) if athlete_id is not None else None
+    session_token = str(resp.get("token") or resp.get("session_token") or "")
     user_id = str(user.id)
 
     _upsert_stryd_credentials(
@@ -11894,15 +11038,8 @@ def strava_disconnect(user: User = Depends(resolve_user)):
 
 @app.get("/api/stryd/status")
 def stryd_status(user: User = Depends(resolve_user)):
-    """Return Stryd connection status; refresh session if near expiry (never deletes credentials)."""
-    _null_response = {
-        "connected": False,
-        "status": None,
-        "athlete_id": None,
-        "stryd_email": None,
-        "session_expires_at": None,
-        "auth_failed_at": None,
-    }
+    """Return Stryd connection status; refresh session if near expiry. Deletes broken credentials."""
+    _null_response = {"connected": False, "athlete_id": None, "stryd_email": None, "session_expires_at": None}
     user_id = str(user.id)
 
     with Session(engine) as session:
@@ -11912,45 +11049,28 @@ def stryd_status(user: User = Depends(resolve_user)):
         athlete_id = cred.athlete_id
         stryd_email = cred.stryd_email
         session_expires_at = cred.session_token_expires_at
-        auth_failed_at = cred.auth_failed_at
 
-    status = "ok"
-    if auth_failed_at is not None:
-        status = "reauth_required"
-    else:
-        try:
-            refresh_stryd_session_if_needed(user_id)
-        except StrydAuthError:
-            mark_stryd_auth_failed(user_id)
-            status = "reauth_required"
-            with Session(engine) as session:
-                cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
-                if cred is not None:
-                    auth_failed_at = cred.auth_failed_at
-        except StrydUnavailable:
-            status = "unreachable"
-        except Exception:
-            status = "unreachable"
-
-    if status == "reauth_required":
+    try:
+        refresh_stryd_session_if_needed(user_id)
+    except Exception:
         with Session(engine) as session:
             cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
             if cred is not None:
-                auth_failed_at = cred.auth_failed_at
-    elif status == "ok":
-        with Session(engine) as session:
-            cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
-            if cred is not None:
-                session_expires_at = cred.session_token_expires_at
-                auth_failed_at = None
+                session.delete(cred)
+                session.commit()
+        return JSONResponse(_null_response)
+
+    with Session(engine) as session:
+        cred = session.query(StrydCredentials).filter(StrydCredentials.user_id == user_id).first()
+        if cred is None:
+            return JSONResponse(_null_response)
+        session_expires_at = cred.session_token_expires_at
 
     return JSONResponse({
         "connected": True,
-        "status": status,
         "athlete_id": athlete_id,
         "stryd_email": stryd_email,
         "session_expires_at": session_expires_at.isoformat() if session_expires_at else None,
-        "auth_failed_at": auth_failed_at.isoformat() if auth_failed_at else None,
     })
 
 
@@ -13884,9 +13004,9 @@ def get_training_load_weekly(
 
     Each week bucket contains only run_tss, strength_tss, total_tss, and
     total_distance_km — no per-workout serialization.  Week boundaries are
-    Monday-to-Sunday (Bangkok semantics via weekly_rollup).
+    Monday-to-Sunday (ISO week semantics).
     """
-    from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups
+    import re as _re
 
     uid = current_user.id
     today = _today_bkk()
@@ -13903,122 +13023,68 @@ def get_training_load_weekly(
     if (to_d - from_d).days > 365:
         raise HTTPException(status_code=422, detail="Date range cannot exceed 365 days")
 
-    rollups = weekly_rollups(str(uid), bangkok_week_start(from_d), bangkok_week_start(to_d), today=today)
+    _RUN_RE = _re.compile(r"^run(ning)?$|^race$|^(bike|ride|cycl)", _re.IGNORECASE)
+    _LIFT_RE = _re.compile(r"^(lift|strength|wod|crossfit)", _re.IGNORECASE)
+
+    with Session(engine) as session:
+        # SQL-side GROUP BY (week_monday, workout_type) so we aggregate TSS and
+        # distance in the database rather than loading every Workout row.
+        week_monday = func.date_trunc(
+            "week", _sa_cast(Workout.workout_date, _sa_DateTime),
+        )
+        rows = (
+            session.query(
+                week_monday.label("week_mon"),
+                Workout.workout_type,
+                func.coalesce(func.sum(Workout.tss), 0).label("sum_tss"),
+                func.coalesce(func.sum(Workout.distance_km), 0).label("sum_dist"),
+            )
+            .filter(
+                Workout.user_id == uid,
+                Workout.workout_date >= from_d,
+                Workout.workout_date <= to_d,
+            )
+            .group_by(week_monday, Workout.workout_type)
+            .all()
+        )
+
+    weeks_map: dict = {}
+    for row in rows:
+        # date_trunc returns a datetime; convert to ISO date string (Monday)
+        wm = row.week_mon
+        if hasattr(wm, "date"):
+            mon_key = wm.date().isoformat()
+        else:
+            mon_key = str(wm)[:10]
+        if mon_key not in weeks_map:
+            weeks_map[mon_key] = {"run_tss": 0.0, "strength_tss": 0.0, "total_distance_km": 0.0}
+        tss = float(row.sum_tss or 0)
+        dist = float(row.sum_dist or 0)
+        wt = (row.workout_type or "").strip()
+        if _RUN_RE.match(wt):
+            weeks_map[mon_key]["run_tss"] += tss
+        elif _LIFT_RE.match(wt):
+            weeks_map[mon_key]["strength_tss"] += tss
+        elif dist > 0:
+            weeks_map[mon_key]["run_tss"] += tss
+        else:
+            weeks_map[mon_key]["strength_tss"] += tss
+        weeks_map[mon_key]["total_distance_km"] += dist
+
     weeks = []
-    for row in rollups:
-        strength_tss = round(row["tss_strength"] + row["tss_support_other"], 2)
+    for mon_key in sorted(weeks_map):
+        agg = weeks_map[mon_key]
+        run_tss = round(agg["run_tss"], 2)
+        strength_tss = round(agg["strength_tss"], 2)
         weeks.append({
-            "week_start": row["week_start"],
-            "run_tss": row["tss_run"],
+            "week_start": mon_key,
+            "run_tss": run_tss,
             "strength_tss": strength_tss,
-            "total_tss": row["tss_total"],
-            "total_distance_km": row["distance_km"],
+            "total_tss": round(run_tss + strength_tss, 2),
+            "total_distance_km": round(agg["total_distance_km"], 2),
         })
 
     return JSONResponse({"weeks": weeks})
-
-
-@app.get("/api/weekly-rollup")
-@_query_logged("/api/weekly-rollup")
-def get_weekly_rollup_endpoint(
-    request: Request,
-    week_start: Optional[str] = Query(default=None),
-    from_week: Optional[str] = Query(default=None, alias="from"),
-    to_week: Optional[str] = Query(default=None, alias="to"),
-    user: User = Depends(resolve_user),
-):
-    """Canonical week totals for plan/log headers (revamp P0-4)."""
-    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, range_etag
-    from backend.services.weekly_rollup import (
-        next_race_brief,
-        normalize_week_start,
-        weekly_rollup,
-        weekly_rollups,
-    )
-
-    today = _today_bkk()
-    if week_start is not None:
-        try:
-            ws = normalize_week_start(_date.fromisoformat(week_start))
-        except ValueError:
-            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        we = ws + _timedelta(days=6)
-        params = f"week_start={ws.isoformat()}"
-        with Session(engine) as session:
-            etag = range_etag(session, user.id, ws, we, today, params)
-            if not_modified(request, etag):
-                return not_modified_response(etag)
-            body = weekly_rollup(str(user.id), ws, session=session, today=today)
-        return JSONResponse(body, headers=etag_headers(etag))
-
-    if from_week is not None and to_week is not None:
-        try:
-            fw = normalize_week_start(_date.fromisoformat(from_week))
-            tw = normalize_week_start(_date.fromisoformat(to_week))
-        except ValueError:
-            raise HTTPException(status_code=422, detail="from/to must be YYYY-MM-DD")
-        we = tw + _timedelta(days=6)
-        params = f"from={fw.isoformat()}&to={tw.isoformat()}"
-        with Session(engine) as session:
-            etag = range_etag(session, user.id, fw, we, today, params)
-            if not_modified(request, etag):
-                return not_modified_response(etag)
-            from backend.services.revamp_plan_settings import plan_context
-
-            block_start = None
-            try:
-                ctx = plan_context(session, user.id, today=today)
-                bs = ctx.get("block_start") if ctx else None
-                if bs is not None:
-                    block_start = bs.isoformat() if hasattr(bs, "isoformat") else str(bs)
-            except Exception:
-                block_start = None
-            body = {
-                "weeks": weekly_rollups(str(user.id), fw, tw, session=session, today=today),
-                "next_race": next_race_brief(session, user.id, today),
-                "block_start": block_start,
-            }
-        return JSONResponse(body, headers=etag_headers(etag))
-
-    ws = normalize_week_start(today)
-    we = ws + _timedelta(days=6)
-    params = "default"
-    with Session(engine) as session:
-        etag = range_etag(session, user.id, ws, we, today, params)
-        if not_modified(request, etag):
-            return not_modified_response(etag)
-        body = weekly_rollup(str(user.id), ws, session=session, today=today)
-    return JSONResponse(body, headers=etag_headers(etag))
-
-
-@app.get("/api/training/month")
-@_query_logged("/api/training/month")
-def get_training_month(
-    request: Request,
-    month: str = Query(..., description="YYYY-MM"),
-    user: User = Depends(resolve_user),
-):
-    """Month board grid (revamp P1-3): full Mon–Sun weeks overlapping the month."""
-    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, range_etag
-    from backend.services.training_month import grid_range
-
-    try:
-        parts = month.strip().split("-")
-        if len(parts) != 2:
-            raise ValueError
-        y, m = int(parts[0]), int(parts[1])
-        anchor = _date(y, m, 1)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=422, detail="month must be YYYY-MM")
-    today = _today_bkk()
-    grid_start, grid_end = grid_range(anchor)
-    params = f"month={month.strip()}"
-    with Session(engine) as session:
-        etag = range_etag(session, user.id, grid_start, grid_end, today, params)
-        if not_modified(request, etag):
-            return not_modified_response(etag)
-        payload = _training_month(session, user.id, anchor, today=today)
-    return JSONResponse(payload, headers=etag_headers(etag))
 
 
 @app.post("/api/training-load/recompute")
@@ -14649,23 +13715,8 @@ def post_plan_check(body: PlanCheckIn, current_user: User = Depends(resolve_user
 
 # ── Sync status endpoint ───────────────────────────────────────────────────────
 
-
-def _sync_status_with_providers(user: User, payload: dict) -> dict:
-    """Attach revamp per-provider sync fields without breaking legacy readers."""
-    out = dict(payload)
-    try:
-        with Session(engine) as session:
-            out["providers"] = _sync_build_providers(session, user.id, job_snapshot=out)
-        _decorate_sync_status(out)
-    except Exception as exc:
-        _logging.getLogger(__name__).warning("sync_status providers failed: %s", exc)
-    return out
-
-
 @app.get("/api/sync/status")
 async def get_sync_status(user: User = Depends(resolve_user)):
-    from backend.services.sync_provider_status import snapshot_is_live_sync as _snapshot_is_live_sync
-
     job = _sync_jobs.snapshot(user.id)
     if job is not None:
         serialized = {
@@ -14673,15 +13724,13 @@ async def get_sync_status(user: User = Depends(resolve_user)):
             "started_at": job["started_at"].isoformat() if job["started_at"] else None,
             "finished_at": job["finished_at"].isoformat() if job["finished_at"] else None,
         }
-        if job.get("status") != "running" or _snapshot_is_live_sync(serialized):
-            return JSONResponse(_sync_status_with_providers(user, serialized))
+        return JSONResponse(serialized)
 
     # No in-process job — check worker_job_runs for a delegated job.
     from backend.models import WorkerJobRun as _WorkerJobRun
     from sqlalchemy import select as _sel, or_ as _or
     from datetime import datetime, timezone as _tz, timedelta as _td
-    _recent = datetime.now(_tz.utc) - _td(minutes=10)
-    _running_max = datetime.now(_tz.utc) - _td(hours=2)
+    _cutoff = datetime.now(_tz.utc) - _td(minutes=10)
     try:
         with Session(engine) as _db:
             wjr = _db.execute(
@@ -14689,16 +13738,15 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 .where(_WorkerJobRun.user_id == user.id)
                 .where(
                     _or(
-                        # A crashed worker can leave status=running forever.
-                        (_WorkerJobRun.status == "running") & (_WorkerJobRun.started_at >= _running_max),
-                        _WorkerJobRun.started_at >= _recent,
+                        _WorkerJobRun.status == "running",
+                        _WorkerJobRun.started_at >= _cutoff,
                     )
                 )
                 .order_by(_WorkerJobRun.started_at.desc())
                 .limit(1)
             ).scalar_one_or_none()
         if wjr is not None:
-            wjr_payload = {
+            return JSONResponse({
                 "status": wjr.status,
                 "phase": wjr.phase,
                 "source": "worker",
@@ -14707,10 +13755,7 @@ async def get_sync_status(user: User = Depends(resolve_user)):
                 "error": wjr.error,
                 "started_at": wjr.started_at.isoformat() if wjr.started_at else None,
                 "finished_at": wjr.finished_at.isoformat() if wjr.finished_at else None,
-            }
-            live = (wjr.status or "").lower() in ("running", "pending")
-            if not live or _snapshot_is_live_sync(wjr_payload):
-                return JSONResponse(_sync_status_with_providers(user, wjr_payload))
+            })
     except Exception as _wjr_exc:
         _logging.getLogger(__name__).warning(
             "sync_status: worker_job_runs query failed: %s", _wjr_exc
@@ -14724,18 +13769,16 @@ async def get_sync_status(user: User = Depends(resolve_user)):
         from backend.services import job_queue as _jq
         pending = _jq.pending_for_user(user.id)
         if pending is not None:
-            q_payload = {
+            return JSONResponse({
                 "status": "pending" if pending["status"] == "queued" else "running",
                 "source": "queue",
                 "job_type": pending["job_type"],
                 "enqueued_at": pending["created_at"].isoformat() if pending["created_at"] else None,
-            }
-            if _snapshot_is_live_sync(q_payload):
-                return JSONResponse(_sync_status_with_providers(user, q_payload))
+            })
     except Exception:
         pass
 
-    return JSONResponse(_sync_status_with_providers(user, {"status": "idle"}))
+    return JSONResponse({"status": "idle"})
 
 
 @app.get("/api/queue")
@@ -14836,7 +13879,6 @@ _PREFS_DEFAULTS = {
     "zone2_hr_min": 130,
     "zone2_hr_max": 155,
     "weekly_zone2_target_min": 150,
-    "tss_method_default": "power",
 }
 
 _PREFS_EDITABLE = {"ftp_w", "threshold_hr", "threshold_pace_seconds_per_km", "display_name", "week_start_day", "timezone"}
@@ -14851,7 +13893,6 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
         "user_id": str(prefs.user_id),
         "ftp_w": prefs.ftp_w,
         "ftp_w_updated_at": _isoformat(getattr(prefs, "ftp_w_updated_at", None)),
-        "ftp_w_source": getattr(prefs, "ftp_w_source", None),
         "threshold_hr": prefs.threshold_hr,
         "threshold_hr_updated_at": _isoformat(getattr(prefs, "threshold_hr_updated_at", None)),
         "threshold_pace_seconds_per_km": prefs.threshold_pace_seconds_per_km,
@@ -14869,7 +13910,6 @@ def _prefs_row_dict(prefs: UserPreferences) -> dict:
         "timezone": prefs.timezone,
         "ctl_days": prefs.ctl_days,
         "atl_days": prefs.atl_days,
-        "tss_method_default": getattr(prefs, "tss_method_default", None) or "power",
     }
 
 
@@ -14950,7 +13990,6 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
     birth_date = body.get("birth_date", _PREFS_SENTINEL)
     height_cm = body.get("height_cm", _PREFS_SENTINEL)
     athlete_context = body.get("athlete_context", _PREFS_SENTINEL)
-    tss_method_default = body.get("tss_method_default", _PREFS_SENTINEL)
 
     errors = []
     if ftp_w is not _PREFS_SENTINEL and ftp_w is not None:
@@ -15009,12 +14048,6 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 "field": "athlete_context",
                 "msg": f"athlete_context must be ≤ {_ATHLETE_CONTEXT_MAX_CHARS} characters",
             })
-    if tss_method_default is not _PREFS_SENTINEL and tss_method_default is not None:
-        if tss_method_default not in ("power", "stryd"):
-            errors.append({
-                "field": "tss_method_default",
-                "msg": "tss_method_default must be 'power' or 'stryd'",
-            })
 
     if errors:
         raise HTTPException(status_code=422, detail=errors)
@@ -15027,11 +14060,6 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
 
         _now = _datetime.now(_timezone.utc)
         if ftp_w is not _PREFS_SENTINEL:
-            if ftp_w is not None and ftp_w != prefs.ftp_w:
-                from backend.services.cp_staleness import record_cp_history
-
-                record_cp_history(session, uid, ftp_w, prefs.ftp_w, "manual", _today_bkk())
-                prefs.ftp_w_source = "manual"
             prefs.ftp_w = ftp_w
             prefs.ftp_w_updated_at = _now
         if threshold_hr is not _PREFS_SENTINEL:
@@ -15056,9 +14084,6 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
             prefs.week_start_day = week_start_day
         if timezone is not _PREFS_SENTINEL:
             prefs.timezone = timezone
-        _prior_tss_method_default = getattr(prefs, "tss_method_default", None) or "power"
-        if tss_method_default is not _PREFS_SENTINEL:
-            prefs.tss_method_default = tss_method_default or "power"
 
         _identity_sent = any(
             f is not _PREFS_SENTINEL for f in (birth_date, height_cm, athlete_context)
@@ -15082,26 +14107,8 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
         _threshold_fields_changed = any(
             f is not _PREFS_SENTINEL for f in (ftp_w, threshold_hr, threshold_pace)
         )
-        _tss_method_default_changed = (
-            tss_method_default is not _PREFS_SENTINEL
-            and (tss_method_default or "power") != _prior_tss_method_default
-        )
         session.commit()
         session.refresh(prefs)
-        if _tss_method_default_changed:
-            from backend.services.session_tss import recompute_counted_tss_for_user
-
-            try:
-                recompute_counted_tss_for_user(session, uid)
-                session.commit()
-            except Exception as _tss_exc:
-                _logging.getLogger(__name__).warning(
-                    "recompute_counted_tss_for_user failed for user %s: %s",
-                    uid,
-                    _tss_exc,
-                    exc_info=True,
-                )
-            _trigger_performance_backfill_background(uid)
         if _threshold_fields_changed:
             try:
                 _recompute_user_running_tss(uid, session)
@@ -15134,16 +14141,6 @@ class _RaceCreateBody(BaseModel):
     priority: Optional[Literal["A", "B", "C"]] = None
     status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
-    role: Optional[Literal["a_race", "pb", "long_run", "fun"]] = None
-    power_cap_w: Optional[int] = None
-    addon_distance_km: Optional[float] = None
-    goal_band_low_seconds: Optional[int] = None
-    goal_band_high_seconds: Optional[int] = None
-    addon_workout_id: Optional[str] = None
-    long_run_need_seconds: Optional[int] = None
-    long_run_manual_target_seconds: Optional[int] = None
-    notes: Optional[str] = None
-    toilet_plan_done: Optional[bool] = None
 
 
 class _RaceUpdateBody(BaseModel):
@@ -15156,16 +14153,6 @@ class _RaceUpdateBody(BaseModel):
     priority: Optional[Literal["A", "B", "C"]] = None
     status: Optional[Literal["planned", "done", "abandoned"]] = None
     race_type: Optional[str] = None
-    role: Optional[Literal["a_race", "pb", "long_run", "fun"]] = None
-    power_cap_w: Optional[int] = None
-    addon_distance_km: Optional[float] = None
-    goal_band_low_seconds: Optional[int] = None
-    goal_band_high_seconds: Optional[int] = None
-    addon_workout_id: Optional[str] = None
-    long_run_need_seconds: Optional[int] = None
-    long_run_manual_target_seconds: Optional[int] = None
-    notes: Optional[str] = None
-    toilet_plan_done: Optional[bool] = None
 
 
 def _race_met_status(race: Race) -> str:
@@ -15178,78 +14165,7 @@ def _race_met_status(race: Race) -> str:
     return "upcoming"
 
 
-def _validate_race_role(role: Optional[str]) -> None:
-    if role is not None and role not in _RACE_ROLES:
-        raise HTTPException(
-            status_code=422,
-            detail={"field": "role", "error": f"role must be one of {', '.join(_RACE_ROLES)}"},
-        )
-
-
-def _apply_race_role_fields(race: Race, body: _RaceUpdateBody, fields_set: set) -> None:
-    _validate_race_role(body.role)
-    if body.role is not None:
-        race.role = body.role
-    if "power_cap_w" in fields_set:
-        race.power_cap_w = body.power_cap_w
-    if "addon_distance_km" in fields_set:
-        race.addon_distance_km = body.addon_distance_km
-    if "goal_band_low_seconds" in fields_set:
-        race.goal_band_low_seconds = body.goal_band_low_seconds
-    if "goal_band_high_seconds" in fields_set:
-        race.goal_band_high_seconds = body.goal_band_high_seconds
-    if "addon_workout_id" in fields_set:
-        if body.addon_workout_id is None:
-            race.addon_workout_id = None
-        else:
-            try:
-                race.addon_workout_id = _uuid.UUID(body.addon_workout_id)
-            except (ValueError, AttributeError):
-                raise HTTPException(status_code=400, detail="invalid addon_workout_id")
-    if "long_run_need_seconds" in fields_set:
-        race.long_run_need_seconds = body.long_run_need_seconds
-    if "long_run_manual_target_seconds" in fields_set:
-        race.long_run_manual_target_seconds = body.long_run_manual_target_seconds
-
-
-def _race_day_workouts(session: Session, user_id, race_date: _date) -> list:
-    return (
-        session.query(Workout)
-        .filter(Workout.user_id == user_id, Workout.workout_date == race_date)
-        .all()
-    )
-
-
-def _race_main_workout(session: Session, race: Race, runs: list) -> Optional[Workout]:
-    if not race.distance_km:
-        return None
-    match = _race_list_svc.match_run(race.race_date, float(race.distance_km), runs)
-    if match is None or match.get("workout_id") is None:
-        return None
-    try:
-        wid = _uuid.UUID(match["workout_id"])
-    except (ValueError, AttributeError):
-        return None
-    return session.get(Workout, wid)
-
-
-def _maybe_autolink_addon(session: Session, user_id, race: Race) -> None:
-    if race.addon_workout_id is not None or _race_role(race) != "long_run":
-        return
-    runs = _race_day_workouts(session, user_id, race.race_date)
-    main_w = _race_main_workout(session, race, runs)
-    addon = _try_auto_link_addon(race, main_w, runs)
-    if addon is not None:
-        race.addon_workout_id = addon.id
-        session.commit()
-
-
-def _race_dict(
-    race: Race,
-    *,
-    pb_limit_warning: Optional[str] = None,
-    role_result: Optional[dict] = None,
-) -> dict:
+def _race_dict(race: Race) -> dict:
     return {
         "id": str(race.id),
         "user_id": str(race.user_id),
@@ -15265,36 +14181,10 @@ def _race_dict(
         "priority": race.priority,
         "status": race.status,
         "race_type": race.race_type if race.race_type else "race",
-        "role": _race_role(race),
-        "power_cap_w": race.power_cap_w,
-        "addon_distance_km": float(race.addon_distance_km) if race.addon_distance_km is not None else None,
-        "goal_band_low_seconds": race.goal_band_low_seconds,
-        "goal_band_high_seconds": race.goal_band_high_seconds,
-        "addon_workout_id": str(race.addon_workout_id) if race.addon_workout_id else None,
-        "long_run_need_seconds": race.long_run_need_seconds,
-        "long_run_manual_target_seconds": race.long_run_manual_target_seconds,
-        "pb_limit_warning": pb_limit_warning,
-        "role_result": role_result,
         "met_status": _race_met_status(race),
         "created_at": race.created_at.isoformat() if race.created_at else None,
-        "notes": getattr(race, "notes", None),
-        "toilet_plan_done": bool(getattr(race, "toilet_plan_done", False)),
         "updated_at": race.updated_at.isoformat() if race.updated_at else None,
     }
-
-
-def _race_dict_enriched(session: Session, user: User, race: Race, *, autolink: bool = True) -> dict:
-    if autolink:
-        _maybe_autolink_addon(session, user.id, race)
-    all_races = session.query(Race).filter(Race.user_id == user.id).all()
-    runs = _race_day_workouts(session, user.id, race.race_date)
-    main_w = _race_main_workout(session, race, runs)
-    addon_w = session.get(Workout, race.addon_workout_id) if race.addon_workout_id else None
-    return _race_dict(
-        race,
-        pb_limit_warning=_pb_limit_warning(all_races, race),
-        role_result=_compute_role_result(race, main_w, addon_w),
-    )
 
 
 def _validate_race_date(race_date_str: str) -> _date:
@@ -15359,30 +14249,12 @@ def create_race(body: _RaceCreateBody, user: User = Depends(resolve_user)):
             race_kwargs["priority"] = body.priority
         if body.status is not None:
             race_kwargs["status"] = body.status
-        if body.role is not None:
-            _validate_race_role(body.role)
-            race_kwargs["role"] = body.role
-        if body.power_cap_w is not None:
-            race_kwargs["power_cap_w"] = body.power_cap_w
-        if body.addon_distance_km is not None:
-            race_kwargs["addon_distance_km"] = body.addon_distance_km
-        if body.goal_band_low_seconds is not None:
-            race_kwargs["goal_band_low_seconds"] = body.goal_band_low_seconds
-        if body.goal_band_high_seconds is not None:
-            race_kwargs["goal_band_high_seconds"] = body.goal_band_high_seconds
-        if body.long_run_need_seconds is not None:
-            race_kwargs["long_run_need_seconds"] = body.long_run_need_seconds
-        if body.long_run_manual_target_seconds is not None:
-            race_kwargs["long_run_manual_target_seconds"] = body.long_run_manual_target_seconds
         race = Race(**race_kwargs)
         race.goal_pace_seconds_per_km = pace
         session.add(race)
         session.commit()
         session.refresh(race)
-        from backend.services.race_calibration import after_race_write as _after_race_write
-
-        _after_race_write(session, user.id)
-        return JSONResponse(status_code=201, content=_race_dict_enriched(session, user, race, autolink=False))
+        return JSONResponse(status_code=201, content=_race_dict(race))
 
 
 @app.get("/api/races")
@@ -15394,7 +14266,7 @@ def list_races(user: User = Depends(resolve_user)):
             .order_by(Race.race_date)
             .all()
         )
-        return JSONResponse([_race_dict_enriched(session, user, r) for r in rows])
+        return JSONResponse([_race_dict(r) for r in rows])
 
 
 @app.get("/api/athletes/{athlete_id}/races")
@@ -15412,22 +14284,7 @@ def list_athlete_races(athlete_id: str, user: User = Depends(resolve_user)):
             .order_by(Race.race_date)
             .all()
         )
-        return JSONResponse([_race_dict_enriched(session, user, r) for r in rows])
-
-
-@app.get("/api/races/roles")
-def list_race_roles(_user: User = Depends(resolve_user)):
-    """Catalog of race roles plus which ones recalibrate the projection."""
-    return JSONResponse({
-        "roles": [
-            {
-                "id": role,
-                "label": _RACE_ROLE_LABELS[role],
-                "recalibrates": role in _RECALIBRATING_ROLES,
-            }
-            for role in _RACE_ROLES
-        ]
-    })
+        return JSONResponse([_race_dict(r) for r in rows])
 
 
 _RACE_CHANGES_RETENTION_DAYS = 30
@@ -15530,7 +14387,7 @@ def get_race(race_id: str, user: User = Depends(resolve_user)):
         race = session.get(Race, rid)
         if race is None or race.user_id != user.id:
             raise HTTPException(status_code=404, detail="race not found")
-        return JSONResponse(_race_dict_enriched(session, user, race))
+        return JSONResponse(_race_dict(race))
 
 
 @app.put("/api/races/{race_id}")
@@ -15564,7 +14421,6 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
             race.status = body.status
         if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
             race.race_type = body.race_type
-        _apply_race_role_fields(race, body, body.model_fields_set)
 
         race.goal_pace_seconds_per_km = _derive_goal_pace(
             race.goal_time_seconds,
@@ -15574,10 +14430,7 @@ def update_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolv
 
         session.commit()
         session.refresh(race)
-        from backend.services.race_calibration import after_race_write as _after_race_write
-
-        _after_race_write(session, user.id)
-        return JSONResponse(_race_dict_enriched(session, user, race, autolink=False))
+        return JSONResponse(_race_dict(race))
 
 
 @app.patch("/api/races/{race_id}")
@@ -15617,11 +14470,6 @@ def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve
             race.status = body.status
         if body.race_type is not None and body.race_type in _RACE_TYPE_VALUES:
             race.race_type = body.race_type
-        _apply_race_role_fields(race, body, body.model_fields_set)
-        if "notes" in body.model_fields_set:
-            race.notes = body.notes
-        if "toilet_plan_done" in body.model_fields_set:
-            race.toilet_plan_done = bool(body.toilet_plan_done)
 
         race.goal_pace_seconds_per_km = _derive_goal_pace(
             race.goal_time_seconds,
@@ -15631,10 +14479,7 @@ def patch_race(race_id: str, body: _RaceUpdateBody, user: User = Depends(resolve
 
         session.commit()
         session.refresh(race)
-        from backend.services.race_calibration import after_race_write as _after_race_write
-
-        _after_race_write(session, user.id)
-        return JSONResponse(_race_dict_enriched(session, user, race, autolink=False))
+        return JSONResponse(_race_dict(race))
 
 
 @app.delete("/api/races/{race_id}", status_code=204)
@@ -15759,16 +14604,6 @@ def calibrate_race(
         race.updated_at = _datetime.now(_timezone.utc)
         session.commit()
         session.refresh(race)
-        from backend.services.race_calibration import (
-            after_race_write as _after_race_write,
-            ensure_calibrations as _ensure_cals,
-        )
-
-        try:
-            _ensure_cals(str(user.id), session)
-        except Exception:
-            _log.warning("ensure_calibrations failed after calibrate_race", exc_info=True)
-        _after_race_write(session, user.id)
 
         # Load user preferences for current personal constants
         prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
@@ -15835,9 +14670,6 @@ def accept_calibration(
 
         session.commit()
         session.refresh(prefs)
-        from backend.services.race_calibration import after_race_write as _after_race_write
-
-        _after_race_write(session, user.id)
 
         ctl_days = prefs.ctl_days
         atl_days = prefs.atl_days
@@ -17124,66 +15956,6 @@ def get_device_zones(user: User = Depends(resolve_user)):
             "zones": zones,
             "activity_date": latest.start_time.date().isoformat() if latest.start_time else None,
         })
-
-
-# ── Critical Power staleness + confirmed update (#1877) ──────────────────────
-
-@app.get("/api/cp/staleness")
-def get_cp_staleness(user: User = Depends(resolve_user)):
-    """CP staleness verdict, suggested CP (if any) and Stryd CP for the session user."""
-    from backend.services.cp_staleness import get_cp_status
-
-    with Session(engine) as session:
-        return JSONResponse(get_cp_status(session, user.id, _today_bkk()))
-
-
-@app.get("/api/cp/history")
-def get_cp_history(user: User = Depends(resolve_user)):
-    from backend.services.cp_staleness import list_cp_history
-
-    with Session(engine) as session:
-        return JSONResponse({"history": list_cp_history(session, user.id)})
-
-
-@app.post("/api/cp/update")
-async def post_cp_update(request: Request, user: User = Depends(resolve_user)):
-    """Athlete-confirmed CP update. Body: ``{"cp_w": int, "source": "suggested"|"stryd"|"manual"}``.
-
-    CP is never changed automatically; this is the only write path for the
-    suggestion flow. Writes ftp_w/ftp_w_source/ftp_w_updated_at and a cp_history row.
-    """
-    from backend.services.cp_staleness import VALID_SOURCES, apply_cp_update, validate_cp
-
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=422, detail="Invalid JSON body")
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=422, detail="Invalid JSON body")
-    cp_w = body.get("cp_w")
-    source = body.get("source", "manual")
-    errors = []
-    msg = validate_cp(cp_w)
-    if msg:
-        errors.append({"field": "cp_w", "msg": msg})
-    if source not in VALID_SOURCES:
-        errors.append({"field": "source", "msg": f"source must be one of {', '.join(VALID_SOURCES)}"})
-    if errors:
-        raise HTTPException(status_code=422, detail=errors)
-
-    with Session(engine) as session:
-        result = apply_cp_update(session, user.id, cp_w, source, _today_bkk())
-        session.commit()
-        try:
-            _recompute_user_running_tss(user.id, session)
-            session.commit()
-        except Exception as _exc:
-            _logging.getLogger(__name__).warning(
-                "recompute_user_running_tss failed for user %s: %s", user.id, _exc, exc_info=True
-            )
-        _trigger_performance_backfill_background(user.id)
-        result["status"] = "fresh"
-        return JSONResponse(result)
 
 
 # ── Athlete duration curve ────────────────────────────────────────────────────
@@ -19428,447 +18200,6 @@ def get_plan_load_plan(user: User = Depends(resolve_user)):
         })
 
 
-class RevampPlanSettingsIn(BaseModel):
-    a_race_id: Optional[str] = None
-    block_start: Optional[str] = None
-    ramp_pct: Optional[float] = None
-    build_weeks: Optional[int] = None
-    peak_hold_weeks: Optional[int] = None
-    peak_tss: Optional[float] = None
-    taper_factors: Optional[list[float]] = None
-    race_week_factor: Optional[float] = None
-    recover_weeks: Optional[int] = None
-    rebuild_weeks: Optional[int] = None
-    rest_days: Optional[list[int]] = None
-    max_consecutive_days: Optional[int] = None
-    race_date: Optional[str] = None
-    distance_km: Optional[float] = None
-    shape: Optional[str] = None
-    taper_weeks: Optional[int] = None
-    weeks_available: Optional[int] = None
-
-
-class RevampFitPhasesIn(BaseModel):
-    weeks_available: int
-    shape: str = "standard"
-    taper_weeks: int = 2
-    build_weeks: Optional[int] = None
-    peak_hold_weeks: Optional[int] = None
-
-
-class RevampWeekCheckIn(BaseModel):
-    rest_days: list[int] = []
-    max_consecutive_days: int = 3
-
-
-def _revamp_settings_body_dict(body: RevampPlanSettingsIn) -> dict:
-    raw = body.model_dump(exclude_unset=True)
-    return {k: v for k, v in raw.items() if v is not None or k in ("peak_tss", "block_start", "a_race_id", "max_consecutive_days")}
-
-
-@app.get("/api/plan/revamp-settings")
-def get_plan_revamp_settings(user: User = Depends(resolve_user)):
-    """Current revamp load settings + A-race picks (P3-12)."""
-    from backend.services.revamp_plan_settings import settings_payload
-
-    with Session(engine) as db:
-        return JSONResponse(settings_payload(db, user.id))
-
-
-@app.get("/api/plan/template-overrides")
-def get_plan_template_overrides(user: User = Depends(resolve_user)):
-    from backend.services.session_template_overrides import list_overrides
-
-    with Session(engine) as db:
-        rows = list_overrides(db, user.id)
-        return JSONResponse({
-            "overrides": [
-                {
-                    "id": str(r.id),
-                    "template_key": r.template_key,
-                    "exercise_key": r.exercise_key,
-                    "override": r.override,
-                }
-                for r in rows
-            ]
-        })
-
-
-@app.delete("/api/plan/template-overrides/{override_id}")
-def delete_plan_template_override(override_id: str, user: User = Depends(resolve_user)):
-    from backend.services.session_template_overrides import delete_override
-
-    with Session(engine) as db:
-        ok = delete_override(db, user.id, override_id)
-        if not ok:
-            raise HTTPException(status_code=404, detail="override not found")
-        db.commit()
-    return JSONResponse({"ok": True})
-
-
-@app.post("/api/plan/revamp-settings/preview")
-def post_plan_revamp_settings_preview(body: RevampPlanSettingsIn, user: User = Depends(resolve_user)):
-    from backend.services.revamp_plan_settings import preview_settings_change
-
-    draft = _revamp_settings_body_dict(body)
-    with Session(engine) as db:
-        try:
-            return JSONResponse(preview_settings_change(db, user.id, draft))
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
-
-
-@app.post("/api/plan/revamp-settings/fit")
-def post_plan_revamp_settings_fit(body: RevampFitPhasesIn, user: User = Depends(resolve_user)):
-    from backend.services.revamp_load_plan import LoadPlanLayoutError
-    from backend.services.revamp_plan_settings import fit_phases
-
-    overrides = {}
-    if body.build_weeks is not None:
-        overrides["build_weeks"] = body.build_weeks
-    if body.peak_hold_weeks is not None:
-        overrides["peak_hold_weeks"] = body.peak_hold_weeks
-    if body.taper_weeks is not None:
-        overrides["taper_weeks"] = body.taper_weeks
-    try:
-        return JSONResponse(
-            fit_phases(
-                body.weeks_available,
-                body.shape,
-                taper_weeks=body.taper_weeks,
-                overrides=overrides or None,
-            )
-        )
-    except LoadPlanLayoutError as exc:
-        raise HTTPException(status_code=422, detail={"code": "layout_mismatch", "message": str(exc)})
-
-
-@app.post("/api/plan/revamp-settings/week-check")
-def post_plan_revamp_week_check(body: RevampWeekCheckIn, user: User = Depends(resolve_user)):
-    from backend.services.plan_rules_engine import typical_week_check
-
-    return JSONResponse(typical_week_check(body.rest_days, body.max_consecutive_days))
-
-
-@app.put("/api/plan/revamp-settings")
-def put_plan_revamp_settings(body: RevampPlanSettingsIn, user: User = Depends(resolve_user)):
-    from backend.services.revamp_load_plan import LoadPlanLayoutError
-    from backend.services.revamp_plan_settings import apply_settings
-
-    draft = _revamp_settings_body_dict(body)
-    with Session(engine) as db:
-        try:
-            out = apply_settings(db, user.id, draft)
-            db.commit()
-            return JSONResponse(out)
-        except LoadPlanLayoutError as exc:
-            db.rollback()
-            raise HTTPException(status_code=422, detail={"code": "layout_mismatch", "message": str(exc)})
-        except ValueError as exc:
-            db.rollback()
-            raise HTTPException(status_code=422, detail=str(exc))
-
-
-@app.get("/api/plan/revamp-road-chart")
-@_query_logged("/api/plan/revamp-road-chart")
-def get_plan_revamp_road_chart(user: User = Depends(resolve_user)):
-    """Revamp Road-to chart: weekly target vs actual through the A race (P3-3)."""
-    from backend.services.revamp_load_plan import road_to_chart
-
-    with Session(engine) as db:
-        from backend.services.revamp_load_plan import generic_road_chart
-
-        payload = road_to_chart(user.id, session=db)
-        if payload is None:
-            payload = generic_road_chart(user.id, session=db, today=_today_bkk())
-    return JSONResponse(payload)
-
-
-class PlanWarningApplyIn(BaseModel):
-    warning_id: str
-
-
-@app.post("/api/plan/revamp-warnings/apply")
-def post_plan_revamp_warning_apply(
-    body: PlanWarningApplyIn,
-    return_mode: Optional[str] = Query(default=None, alias="return"),
-    user: User = Depends(resolve_user),
-):
-    """One-click reschedule for a post-race clash warning."""
-    from backend.services.plan_warnings import apply_clash_suggestion, revamp_warnings_payload
-
-    with Session(engine) as db:
-        try:
-            applied = apply_clash_suggestion(db, user.id, body.warning_id.strip())
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-        db.commit()
-        payload = revamp_warnings_payload(db, user.id)
-        payload["applied"] = applied
-        raw = (applied or {}).get("planned_date")
-        try:
-            d = _date.fromisoformat(str(raw)[:10])
-        except (TypeError, ValueError):
-            d = _today_bkk()
-        ws = d - _timedelta(days=d.weekday())
-        payload = _attach_mutation_sections(
-            payload, db, user.id, ws, today=_today_bkk(), return_mode=return_mode
-        )
-        return JSONResponse(payload)
-
-
-class CoachWeekImportParseIn(BaseModel):
-    week_start: str
-    text: str
-
-
-class CoachWeekImportCommitIn(BaseModel):
-    week_start: str
-    rows: list[dict]
-
-
-@app.get("/api/plan/coach-week-import/photo-capabilities")
-def get_plan_coach_week_import_photo_capabilities(user: User = Depends(resolve_user)):
-    from backend.services.coach_week_photo import photo_import_capabilities
-
-    return JSONResponse(photo_import_capabilities())
-
-
-@app.post("/api/plan/coach-week-import/parse-photo")
-async def post_plan_coach_week_import_parse_photo(
-    week_start: str = Query(...),
-    file: UploadFile = File(...),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.coach_week_photo import parse_coach_week_photo
-
-    today = _today_bkk()
-    try:
-        ws = _date.fromisoformat(week_start.strip())
-    except ValueError:
-        raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-    ws = ws - _timedelta(days=ws.weekday())
-    mime = (file.content_type or "").lower()
-    data = await file.read()
-    with Session(engine) as db:
-        try:
-            out = parse_coach_week_photo(
-                db, user.id, week_start=ws, image_bytes=data, mime=mime, today=today
-            )
-            if not out.get("vision_enabled"):
-                db.rollback()
-                return JSONResponse(status_code=503, content=out)
-            db.commit()
-        except ValueError as exc:
-            db.rollback()
-            raise HTTPException(status_code=422, detail=str(exc))
-    return JSONResponse(out)
-
-
-@app.post("/api/plan/coach-week-import/parse")
-def post_plan_coach_week_import_parse(body: CoachWeekImportParseIn, user: User = Depends(resolve_user)):
-    from backend.services.coach_week_import import parse_coach_week_text
-
-    today = _today_bkk()
-    try:
-        ws = _date.fromisoformat(body.week_start.strip())
-    except ValueError:
-        raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-    ws = ws - _timedelta(days=ws.weekday())
-    with Session(engine) as db:
-        return JSONResponse(
-            parse_coach_week_text(db, user.id, week_start=ws, text=body.text, today=today)
-        )
-
-
-@app.post("/api/plan/coach-week-import/commit")
-def post_plan_coach_week_import_commit(
-    body: CoachWeekImportCommitIn,
-    return_mode: Optional[str] = Query(default=None, alias="return"),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.coach_week_import import apply_coach_week_import, row_from_commit_payload
-
-    today = _today_bkk()
-    try:
-        ws = _date.fromisoformat(body.week_start.strip())
-    except ValueError:
-        raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-    ws = ws - _timedelta(days=ws.weekday())
-    rows = [row_from_commit_payload(r) for r in (body.rows or [])]
-    with Session(engine) as db:
-        try:
-            out = apply_coach_week_import(db, user.id, week_start=ws, rows=rows, today=today)
-            db.commit()
-        except ValueError as exc:
-            db.rollback()
-            raise HTTPException(status_code=422, detail=str(exc))
-        out = _attach_mutation_sections(
-            out, db, user.id, ws, today=today, return_mode=return_mode
-        )
-    return JSONResponse(out)
-
-
-class RevampSuggestApplyIn(BaseModel):
-    proposed: list[dict]
-
-
-@app.post("/api/plan/revamp-suggest/preview")
-def post_plan_revamp_suggest_preview(
-    week_start: Optional[str] = Query(default=None),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.revamp_suggest_sessions import suggest_week_fill
-
-    today = _today_bkk()
-    ws = today - _timedelta(days=today.weekday())
-    if week_start:
-        try:
-            ws = _date.fromisoformat(week_start)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        ws = ws - _timedelta(days=ws.weekday())
-    with Session(engine) as db:
-        return JSONResponse(suggest_week_fill(db, user.id, week_start=ws, today=today))
-
-
-@app.post("/api/plan/revamp-suggest/apply")
-def post_plan_revamp_suggest_apply(
-    body: RevampSuggestApplyIn,
-    return_mode: Optional[str] = Query(default=None, alias="return"),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.revamp_suggest_sessions import apply_week_suggestions
-
-    today = _today_bkk()
-    ws = today - _timedelta(days=today.weekday())
-    proposed = body.proposed or []
-    if proposed:
-        try:
-            d = _date.fromisoformat(str(proposed[0].get("planned_date") or "")[:10])
-            ws = d - _timedelta(days=d.weekday())
-        except (TypeError, ValueError):
-            pass
-    with Session(engine) as db:
-        out = apply_week_suggestions(db, user.id, proposed)
-        db.commit()
-        out = _attach_mutation_sections(
-            out, db, user.id, ws, today=today, return_mode=return_mode
-        )
-    return JSONResponse(out)
-
-
-@app.get("/api/home/revamp")
-def get_home_revamp(user: User = Depends(resolve_user)):
-    """Revamp Home: today hero, race-week panel, alerts (P5-1)."""
-    from backend.services.revamp_home import home_payload
-
-    today = _today_bkk()
-    with Session(engine) as db:
-        return JSONResponse(home_payload(db, user.id, today=today))
-
-
-@app.get("/api/training/trends/revamp")
-def get_training_trends_revamp(
-    range: Optional[str] = Query(default="3m", description="4w | 3m | 6m | 12m"),
-    user: User = Depends(resolve_user),
-):
-    """Revamp Training Trends: fitness chart + weekly load (P5-3)."""
-    from backend.services.revamp_trends import RANGE_KEYS, normalize_range_key, trends_payload
-
-    rk = normalize_range_key(range)
-    if (range or "").strip().lower() not in RANGE_KEYS and (range or "").strip():
-        raise HTTPException(status_code=422, detail="range must be one of: 4w, 3m, 6m, 12m")
-    today = _today_bkk()
-    with Session(engine) as db:
-        return JSONResponse(trends_payload(db, user.id, range_key=rk, today=today))
-
-
-@app.get("/api/plan/revamp-week")
-@_query_logged("/api/plan/revamp-week")
-def get_plan_revamp_week(
-    request: Request,
-    week_start: Optional[str] = Query(default=None),
-    sections: Optional[str] = Query(default=None),
-    user: User = Depends(resolve_user),
-):
-    """One Plan-tab boot: selected sections share one session and plan context (#1927)."""
-    from backend.services.log_etag import etag_headers, not_modified, not_modified_response, revamp_week_etag
-    from backend.services.revamp_week import UnknownSectionError, build_revamp_week, parse_sections
-
-    today = _today_bkk()
-    ws = today - _timedelta(days=today.weekday())
-    if week_start:
-        try:
-            ws = _date.fromisoformat(week_start)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-        ws = ws - _timedelta(days=ws.weekday())
-    try:
-        wanted = parse_sections(sections)
-    except UnknownSectionError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={"unknown": exc.unknown, "allowed": exc.allowed},
-        )
-    with Session(engine) as db:
-        etag = revamp_week_etag(db, user.id, today, ws, wanted)
-        if not_modified(request, etag):
-            return not_modified_response(etag)
-        body = build_revamp_week(db, user.id, week_start=ws, sections=wanted, today=today)
-        return JSONResponse(body, headers=etag_headers(etag))
-
-
-@app.get("/api/plan/revamp-planned-editor/context")
-def get_plan_revamp_planned_editor_context(
-    planned_date: str = Query(...),
-    week_start: Optional[str] = Query(default=None),
-    session_id: Optional[str] = Query(default=None),
-    user: User = Depends(resolve_user),
-):
-    from backend.services.revamp_planned_editor import planned_editor_context
-
-    try:
-        pdate = _validate_planned_date(planned_date)
-    except HTTPException:
-        raise
-    ws = None
-    if week_start:
-        try:
-            raw = _date.fromisoformat(week_start.strip())
-            ws = raw - _timedelta(days=raw.weekday())
-        except ValueError:
-            raise HTTPException(status_code=422, detail="week_start must be YYYY-MM-DD")
-    sid = None
-    if session_id:
-        try:
-            sid = _uuid.UUID(session_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid session id")
-    with Session(engine) as db:
-        return JSONResponse(
-            planned_editor_context(db, user.id, planned_date=pdate, session_id=sid, week_start=ws)
-        )
-
-
-@app.post("/api/plan/rule-evaluate")
-def post_plan_rule_evaluate(body: PlanRuleEvaluateIn, user: User = Depends(resolve_user)):
-    """Evaluate planning rule hits for a pending move or edit (P3-9)."""
-    from backend.services.plan_rules_engine import evaluate, summarize
-
-    try:
-        planned = _validate_planned_date(body.planned_date)
-    except HTTPException:
-        raise
-    change = body.model_dump()
-    change["planned_date"] = planned.isoformat()
-    if body.session_type:
-        change["session_type"] = _validate_planned_type(body.session_type)
-    with Session(engine) as db:
-        results = evaluate(user.id, change, db)
-    return JSONResponse({"level": summarize(results), "results": results})
-
-
 # ── Session load · this week (Plan-tab revamp, Part 2) ──────────────────────
 # See docs/calculations/load-plan.md. target_tss is read from the SAME
 # compute_load_plan series get_plan_load_plan builds — never recomputed here.
@@ -20015,9 +18346,7 @@ def get_plan_week_load(
         clamped = target_week["clamped"] if target_week else False
         acwr_ceiling = target_week["ceiling"] if target_week else _static_acwr_ceiling
 
-        from backend.services.weekly_rollup import weekly_rollup as _weekly_rollup
-
-        logged_tss = _weekly_rollup(str(user.id), query_week_start, today=today)["tss_total"]
+        logged_tss = _get_weekly_volume(str(user.id), query_week_start, query_week_end)["total_tss"]
         planned_tss = _week_planned_tss(
             db, user.id, query_week_start, query_week_end, estimate_baseline, today
         )
@@ -20104,7 +18433,6 @@ def _resp_json_or_none(resp):
 
 
 @app.get("/api/plan/week-bundle")
-@_query_logged("/api/plan/week-bundle")
 def get_plan_week_bundle(
     week_start: Optional[str] = Query(default=None),
     include_load_plan: bool = Query(default=False),
@@ -20742,149 +19070,6 @@ def get_athlete_monthly_summary(
     }
     _summary_cache_put(uid, _mkey, _msig, _mpayload)
     return JSONResponse(_mpayload)
-
-
-# ── Session exercise JSON (revamp P2-1) ───────────────────────────────────────
-
-
-class ValidateExercisesBody(BaseModel):
-    text: Optional[str] = None
-    exercises: Optional[list] = None
-
-
-@app.post("/api/sessions/validate-exercises")
-def post_validate_exercises(body: ValidateExercisesBody, user: User = Depends(resolve_user)):
-    from backend.services.session_exercises import validate_session_exercises
-
-    with Session(engine) as session:
-        payload = validate_session_exercises(
-            session,
-            text=body.text,
-            exercises=body.exercises,
-        )
-    return JSONResponse(payload)
-
-
-class SessionDryRunBody(BaseModel):
-    workout_id: Optional[str] = None
-    workout_date: Optional[str] = None
-    duration_seconds: Optional[int] = None
-    session_effort: Optional[int] = None
-    strength_tss_method: Optional[str] = None
-    text: Optional[str] = None
-    exercises: Optional[list] = None
-
-
-@app.post("/api/sessions/dry-run")
-def post_session_dry_run(body: SessionDryRunBody, user: User = Depends(resolve_user)):
-    from backend.services.session_strength_save import dry_run_strength_session
-    from datetime import date as _date
-
-    wid = None
-    if body.workout_id:
-        try:
-            wid = _uuid.UUID(body.workout_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid workout_id")
-    wdate = _today_bangkok()
-    if body.workout_date:
-        try:
-            wdate = _date.fromisoformat(body.workout_date)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="workout_date must be YYYY-MM-DD")
-    with Session(engine) as session:
-        if wid:
-            w = session.get(Workout, wid)
-            if w is None or w.user_id != user.id:
-                raise HTTPException(status_code=404, detail="Workout not found")
-            wdate = w.workout_date
-        payload = dry_run_strength_session(
-            session,
-            user.id,
-            workout_id=wid,
-            workout_date=wdate,
-            duration_seconds=body.duration_seconds,
-            session_effort=body.session_effort,
-            strength_tss_method=body.strength_tss_method,
-            exercises=body.exercises or [],
-            source_text=body.text,
-        )
-    if not payload.get("valid"):
-        raise HTTPException(status_code=422, detail=payload)
-    return JSONResponse(payload)
-
-
-@app.get("/api/exercises/library-search")
-def get_exercises_library_search(q: str = "", user: User = Depends(resolve_user)):
-    _ = user
-    term = (q or "").strip().lower()
-    with Session(engine) as session:
-        qry = session.query(PlanExercise).filter(PlanExercise.active.is_(True))
-        if term:
-            qry = qry.filter(PlanExercise.name.ilike(f"%{term}%"))
-        rows = qry.order_by(PlanExercise.name).limit(25).all()
-    return JSONResponse(
-        [
-            {
-                "id": str(r.id),
-                "name": r.name,
-                "tss_weight": float(r.tss_weight),
-                "default_block": r.default_block,
-            }
-            for r in rows
-        ]
-    )
-
-
-@app.get("/api/workouts/{workout_id}/session-versions")
-def get_workout_session_versions(workout_id: str, user: User = Depends(resolve_user)):
-    try:
-        wid = _uuid.UUID(workout_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid workout_id")
-    from backend.services.session_versions import list_versions
-
-    with Session(engine) as session:
-        w = session.get(Workout, wid)
-        if w is None or w.user_id != user.id:
-            raise HTTPException(status_code=404, detail="Workout not found")
-        versions = list_versions(session, wid)
-    return JSONResponse({"versions": versions})
-
-
-@app.get("/api/admin/pending-exercises")
-def get_admin_pending_exercises(user: User = Depends(require_user_admin)):
-    from backend.services.pending_exercises import list_pending
-
-    with Session(engine) as session:
-        rows = list_pending(session)
-    return JSONResponse({"pending": rows})
-
-
-class PendingRemapBody(BaseModel):
-    library_id: str
-
-
-@app.post("/api/admin/pending-exercises/{pending_id}/remap")
-def post_pending_remap(pending_id: str, body: PendingRemapBody, user: User = Depends(require_user_admin)):
-    _ = user
-    from backend.services.pending_exercises import remap_custom
-
-    try:
-        pid = _uuid.UUID(pending_id)
-        lib_id = _uuid.UUID(body.library_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid id")
-    with Session(engine) as session:
-        row = session.get(PendingExercise, pid)
-        if row is None:
-            raise HTTPException(status_code=404, detail="Pending exercise not found")
-        try:
-            stats = remap_custom(session, name=row.display_name, library_id=lib_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
-        session.commit()
-    return JSONResponse(stats)
 
 
 # ── Session consult prompt (race debrief clipboard) ───────────────────────────

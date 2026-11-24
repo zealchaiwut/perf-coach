@@ -628,31 +628,27 @@ def test_all_top_level_blocks_present(export):
 # ═════════════════════════════════════════════════════════════════════════════
 
 def test_rollup_tss_matches_session_tss(export):
-    """Per Bangkok week: session rows (local session date + session_tss) must match
-    weekly_rollup totals in the export."""
+    """Two independent paths over the same rows: the session list iterates
+    Workout objects, the rollups go through get_weekly_volume's aggregate."""
     rollups = export["training"]["weekly_rollups"]
-    sessions = export["training"]["sessions"]
-    for rollup in rollups:
-        ws = datetime.date.fromisoformat(rollup["week_start"])
-        we = ws + datetime.timedelta(days=6)
-        week_tss = sum(
-            float(s["tss"] or 0)
-            for s in sessions
-            if ws <= datetime.date.fromisoformat(s["date"]) <= we
-        )
-        assert week_tss == pytest.approx(rollup["tss"], abs=0.05), (
-            f"week {rollup['week_start']} tss mismatch"
-        )
+    rollup_start = datetime.date.fromisoformat(rollups[0]["week_start"])
+
+    sessions_in_span = [
+        s for s in export["training"]["sessions"]
+        if datetime.date.fromisoformat(s["date"]) >= rollup_start
+    ]
+    assert sum(s["tss"] for s in sessions_in_span) == pytest.approx(
+        sum(r["tss"] for r in rollups), abs=0.05
+    )
 
 
 def test_rollup_session_counts_match_session_rows(export):
     rollups = export["training"]["weekly_rollups"]
-    sessions = export["training"]["sessions"]
     for rollup in rollups:
         ws = datetime.date.fromisoformat(rollup["week_start"])
         we = ws + datetime.timedelta(days=6)
         counted = sum(
-            1 for s in sessions
+            1 for s in export["training"]["sessions"]
             if ws <= datetime.date.fromisoformat(s["date"]) <= we
         )
         assert counted == rollup["sessions"], f"week {rollup['week_start']} disagrees"
@@ -721,13 +717,9 @@ def test_sessions_are_ordered_oldest_first(export):
 
 
 def test_sessions_stay_inside_the_window(export):
-    from backend.services.weekly_rollup import bangkok_week_start
-
     window_start = TODAY - datetime.timedelta(days=WINDOW - 1)
-    allowed_end = max(TODAY, bangkok_week_start(TODAY) + datetime.timedelta(days=6))
     for s in export["training"]["sessions"]:
-        d = datetime.date.fromisoformat(s["date"])
-        assert window_start <= d <= allowed_end
+        assert window_start <= datetime.date.fromisoformat(s["date"]) <= TODAY
 
 
 # ═════════════════════════════════════════════════════════════════════════════

@@ -136,7 +136,7 @@ def test_h_precompute_calls_precompute_user():
     import backend.worker_app as w
     with patch.object(precompute, "precompute_user") as mock_pc:
         w._h_precompute({"user_id": "u1", "dates": ["2026-01-01"]})
-    mock_pc.assert_called_once_with("u1", dates=["2026-01-01"], v2=True)
+    mock_pc.assert_called_once_with("u1", dates=["2026-01-01"])
 
 
 def test_enqueue_precompute_after_sync_enqueues_for_user(monkeypatch):

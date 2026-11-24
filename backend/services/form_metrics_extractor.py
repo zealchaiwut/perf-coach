@@ -1,8 +1,7 @@
 """Extract per-run Stryd running-dynamics from a stryd_activities row.
 
-Key mapping (calendar summary verified 2026-06-17; form power verified against
-a live UAT streams payload 2026-11-24 — the calendar JSON has no
-``average_form_power`` / ``form_power`` key):
+Key mapping (verified against live Stryd calendar API 2026-06-17 via stryd_sync.py
+map_stryd_activity — these are the keys stored in stryd_activities.form_metrics JSONB):
 
     form_metrics key              | run_form_metrics column
     ──────────────────────────────┼─────────────────────────
@@ -11,11 +10,6 @@ a live UAT streams payload 2026-11-24 — the calendar JSON has no
     "vertical_oscillation_cm"     | vertical_oscillation_cm
     "cadence_spm"                 | cadence_spm
     (stryd_activities.avg_power_w)| power_w
-    "form_power_w" / avg_power_w  | form_power_ratio  (dimensionless, P4-3)
-    (or a stored "form_power_ratio" key when the payload carries it directly)
-
-``form_power_w`` is the mean of the Stryd streams ``vertical_power_list``
-(Stryd's form-power channel). Summary keys are accepted if they ever appear.
 
 All values are nullable; a missing / unparseable payload is silently skipped
 (returns None) and never causes a sync failure.
@@ -36,31 +30,6 @@ def _coerce_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def form_power_w_from_streams(streams: dict | None) -> float | None:
-    """Mean of Stryd ``vertical_power_list`` (form power), ignoring zeros."""
-    if not isinstance(streams, dict):
-        return None
-    series = streams.get("vertical_power_list")
-    if not isinstance(series, list):
-        return None
-    nums = [_coerce_float(x) for x in series]
-    nums = [x for x in nums if x is not None and x > 0]
-    if not nums:
-        return None
-    return round(sum(nums) / len(nums), 2)
-
-
-def _derive_form_power_ratio(form_metrics: dict, power_w: float | None) -> float | None:
-    """Form power / running power. A direct ``form_power_ratio`` key wins."""
-    direct = _coerce_float(form_metrics.get("form_power_ratio"))
-    if direct is not None and direct > 0:
-        return round(direct, 4)
-    form_power_w = _coerce_float(form_metrics.get("form_power_w"))
-    if form_power_w is None or power_w is None or power_w <= 0 or form_power_w < 0:
-        return None
-    return round(form_power_w / power_w, 4)
 
 
 def extract_form_metrics_row(
@@ -85,12 +54,8 @@ def extract_form_metrics_row(
     vertical_oscillation_cm = _coerce_float(form_metrics.get("vertical_oscillation_cm"))
     cadence_spm = _coerce_float(form_metrics.get("cadence_spm"))
     power_w = _coerce_float(avg_power_w)
-    form_power_ratio = _derive_form_power_ratio(form_metrics, power_w)
 
-    if all(
-        v is None
-        for v in (gct_ms, lss_kn_m, vertical_oscillation_cm, cadence_spm, power_w, form_power_ratio)
-    ):
+    if all(v is None for v in (gct_ms, lss_kn_m, vertical_oscillation_cm, cadence_spm, power_w)):
         return None
 
     return {
@@ -103,5 +68,4 @@ def extract_form_metrics_row(
         "vertical_oscillation_cm": vertical_oscillation_cm,
         "cadence_spm": cadence_spm,
         "power_w": power_w,
-        "form_power_ratio": form_power_ratio,
     }

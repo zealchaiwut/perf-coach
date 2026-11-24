@@ -34,8 +34,6 @@ class _Workout(_Base):
     user_id = Column(String, nullable=False)
     workout_type = Column(String, nullable=False)
     tss = Column(Float, nullable=True)
-    tss_power = Column(Float, nullable=True)
-    tss_stryd = Column(Float, nullable=True)
     tss_source = Column(String, nullable=True)
     tss_method = Column(String, nullable=True)
     np = Column(Integer, nullable=True)
@@ -83,24 +81,11 @@ def sqlite_session(monkeypatch):
         session.close()
 
 
-def test_recompute_user_running_tss_value_survives_commit(sqlite_session, monkeypatch):
+def test_recompute_user_running_tss_value_survives_commit(sqlite_session):
     """AC: after recompute_user_running_tss() + the caller's commit, the refreshed
     TSS must be readable from a brand-new session (i.e. actually in the DB), not
     just present on the now-stale in-memory object."""
     from backend.services.tss import recompute_user_running_tss
-
-    def _stub_refresh(session, workout, *, power_tss=None):
-        if power_tss is not None:
-            workout.tss_power = float(power_tss)
-        if workout.tss_source != "manual" and power_tss is not None:
-            workout.tss = int(power_tss)
-            workout.tss_source = "calculated"
-            workout.tss_method = "power"
-
-    monkeypatch.setattr(
-        "backend.services.session_tss.refresh_workout_tss_storage",
-        _stub_refresh,
-    )
 
     session, engine = sqlite_session
     user_id = str(uuid.uuid4())

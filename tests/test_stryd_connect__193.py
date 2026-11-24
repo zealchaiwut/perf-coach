@@ -92,10 +92,11 @@ def test_connect_response_has_no_sensitive_fields(monkeypatch):
 
 # ── 3. Wrong credentials → 401 with prescribed message ───────────────────────
 
-def test_call_stryd_signin_401_raises_stryd_auth_error():
-    """_call_stryd_signin converts urllib 401 to StrydAuthError."""
+def test_call_stryd_signin_401_raises_http_exception():
+    """_call_stryd_signin converts urllib 401 to HTTPException(401)."""
     import urllib.error
-    from backend.services.stryd import StrydAuthError, _call_stryd_signin
+    from fastapi import HTTPException as _HTTPException
+    from backend.services.stryd import _call_stryd_signin
 
     http_err = urllib.error.HTTPError(
         url="https://www.stryd.com/b/email/signin",
@@ -105,18 +106,20 @@ def test_call_stryd_signin_401_raises_stryd_auth_error():
         fp=None,
     )
     with patch("urllib.request.urlopen", side_effect=http_err):
-        with pytest.raises(StrydAuthError) as exc_info:
+        with pytest.raises(_HTTPException) as exc_info:
             _call_stryd_signin("athlete@example.com", "wrong-password")
 
+    assert exc_info.value.status_code == 401
     assert "Stryd authentication failed" in exc_info.value.detail
 
 
 def test_connect_wrong_password_via_service(monkeypatch):
     _fernet_key(monkeypatch)
-    from backend.services.stryd import StrydAuthError
+    from fastapi import HTTPException as _HTTPException
 
-    with patch("backend.main._stryd_signin", side_effect=StrydAuthError(
-        "Stryd authentication failed — check email and password.",
+    with patch("backend.main._stryd_signin", side_effect=_HTTPException(
+        status_code=401,
+        detail="Stryd authentication failed — check email and password.",
     )):
         res = client.post("/api/stryd/connect", json={
             "email": "athlete@example.com",
@@ -132,10 +135,11 @@ def test_connect_wrong_password_via_service(monkeypatch):
 
 def test_connect_stryd_5xx_returns_502(monkeypatch):
     _fernet_key(monkeypatch)
-    from backend.services.stryd import StrydUnavailable
+    from fastapi import HTTPException as _HTTPException
 
-    with patch("backend.main._stryd_signin", side_effect=StrydUnavailable(
-        "Stryd is unavailable, try again later.",
+    with patch("backend.main._stryd_signin", side_effect=_HTTPException(
+        status_code=502,
+        detail="Stryd is unavailable, try again later.",
     )):
         res = client.post("/api/stryd/connect", json={
             "email": "athlete@example.com",
@@ -153,16 +157,18 @@ def test_connect_stryd_5xx_returns_502(monkeypatch):
 # athlete as a bare "Internal Server Error" instead of the same friendly
 # message already used for Stryd 5xx responses.
 
-def test_call_stryd_signin_url_error_raises_stryd_unavailable():
-    """_call_stryd_signin converts a connection failure (URLError) to StrydUnavailable."""
+def test_call_stryd_signin_url_error_raises_502():
+    """_call_stryd_signin converts a connection failure (URLError) to 502."""
     import urllib.error
-    from backend.services.stryd import StrydUnavailable, _call_stryd_signin
+    from fastapi import HTTPException as _HTTPException
+    from backend.services.stryd import _call_stryd_signin
 
     url_err = urllib.error.URLError("Temporary failure in name resolution")
     with patch("urllib.request.urlopen", side_effect=url_err):
-        with pytest.raises(StrydUnavailable) as exc_info:
+        with pytest.raises(_HTTPException) as exc_info:
             _call_stryd_signin("athlete@example.com", "any-password")
 
+    assert exc_info.value.status_code == 502
     assert "Stryd is unavailable" in exc_info.value.detail
 
 
@@ -201,7 +207,8 @@ def test_call_stryd_signin_404_raises_401_with_stryd_message():
     friendly 401, preferring Stryd's own response body when present."""
     import io
     import urllib.error
-    from backend.services.stryd import StrydAuthError, _call_stryd_signin
+    from fastapi import HTTPException as _HTTPException
+    from backend.services.stryd import _call_stryd_signin
 
     body = b"Account does not exist. Please sign up first."
     http_err = urllib.error.HTTPError(
@@ -212,9 +219,10 @@ def test_call_stryd_signin_404_raises_401_with_stryd_message():
         io.BytesIO(body),  # type: ignore[arg-type]
     )
     with patch("urllib.request.urlopen", side_effect=http_err):
-        with pytest.raises(StrydAuthError) as exc_info:
+        with pytest.raises(_HTTPException) as exc_info:
             _call_stryd_signin("nobody@example.com", "any-password")
 
+    assert exc_info.value.status_code == 401
     assert "Account does not exist" in exc_info.value.detail
 
 
@@ -222,7 +230,8 @@ def test_call_stryd_signin_404_falls_back_when_body_unreadable():
     """If Stryd's 404 body can't be read for any reason, fall back to the
     same generic message used for 401/403 rather than raising a raw 500."""
     import urllib.error
-    from backend.services.stryd import StrydAuthError, _call_stryd_signin
+    from fastapi import HTTPException as _HTTPException
+    from backend.services.stryd import _call_stryd_signin
 
     http_err = urllib.error.HTTPError(
         "https://www.stryd.com/b/email/signin",
@@ -232,9 +241,10 @@ def test_call_stryd_signin_404_falls_back_when_body_unreadable():
         None,  # type: ignore[arg-type] — no readable fp
     )
     with patch("urllib.request.urlopen", side_effect=http_err):
-        with pytest.raises(StrydAuthError) as exc_info:
+        with pytest.raises(_HTTPException) as exc_info:
             _call_stryd_signin("nobody@example.com", "any-password")
 
+    assert exc_info.value.status_code == 401
     assert "Stryd authentication failed" in exc_info.value.detail
 
 

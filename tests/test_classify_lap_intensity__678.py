@@ -1,7 +1,7 @@
 """Tests for issue #678: classify_laps pure function with basis-chosen-once semantics.
 
 Acceptance criteria anchored:
-  AC1  - classify_laps importable from backend.services.lap_classify
+  AC1  - classify_laps importable from backend.services.lap_classifier
   AC2  - pure function: no DB calls, no session param; basis determined ONCE from prefs
   AC3  - returns one result per lap; each result has ratio, band, basis (reason optional)
   AC4  - ratio computations: power=avg_power/ftp_w, pace=threshold_pace/lap_pace,
@@ -19,7 +19,7 @@ import types
 
 import pytest
 
-from backend.services.lap_classify import classify_laps, classify_laps_for_workout
+from backend.services.lap_classifier import classify_laps, classify_laps_for_workout
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -44,8 +44,8 @@ def _prefs(ftp_w=None, threshold_hr=None, threshold_pace_seconds_per_km=None):
 # ── AC1: importable ────────────────────────────────────────────────────────────
 
 def test_classify_laps_is_importable():
-    """AC1: classify_laps importable from backend.services.lap_classify."""
-    from backend.services.lap_classify import classify_laps as fn
+    """AC1: classify_laps importable from backend.services.lap_classifier."""
+    from backend.services.lap_classifier import classify_laps as fn
     assert callable(fn)
 
 
@@ -183,7 +183,7 @@ def test_band_boundaries(avg_power, ftp, expected_band):
 
 def test_band_constants_are_named():
     """AC5: module exports named constants for band boundaries."""
-    import backend.services.lap_classify as mod
+    import backend.services.lap_classifier as mod
     assert hasattr(mod, "BAND_EASY")
     assert hasattr(mod, "BAND_STEADY")
     assert hasattr(mod, "BAND_TEMPO")
@@ -342,8 +342,8 @@ def test_docstring_has_none_path_example():
 # ── AC9: thin caller exists ───────────────────────────────────────────────────
 
 def test_thin_caller_is_importable():
-    """AC9: classify_laps_for_workout importable from backend.services.lap_classify."""
-    from backend.services.lap_classify import classify_laps_for_workout as fn
+    """AC9: classify_laps_for_workout importable from backend.services.lap_classifier."""
+    from backend.services.lap_classifier import classify_laps_for_workout as fn
     assert callable(fn)
 
 

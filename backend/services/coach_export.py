@@ -280,7 +280,7 @@ _NULL_FITNESS = {
 }
 
 
-def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str], db: Session) -> dict:
+def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str]) -> dict:
     """CTL/ATL/TSB/ACWR from the snapshot table — the sole source every other
     consumer (readiness card, season chart) reads. No independent recompute."""
     from backend.services.coach_plan import _TARGET_CTL
@@ -292,15 +292,8 @@ def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str], db: S
     tsb = _f(load.get("tsb"))
     acwr = _f(load.get("acwr"), 3)
 
-    from backend.services.weekly_rollup import bangkok_week_start, weekly_rollups
-
-    series_start = bangkok_week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
+    series_start = _week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
     snaps = get_snapshot_series(str(user_id), series_start, today)
-    roll_by_week = {
-        r["week_start"]: r for r in weekly_rollups(
-            str(user_id), series_start, today, session=db, today=today
-        )
-    }
 
     by_date = {s["date"]: s for s in snaps}
     weekly_series: list[dict] = []
@@ -315,10 +308,11 @@ def _assemble_fitness(user_id, today: _date, goal_distance: Optional[str], db: S
             if (ws + _timedelta(days=d)) in by_date
         ]
         end_snap = week_snaps[-1] if week_snaps else None
-        rollup = roll_by_week.get(ws.isoformat(), {})
+        # ACWR needs a full 28-day chronic window; the snapshot layer already
+        # returns None for days that don't have one (see acwr.py's _MIN_DAYS).
         weekly_series.append({
             "week_start": ws.isoformat(),
-            "tss": _f(rollup.get("tss_total"), 1),
+            "tss": _f(sum(float(s["tss"] or 0) for s in week_snaps), 1),
             "ctl_end": _f(end_snap["ctl"], 1) if end_snap else None,
             "atl_end": _f(end_snap["atl"], 1) if end_snap else None,
             "tsb_end": _f(end_snap["tsb"], 1) if end_snap else None,
@@ -434,14 +428,10 @@ def _assemble_performance(user) -> dict:
             "endurance": dict(_NULL_SCORE),
             "speed": dict(_NULL_SCORE),
         }
-    endurance = _score_block(payload.get("endurance"))
-    speed = _score_block(payload.get("speed"))
     return {
         "state": "scored",
-        "overall": {"endurance": endurance, "speed": speed},
-        # Legacy keys — same objects as overall.* (tests + downstream parsers).
-        "endurance": endurance,
-        "speed": speed,
+        "endurance": _score_block(payload.get("endurance")),
+        "speed": _score_block(payload.get("speed")),
     }
 
 
@@ -864,17 +854,12 @@ _NULL_TRAINING = {"weekly_rollups": [], "skipped_planned": [], "sessions": []}
 _SKIPPED_STATUSES = ("missed", "missed_auto", "missed_manual")
 
 
-def _session_row(workout, exercise_counts: dict, prefs=None) -> dict:
+def _session_row(workout, exercise_counts: dict) -> dict:
     """One flat session object. No ``structure`` blob — it triples the payload
     and adds nothing a coach message can use."""
-    from backend.services.session_tss import session_tss
-    from backend.services.weekly_rollup import session_local_date
-
-    local_d = session_local_date(workout)
-    counted = session_tss(workout, prefs=prefs)
     row = {
-        "date": local_d.isoformat(),
-        "dow": _DOW[local_d.weekday()],
+        "date": workout.workout_date.isoformat(),
+        "dow": _DOW[workout.workout_date.weekday()],
         "type": workout.workout_type,
         "name": workout.name,
         "duration_min": (
@@ -882,7 +867,7 @@ def _session_row(workout, exercise_counts: dict, prefs=None) -> dict:
             if workout.duration_seconds
             else None
         ),
-        "tss": _f(counted.get("tss"), 1),
+        "tss": _f(workout.tss, 1),
     }
     if workout.run_subtype:
         row["subtype"] = workout.run_subtype
@@ -915,22 +900,17 @@ def _session_row(workout, exercise_counts: dict, prefs=None) -> dict:
 def _assemble_training(db: Session, user, today: _date, window_days: int) -> dict:
     from sqlalchemy import func
 
-    from backend.models import PlannedSession, UserPreferences, Workout, WorkoutExercise
-    from backend.services.weekly_rollup import bangkok_week_start, rollup_for_export, weekly_rollups
+    from backend.models import PlannedSession, Workout, WorkoutExercise
+    from backend.services.training_load import get_weekly_volume
 
     window_start = today - _timedelta(days=window_days - 1)
-    rollup_start = bangkok_week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
-    effective_start = min(window_start, rollup_start)
-    buffer_start = effective_start - _timedelta(days=1)
-    current_week_end = bangkok_week_start(today) + _timedelta(days=6)
-    query_end = max(today, current_week_end)
 
     workouts = (
         db.query(Workout)
         .filter(
             Workout.user_id == user.id,
-            Workout.workout_date >= buffer_start,
-            Workout.workout_date <= query_end,
+            Workout.workout_date >= window_start,
+            Workout.workout_date <= today,
         )
         .order_by(Workout.workout_date.asc(), Workout.start_time.asc().nullslast())
         .all()
@@ -946,21 +926,30 @@ def _assemble_training(db: Session, user, today: _date, window_days: int) -> dic
         ):
             exercise_counts[wid] = int(count)
 
-    prefs = (
-        db.query(UserPreferences)
-        .filter(UserPreferences.user_id == user.id)
-        .first()
-    )
-    sessions = [_session_row(w, exercise_counts, prefs) for w in workouts]
+    sessions = [_session_row(w, exercise_counts) for w in workouts]
 
-    rollups_raw = weekly_rollups(str(user.id), rollup_start, today, session=db, today=today)
-    weekly_rollups_list: list[dict] = []
-    for row in rollups_raw:
-        exp = rollup_for_export(row)
-        exp["tss"] = _f(exp["tss"], 1)
-        exp["distance_km"] = _f(exp["distance_km"], 1)
-        exp["hours"] = _f(exp["hours"], 1)
-        weekly_rollups_list.append(exp)
+    rollup_start = _week_start(today) - _timedelta(weeks=ROLLUP_WEEKS - 1)
+    weekly_rollups: list[dict] = []
+    for i in range(ROLLUP_WEEKS):
+        ws = rollup_start + _timedelta(weeks=i)
+        if ws > today:
+            break
+        we = ws + _timedelta(days=6)
+        # Clamp to today: a rollup must cover the same span as `sessions`, or the
+        # two disagree the moment a workout is dated ahead (pre-logged session,
+        # timezone edge) and the export contradicts itself.
+        vol = get_weekly_volume(str(user.id), ws, min(we, today))
+        types = [t for t in (vol.get("workout_types") or []) if t]
+        weekly_rollups.append({
+            "week_start": ws.isoformat(),
+            "sessions": vol["session_count"],
+            "tss": _f(vol["total_tss"], 1),
+            "distance_km": _f(vol["distance_km"], 1),
+            "hours": _f((vol["duration_seconds"] or 0) / 3600.0, 1),
+            "runs": sum(1 for t in types if t.lower() == "run"),
+            "strength": sum(1 for t in types if t.lower() in ("strength", "plyo")),
+            "partial": we > today,
+        })
 
     # ``skipped_planned`` reads the status plan_matching already assigned (a
     # planned session with no workout inside its ±1-day window is marked
@@ -993,7 +982,7 @@ def _assemble_training(db: Session, user, today: _date, window_days: int) -> dic
         names_by_date.setdefault(w.workout_date.isoformat(), w.name)
 
     return {
-        "weekly_rollups": weekly_rollups_list,
+        "weekly_rollups": weekly_rollups,
         "skipped_planned": skipped,
         "sessions": sessions,
         "_names_by_run_id": names_by_run_id,
@@ -1420,7 +1409,7 @@ def build_export(user_id, window_days: int = DEFAULT_WINDOW_DAYS, today: Optiona
         goal_distance = ((goal.get("race") or {}) or {}).get("distance")
         fitness = _safe(
             "fitness",
-            lambda: _assemble_fitness(user.id, today, goal_distance, db),
+            lambda: _assemble_fitness(user.id, today, goal_distance),
             dict(_NULL_FITNESS),
             degraded,
         )

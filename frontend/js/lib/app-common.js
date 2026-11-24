@@ -103,41 +103,6 @@
     return d.toISOString().slice(0, 10);
   }
 
-  function readCsrfCookie() {
-    var m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
-    return m ? decodeURIComponent(m[1]) : '';
-  }
-
-  function csrfToken() {
-    var cached = readCsrfCookie();
-    if (cached) return Promise.resolve(cached);
-    return fetch('/api/csrf-token', { credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : {}; })
-      .then(function (body) {
-        var t = (body && body.csrf_token) || '';
-        if (t) {
-          document.cookie = 'csrf-token=' + encodeURIComponent(t) + '; Path=/; SameSite=Lax';
-        }
-        return t || readCsrfCookie();
-      })
-      .catch(function () { return ''; });
-  }
-
-  function fetchWithCsrf(url, options) {
-    options = options || {};
-    var method = (options.method || 'GET').toUpperCase();
-    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
-      options.credentials = options.credentials || 'same-origin';
-      return fetch(url, options);
-    }
-    return csrfToken().then(function (token) {
-      options.credentials = options.credentials || 'same-origin';
-      options.headers = Object.assign({}, options.headers || {});
-      if (token) options.headers['X-CSRF-Token'] = token;
-      return fetch(url, options);
-    });
-  }
-
   global.AppCommon = {
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
@@ -145,8 +110,6 @@
     nowBangkok: nowBangkok,
     toISODate: toISODate,
     addDaysISO: addDaysISO,
-    csrfToken: csrfToken,
-    fetchWithCsrf: fetchWithCsrf,
     TIMEZONE: BANGKOK
   };
 })(typeof window !== 'undefined' ? window : this);

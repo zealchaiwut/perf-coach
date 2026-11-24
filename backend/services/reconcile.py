@@ -119,14 +119,13 @@ def _make_proxy(
 
 
 def _apply_best(workout, best: dict) -> None:
-    overrides = workout.manual_overrides or {}
-    if "name" not in overrides and best.get("best_name"):
+    if best.get("best_name"):
         workout.name = best["best_name"]
-    if "distance_km" not in overrides and best.get("best_distance_km") is not None:
+    if best.get("best_distance_km") is not None:
         workout.distance_km = best["best_distance_km"]
-    if "duration_seconds" not in overrides and best.get("best_duration_seconds") is not None:
+    if best.get("best_duration_seconds") is not None:
         workout.duration_seconds = best["best_duration_seconds"]
-    if "avg_hr" not in overrides and best.get("best_avg_hr") is not None:
+    if best.get("best_avg_hr") is not None:
         from backend.services.workout_merge import clean_hr
 
         hr = clean_hr(best["best_avg_hr"])
@@ -179,8 +178,6 @@ def _sync_splits(session, workout, act) -> None:
             split_index=i,
             distance_km=s.get("distance_km") or 0,
             duration_seconds=s.get("duration_seconds") or 0,
-            moving_time_seconds=s.get("moving_time_seconds") or s.get("duration_seconds") or 0,
-            elapsed_time_seconds=s.get("elapsed_time_seconds") or s.get("duration_seconds") or 0,
             avg_hr=s.get("avg_hr"),
             avg_power=s.get("avg_power") if s.get("avg_power") is not None else s.get("avg_power_w"),
             cadence_spm=s.get("cadence_spm"),
@@ -369,7 +366,6 @@ def reconcile_workouts(
                         StravaActivity.strava_activity_id, StravaActivity.start_time,
                         StravaActivity.activity_type, StravaActivity.name,
                         StravaActivity.distance_km, StravaActivity.duration_seconds,
-                        StravaActivity.elapsed_time_seconds,
                         StravaActivity.avg_hr, StravaActivity.avg_power_w,
                         StravaActivity.max_hr, StravaActivity.elevation_m,
                         StravaActivity.is_stryd_synced,
@@ -560,9 +556,6 @@ def reconcile_workouts(
                 _apply_stryd_metrics(target, act)
                 stryd_pairs.append((target, act))
 
-            if source_type == "strava" and getattr(act, "elapsed_time_seconds", None) is not None:
-                target.elapsed_time_seconds = act.elapsed_time_seconds
-
             touched_workouts.append(target)
 
             sync_jobs.increment(uid, current=1)
@@ -608,15 +601,6 @@ def reconcile_workouts(
             "Duration curve update failed for user %s; sync will still complete", uid
         )
 
-    try:
-        from backend.services.data_version import bump_data_version
-
-        with _Session(engine) as session:
-            bump_data_version(session, uid)
-            session.commit()
-    except Exception:
-        _log.exception("data_version bump after reconcile failed for user %s", uid)
-
 
 def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
     """Per-run: fill zone2_minutes (time in the user's Zone-2 HR band) from the
@@ -626,7 +610,8 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
     When workout_ids is set, only those runs are updated (incremental sync)."""
     from backend.db import engine
     from backend.models import UserPreferences, Workout, WorkoutSplit
-    from backend.services.session_tss import refresh_workout_tss_storage
+    from backend.services.tss import estimate_tss_for_workout
+    from types import SimpleNamespace
 
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     with _Session(engine) as session:
@@ -650,17 +635,21 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
             if sp:
                 z2s = sum((s.duration_seconds or 0) for s in sp
                           if s.avg_hr is not None and z_min <= s.avg_hr <= z_max)
-                easy_s = sum((s.duration_seconds or 0) for s in sp
-                             if s.avg_hr is not None and s.avg_hr <= z_max)
                 w.zone2_minutes = round(z2s / 60)
-                w.easy_minutes = round(easy_s / 60)
-            elif w.avg_hr is not None and w.duration_seconds:
-                if z_min <= w.avg_hr <= z_max:
-                    w.zone2_minutes = round(w.duration_seconds / 60)
-                if w.avg_hr <= z_max:
-                    w.easy_minutes = round(w.duration_seconds / 60)
+            elif w.avg_hr is not None and w.duration_seconds and z_min <= w.avg_hr <= z_max:
+                w.zone2_minutes = round(w.duration_seconds / 60)
 
-            refresh_workout_tss_storage(session, w)
+            if w.tss is None and w.duration_seconds:
+                proxy = SimpleNamespace(
+                    duration_seconds=w.duration_seconds,
+                    avg_power_w=w.avg_power,
+                    avg_hr=w.avg_hr,
+                    distance_km=float(w.distance_km) if w.distance_km is not None else None,
+                    avg_pace_seconds_per_km=None,
+                )
+                tss, src = estimate_tss_for_workout(proxy, uid, session)
+                w.tss = tss
+                w.tss_source = src
 
         # Weeks touched by these runs — collected while attributes are still
         # loaded (before commit expires them).

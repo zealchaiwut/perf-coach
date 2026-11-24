@@ -129,7 +129,6 @@ Unique: `(habit_id, log_date)`. Index: `(habit_id, log_week_start)`.
 | source | varchar(20) | nullable; `manual`/`strava`/`stryd`/`both` |
 | distance_km | numeric(8,3) | nullable; ≥0 |
 | duration_seconds | int | nullable; ≥0 |
-| elapsed_time_seconds | int | nullable — wall-clock elapsed time from Strava; `duration_seconds` stays = moving (#1876) |
 | avg_hr / max_hr | int | nullable; 20–250 |
 | elevation_m | int | nullable |
 | start_time | timestamptz | nullable |
@@ -189,8 +188,6 @@ Child tables: `workout_exercises`, `workout_splits`.
 | split_index | int | |
 | distance_km | numeric(6,3) | |
 | duration_seconds | int | |
-| moving_time_seconds | int | nullable — explicit moving time per lap; `duration_seconds` stays = moving (#1876) |
-| elapsed_time_seconds | int | nullable — per-lap elapsed time (#1876) |
 | avg_hr | int | nullable |
 | avg_power | int | nullable — split-level average power (watts) |
 | cadence_spm | int | nullable — cadence in steps per minute |
@@ -267,7 +264,6 @@ Unique: `(user_id, date)`.
 | column | type | notes |
 |--------|------|-------|
 | id | UUID PK | |
-| anchor_lifts | jsonb | nullable — strength-axis anchor lifts `[{key,label,target_factor,match[]}]`; NULL = defaults (P4-4, migration `b12573ca9afa`) |
 | user_id | UUID FK→users | CASCADE, unique |
 | ftp_w | int | nullable |
 | ftp_w_source | varchar(30) | nullable; `user_accepted` or `manual`; tracks how the threshold was set |
@@ -328,7 +324,6 @@ Raw activities pulled from Strava. Reconciled into `workouts` by `reconcile.py`.
 | activity_type | varchar(50) | |
 | name | varchar(255) | |
 | distance_km / duration_seconds | numeric/int | nullable |
-| elapsed_time_seconds | int | nullable — Strava `elapsed_time` (#1876) |
 | avg_hr / max_hr | int | nullable |
 | elevation_m / avg_power_w / max_power_w | int | nullable |
 | device_name / external_id | varchar | nullable |
@@ -844,24 +839,6 @@ Migration: `kk1f2a3b4c5e_add_athlete_duration_curves_table`.
 
 ---
 
-## cp_history
-
-Dated audit trail of confirmed Critical Power changes (#1877). Current CP stays on `user_preferences.ftp_w`.
-
-| column | type | notes |
-|--------|------|-------|
-| id | UUID PK | server default gen_random_uuid() |
-| user_id | UUID FK→users | CASCADE, NOT NULL |
-| cp_w | integer | NOT NULL |
-| previous_cp_w | integer | nullable |
-| source | varchar(30) | NOT NULL — suggested / stryd / manual |
-| effective_date | date | NOT NULL |
-| created_at | timestamptz | NOT NULL, server default now() |
-
-Index: `ix_cp_history_user_date` on `(user_id, effective_date)`. Migration: `c4b5ed9f6d24_add_cp_history_table`.
-
----
-
 ## summary_cache
 
 Durable (L2) mirror of the in-memory `_SUMMARY_CACHE` (L1) in `backend/main.py`: one row per `(user_id, cache_key)`, invalidated when the stored `signature` no longer matches the recomputed signature. Persisting to Neon means a server restart (which wipes L1) doesn't force a cold recompute — the first request after restart reads straight from this table. `cache_key` values in use: `weekly`, `monthly:<...>`, `performance`.
@@ -1000,53 +977,10 @@ Durable daily endurance/speed scores with formula-version stamps. Upserted (writ
 | score_date | date | NOT NULL |
 | endurance | float | nullable |
 | speed | float | nullable |
-| durability | float | nullable — Phase 4 axis (P4-2); NULL = never-measured that day |
-| economy | float | nullable — Phase 4 axis (P4-3) |
-| strength | float | nullable — Phase 4 axis (P4-4) |
-| mobility | float | nullable — Phase 4 axis (P4-5) |
-| power_to_weight | float | nullable — Phase 4 axis (P4-4) |
 | formula_version | text | NOT NULL |
 | created_at | timestamptz | server default now() |
 
-Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_user_date_version`). Index: `ix_performance_score_history_user_date` on `(user_id, score_date)`. Migrations: `129d863fa625_add_performance_score_history`, `27d247208ac6_performance_score_history_phase4_axes` (adds the five Phase 4 axis columns). The Phase 4 columns are written once a day by `axis_snapshot.run_daily_snapshot` (worker job `axis_snapshot`).
-
----
-
-## mobility_tests _(added Phase 4 / #1852)_
-
-Monthly mobility self-test for the Performance mobility axis. Written by `POST /api/performance/mobility-tests`; the latest test (by `test_date`) wins in `backend/services/axis_mobility.py`.
-
-| column | type | notes |
-|--------|------|-------|
-| id | UUID PK | `gen_random_uuid()` |
-| user_id | UUID FK→users | CASCADE |
-| test_date | date | NOT NULL |
-| knee_to_wall_left_cm | numeric(4,1) | NOT NULL, 0–30 |
-| knee_to_wall_right_cm | numeric(4,1) | NOT NULL, 0–30 |
-| sit_and_reach_cm | numeric(4,1) | NOT NULL, −20 to 40 |
-| created_at | timestamptz | server default now() |
-
-Index: `ix_mobility_tests_user_date` on `(user_id, test_date)`. Migration: `25e2032a3208_create_mobility_tests`.
-
----
-
-## performance_queue_items _(added Phase 4 / #1854)_
-
-Focus-work suggestion records queued from the Performance page, consumed by the P3-10 suggest-sessions preview (`backend/services/focus_ranking.py`). Only queueable axes (economy, durability, strength, mobility) create rows; coach-owned axes never do.
-
-| column | type | notes |
-|--------|------|-------|
-| id | UUID PK | `gen_random_uuid()` |
-| user_id | UUID FK→users | CASCADE |
-| axis | varchar(30) | NOT NULL |
-| template_tags | jsonb | NOT NULL, default `[]` |
-| tss_estimate | float | nullable |
-| earliest_week | date | NOT NULL — Monday of the next build/rebuild week |
-| status | varchar(20) | `queued` \| `applied` \| `cancelled` |
-| notes | text | nullable |
-| created_at | timestamptz | server default now() |
-
-Index: `ix_performance_queue_items_user_status` on `(user_id, status, earliest_week)`. Migration: `8d8cd37743d3_create_performance_queue_items`.
+Unique: `(user_id, score_date, formula_version)` (`uq_performance_score_history_user_date_version`). Index: `ix_performance_score_history_user_date` on `(user_id, score_date)`. Migration: `129d863fa625_add_performance_score_history`.
 
 ---
 
@@ -1066,7 +1000,6 @@ Per-run Stryd running-dynamics extracted from `stryd_activities.form_metrics` JS
 | vertical_oscillation_cm | numeric(6,2) | nullable |
 | cadence_spm | numeric(6,2) | nullable |
 | power_w | numeric(6,1) | nullable |
-| form_power_ratio | numeric(6,4) | nullable — form power / running power (P4-3, migration `bf3569410f9f`) |
 | created_at | timestamptz | NOT NULL, server default now() |
 
 Unique: `(stryd_activity_pk)` (`uq_run_form_metrics_stryd_activity_pk`). Index: `ix_run_form_metrics_user_run_date` on `(user_id, run_date)`. Migration: `3bd978fbbf19_add_run_form_metrics_table`.

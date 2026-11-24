@@ -1004,8 +1004,6 @@ def fill_strength(
             group_min_left = max(0.0, group_min_left - spend_min)
 
             row["block"] = label
-            row["_fmt"] = fmt
-            row["_group_key"] = key
             row["spend_tss"] = spend_tss
             row["spend_min"] = spend_min
             row["source"] = "generated"
@@ -1089,8 +1087,6 @@ def fill_strength(
         remain_tss = max(0.0, remain_tss - spend_tss)
         remain_min = max(0.0, remain_min - spend_min)
         row["block"] = row.get("block") or "Accessories"
-        row["_fmt"] = None
-        row["_group_key"] = "accessories"
         row["spend_tss"] = spend_tss
         row["spend_min"] = spend_min
         row["source"] = "generated"
@@ -1134,9 +1130,6 @@ def fill_strength(
                 footprint[group] = footprint.get(group, 0.0) + float(p.get("ratio") or 0) * spend
         e.pop("_tss_weight", None)
         clean.append(e)
-    from backend.services.session_exercises import enrich_generated_exercises
-
-    clean = enrich_generated_exercises(clean)
     footprint = {k: round(v, 2) for k, v in footprint.items() if v > 0}
 
     return {
@@ -1188,12 +1181,7 @@ def fill_mobility(
             "load": "mobility",
             "pnf": bool(pnf_ok and row.get("pnf_allowed", True)),
             "source": "generated",
-            "_fmt": "isometric",
-            "_group_key": "cooldown",
         })
-
-    from backend.services.session_exercises import enrich_generated_exercises
-    exercises = enrich_generated_exercises(exercises)
 
     content = {
         "intent": (recipe.get("intent_template") or "Mobility")[:140],
@@ -1398,14 +1386,6 @@ def fill_slot(
             pattern, slot, pool, rng=rng, avoid_parts=avoid_parts,
             pre_placed=pre_placed or None,
         )
-        uid = (week_ctx or {}).get("user_id")
-        if db is not None and uid and content.get("exercises"):
-            from backend.services.session_template_overrides import apply_overrides, override_dicts
-
-            key = str(content.get("pattern_name") or slot.get("name") or "")
-            ovs = override_dicts(db, uid, key)
-            if ovs:
-                content["exercises"] = apply_overrides(content["exercises"], ovs)
         pick_log = content.pop("_pick_log", None) or []
         budget_trace = content.pop("_budget_trace", None) or []
         band_meta = content.pop("_band", None) or {}
@@ -1445,14 +1425,6 @@ def fill_slot(
         )
         pick_log = content.pop("_pick_log", None) or []
         budget_trace = content.pop("_budget_trace", None) or []
-        uid = (week_ctx or {}).get("user_id")
-        if db is not None and uid and content.get("exercises"):
-            from backend.services.session_template_overrides import apply_overrides, override_dicts
-
-            key = str(content.get("pattern_name") or slot.get("name") or "")
-            ovs = override_dicts(db, uid, key)
-            if ovs:
-                content["exercises"] = apply_overrides(content["exercises"], ovs)
         log["budget_trace"] = budget_trace
         log["steps"].append({
             "op": "fill_strength",

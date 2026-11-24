@@ -963,34 +963,25 @@ def _block_delta_28d(trend: list, trend_dates: list) -> int | None:
 def _performance_scores(user_id, db) -> dict | None:
     """Endurance / Speed from Performance-tab SummaryCache (SoT)."""
     try:
-        from backend.services.score_reader import get_scores
+        from backend.services.race_finish_estimate import _endurance_speed_from_cache
+        from backend.models import SummaryCache
 
-        overall = get_scores(user_id).get("overall") or {}
-        end_f = (overall.get("endurance") or {}).get("score")
-        spd_f = (overall.get("speed") or {}).get("score")
-        end_f = float(end_f) if end_f is not None else None
-        spd_f = float(spd_f) if spd_f is not None else None
+        end_f, spd_f = _endurance_speed_from_cache(db, user_id)
         if end_f is None and spd_f is None:
             return None
         out: dict[str, Any] = {
             "endurance": round(end_f, 1) if end_f is not None else None,
             "speed": round(spd_f, 1) if spd_f is not None else None,
-            "source": "score_reader",
+            "source": "performance_cache",
         }
-        row = None
-        try:
-            from backend.models import SummaryCache
-
-            row = (
-                db.query(SummaryCache)
-                .filter(
-                    SummaryCache.user_id == user_id,
-                    SummaryCache.cache_key == "performance",
-                )
-                .first()
+        row = (
+            db.query(SummaryCache)
+            .filter(
+                SummaryCache.user_id == user_id,
+                SummaryCache.cache_key == "performance",
             )
-        except Exception:
-            pass
+            .first()
+        )
         if row and isinstance(row.payload, dict):
             # Canonical direction = ~28d block delta (same as Performance card
             # pill via block_delta / _hpfBlockDelta). Cache "direction" can be a

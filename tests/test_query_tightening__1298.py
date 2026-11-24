@@ -211,7 +211,12 @@ def test_weekly_endpoint_accepts_exactly_365_days():
     """AC3: Exactly 365-day range is accepted (boundary case)."""
     client = _auth_client()
     try:
-        with patch("backend.services.weekly_rollup.weekly_rollups", return_value=[]):
+        mock_session = MagicMock()
+        mock_session.__enter__ = MagicMock(return_value=mock_session)
+        mock_session.__exit__ = MagicMock(return_value=False)
+        mock_session.query.return_value.filter.return_value.group_by.return_value.all.return_value = []
+        with patch("backend.main.Session") as mock_cls:
+            mock_cls.return_value = mock_session
             resp = client.get("/api/training-load/weekly?from=2024-01-01&to=2024-12-31")
         assert resp.status_code == 200, (
             f"365-day range must be accepted, got {resp.status_code}: {resp.text}"
@@ -220,12 +225,24 @@ def test_weekly_endpoint_accepts_exactly_365_days():
         _teardown()
 
 
-def test_weekly_endpoint_uses_weekly_rollups():
-    """AC3 (revamp P0-4): weekly chart totals come from weekly_rollups, not ad-hoc SQL sums."""
+def test_weekly_endpoint_uses_sql_group_by():
+    """AC3: /api/training-load/weekly uses SQL-side GROUP BY (not Python-side looping)."""
+    import backend.main as main_mod
+    # Find the get_training_load_weekly function source
+    src = inspect.getsource(main_mod.get_training_load_weekly)
+    has_group_by = "group_by" in src or "GROUP BY" in src
+    assert has_group_by, (
+        "get_training_load_weekly must use SQL GROUP BY (session.query.filter.group_by.all) "
+        "to aggregate weekly sums instead of loading full Workout objects"
+    )
+
+
+def test_weekly_endpoint_uses_func_sum():
+    """AC3: /api/training-load/weekly uses func.sum for SQL aggregation."""
     import backend.main as main_mod
     src = inspect.getsource(main_mod.get_training_load_weekly)
-    assert "weekly_rollups" in src, (
-        "get_training_load_weekly must delegate to weekly_rollups for canonical week totals"
+    assert "func.sum" in src or "func.Sum" in src, (
+        "get_training_load_weekly must use func.sum to aggregate TSS and distance in SQL"
     )
 
 
@@ -242,19 +259,21 @@ def test_weekly_endpoint_response_json_unchanged_run_tss():
     """AC3/AC7: Response JSON structure unchanged for a valid in-cap range."""
     client = _auth_client()
 
-    rollups = [
-        {
-            "week_start": "2025-01-06",
-            "tss_run": 50.0,
-            "tss_strength": 30.0,
-            "tss_support_other": 0.0,
-            "tss_total": 80.0,
-            "distance_km": 10.0,
-        },
+    # Row from the SQL GROUP BY: (week_monday, workout_type, sum_tss, sum_dist)
+    dt_mon = datetime(2025, 1, 6, 0, 0, tzinfo=timezone.utc)
+    run_row = _ns(week_mon=dt_mon, workout_type="run", sum_tss=50.0, sum_dist=10.0)
+    lift_row = _ns(week_mon=dt_mon, workout_type="strength", sum_tss=30.0, sum_dist=0.0)
+
+    mock_session = MagicMock()
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_session.query.return_value.filter.return_value.group_by.return_value.all.return_value = [
+        run_row, lift_row,
     ]
 
     try:
-        with patch("backend.services.weekly_rollup.weekly_rollups", return_value=rollups):
+        with patch("backend.main.Session") as mock_cls:
+            mock_cls.return_value = mock_session
             resp = client.get("/api/training-load/weekly?from=2025-01-06&to=2025-01-12")
 
         assert resp.status_code == 200

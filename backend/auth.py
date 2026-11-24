@@ -374,30 +374,7 @@ async def resolve_user(
     token = request.cookies.get(COOKIE_NAME)
     if token:
         return await get_current_user(request)
-
-    from backend.services.device_sessions import DEVICE_COOKIE_NAME, lookup_device, touch_device, user_for_device
-
-    raw_device = request.cookies.get(DEVICE_COOKIE_NAME)
-    if raw_device:
-        with Session(engine) as db:
-            row = lookup_device(db, raw_device)
-            if row is None:
-                raise HTTPException(status_code=401, detail="Device session revoked or expired")
-            user = user_for_device(db, row)
-            if user is None or not getattr(user, "is_active", True):
-                raise HTTPException(status_code=401, detail="User not found")
-            touch_device(row)
-            db.commit()
-            request.state.device_session_row = row
-            return user
     raise HTTPException(status_code=401, detail="Not authenticated")
-
-
-async def require_user_admin(user: User = Depends(resolve_user)) -> User:
-    """Session user must have ``users.is_admin`` (revamp training library guard)."""
-    if not bool(user.is_admin):
-        raise HTTPException(status_code=403, detail="Admin role required")
-    return user
 
 
 def require_write(request: Request, user: User = Depends(resolve_user)) -> User:

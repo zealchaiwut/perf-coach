@@ -46,7 +46,6 @@ def _map_fields(raw: dict, user_id: str, is_stryd: bool) -> dict:
         "name": raw.get("name") or "",
         "distance_km": round(dist / 1000, 3) if dist else None,
         "duration_seconds": raw.get("moving_time"),
-        "elapsed_time_seconds": raw.get("elapsed_time"),
         "avg_hr": clean_hr(raw.get("average_heartrate")),
         "max_hr": clean_hr(raw.get("max_heartrate")),
         "elevation_m": raw.get("total_elevation_gain"),

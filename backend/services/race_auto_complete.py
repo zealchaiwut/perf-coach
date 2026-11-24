@@ -57,12 +57,6 @@ def match_workout_to_race(
     return _distance_ok(float(race_distance_km), float(workout_distance_km))
 
 
-def _result_seconds(workout) -> int:
-    """Race result time: elapsed (Strava) when stored, else moving duration (#1876)."""
-    elapsed = getattr(workout, "elapsed_time_seconds", None)
-    return int(elapsed if isinstance(elapsed, int) and elapsed > 0 else workout.duration_seconds)
-
-
 def apply_race_autocomplete_for_workout(session, workout) -> bool:
     """Mark matching planned races done for one workout. Returns True if any updated."""
     if not is_run_workout(workout.workout_type or ""):
@@ -101,7 +95,7 @@ def apply_race_autocomplete_for_workout(session, workout) -> bool:
     candidates.sort(key=lambda r: abs(float(r.distance_km) - run_dist))
     race = candidates[0]
     race.status = "done"
-    race.actual_time_seconds = _result_seconds(workout)
+    race.actual_time_seconds = int(workout.duration_seconds)
     race.updated_at = datetime.now(timezone.utc)
     _log.info(
         "race auto-complete: race %s (%s) ← workout %s (%.2f km, %ss)",
@@ -162,7 +156,7 @@ def backfill_planned_races(session, user_id) -> int:
         if best is None:
             continue
         race.status = "done"
-        race.actual_time_seconds = _result_seconds(best)
+        race.actual_time_seconds = int(best.duration_seconds)
         race.updated_at = datetime.now(timezone.utc)
         updated += 1
         _log.info(
@@ -207,4 +201,4 @@ def suggest_actual_time_for_race(session, race) -> Optional[int]:
             best_diff = diff
     if best is None:
         return None
-    return _result_seconds(best)
+    return int(best.duration_seconds)

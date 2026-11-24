@@ -148,9 +148,7 @@ def _cached_or_generate(
     avoid_parts: set | None = None,
 ) -> dict:
     """Pattern-fill one slot. `llm_call` ignored (planning LLM removed)."""
-    del llm_call
-    week_ctx = dict(week_ctx or {})
-    week_ctx["user_id"] = user_id
+    del user_id, llm_call
     if current and current.get("source") == "user":
         return {**current, "source": "user"}
     return generate_slot_content(

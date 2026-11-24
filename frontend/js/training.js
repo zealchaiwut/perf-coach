@@ -1438,7 +1438,6 @@
     _setEl('workout-tss', '');
     _setEl('workout-drills', '');
     _setEl('workout-fuelled', '');
-    _setEl('workout-first-gel', '');
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1462,7 +1461,6 @@
     _setEl('workout-tss', workout.tss != null ? workout.tss : '');
     _setEl('workout-drills', workout.drills_minutes != null ? workout.drills_minutes : '');
     _setEl('workout-fuelled', workout.fuelled == null ? '' : String(workout.fuelled));
-    _setEl('workout-first-gel', workout.first_gel_minute != null ? workout.first_gel_minute : '');
     _clearEl('exercises-tbody', 'innerHTML');
     _clearEl('exercises-error');
     _clearEl('name-error');
@@ -1687,8 +1685,6 @@
       document.getElementById('workout-tss').value = w.tss != null ? w.tss : '';
       document.getElementById('workout-drills').value = w.drills_minutes != null ? w.drills_minutes : '';
       document.getElementById('workout-fuelled').value = w.fuelled == null ? '' : String(w.fuelled);
-      var gelEl = document.getElementById('workout-first-gel');
-      if (gelEl) gelEl.value = w.first_gel_minute != null ? w.first_gel_minute : '';
       document.getElementById('exercises-tbody').innerHTML = '';
       document.getElementById('exercises-error').textContent = '';
       document.getElementById('name-error').textContent = '';
@@ -1840,7 +1836,6 @@
       // intFieldVal already returns null for an empty input.
       drills_minutes: intFieldVal('workout-drills'),
       fuelled: triStateVal('workout-fuelled'),
-      first_gel_minute: intFieldVal('workout-first-gel'),
     };
 
     // Simplified slide-over panel (issue #643) uses <select> — no run/exercise sections

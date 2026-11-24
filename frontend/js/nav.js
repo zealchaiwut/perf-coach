@@ -146,8 +146,6 @@
     return _currentUserPromise;
   };
 
-  var _revampUiEnabled = false;
-
   // Every primary destination, shown inline in the bar (left → right).
   var LINKS = [
     { href: '/home',     label: 'Home',         icon: 'ti-home',         match: ['/', '/home', '/home.html'] },
@@ -351,18 +349,11 @@
     return window.AppCommon.escapeHtml(s);
   }
 
-  function navLinksForBar() {
-    return LINKS.filter(function (l) {
-      if (!_revampUiEnabled) return true;
-      return l.href !== "/habits" && l.href !== "/weight";
-    });
-  }
-
   function buildNav() {
     if (document.querySelector(".global-nav")) return;
     var path = window.location.pathname;
 
-    var linksHtml = navLinksForBar().map(function (l) {
+    var linksHtml = LINKS.map(function (l) {
       if (l.disabled) {
         return (
           '<span class="gn-link gn-link-disabled" aria-disabled="true" title="Coming soon">' +
@@ -1363,26 +1354,11 @@
     window.SyncPoller.checkNow();
   };
 
-  function loadRevampNavFlag() {
-    return fetch("/api/revamp-ui", { credentials: "same-origin" })
-      .then(function (r) {
-        return r.ok ? r.json() : { enabled: false };
-      })
-      .then(function (body) {
-        _revampUiEnabled = !!(body && body.enabled);
-      })
-      .catch(function () {
-        _revampUiEnabled = false;
-      });
-  }
-
   function init() {
     ensureIconFont();
     injectStyles();
-    loadRevampNavFlag().then(function () {
-      buildNav();
-      buildSyncBar();
-    });
+    buildNav();
+    buildSyncBar();
     window.addEventListener("resize", _positionGlobalNav);
     window.addEventListener("load", _positionGlobalNav);
     // One initial status check on load (picks up a sync started elsewhere);

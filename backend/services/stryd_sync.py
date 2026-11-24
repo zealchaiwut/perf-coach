@@ -17,7 +17,7 @@ import urllib.error as _urllib_error
 import urllib.request as _urllib_request
 from concurrent.futures import ThreadPoolExecutor as _TPool
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import urlencode
 
 from sqlalchemy import select
@@ -26,11 +26,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import StrydActivity, StrydCredentials, SyncJob
-from backend.services.stryd import (
-    StrydAuthError,
-    StrydUnavailable,
-    refresh_stryd_session_if_needed,
-)
+from backend.services.stryd import refresh_stryd_session_if_needed
 from backend.utils.log import get_logger
 
 logger = get_logger(__name__)
@@ -49,60 +45,28 @@ def _fmt(d: date) -> str:
     return d.strftime("%m-%d-%Y")
 
 
-def _stryd_http_json(user_id: str, url: str, *, timeout: int = 30) -> Any:
-    """GET with one forced token refresh on HTTP 401."""
-    token = refresh_stryd_session_if_needed(str(user_id))
-    for attempt in (0, 1):
-        req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {token}"})
-        try:
-            with _urllib_request.urlopen(req, timeout=timeout) as resp:
-                return _json.loads(resp.read())
-        except _urllib_error.HTTPError as exc:
-            if exc.code == 401 and attempt == 0:
-                token = refresh_stryd_session_if_needed(str(user_id), force=True)
-                continue
-            if exc.code == 401:
-                raise StrydAuthError("Stryd session rejected — reconnect in Settings.") from exc
-            body = ""
-            try:
-                body = exc.read().decode()[:300]
-            except Exception:
-                pass
-            if exc.code >= 500:
-                raise StrydUnavailable(f"Stryd API error: {exc.code} {body}") from exc
-            raise RuntimeError(f"Stryd API error: {exc.code} {body}") from exc
-        except _urllib_error.URLError as exc:
-            raise StrydUnavailable("Stryd is unavailable, try again later.") from exc
-    raise StrydAuthError("Stryd session rejected — reconnect in Settings.")
-
-
 def fetch_stryd_activities(
     token: str,
     athlete_id: str,
     since_date: Optional[date] = None,
     before_date: Optional[date] = None,
-    *,
-    user_id: Optional[str] = None,
 ) -> list[dict]:
     """Return raw Stryd activity dicts for the date window via the calendar API."""
     start = since_date or (datetime.now(tz=timezone.utc).date() - timedelta(days=_DEFAULT_LOOKBACK_DAYS))
     end = before_date or datetime.now(tz=timezone.utc).date()
     params = {"srtDate": _fmt(start), "endDate": _fmt(end), "sortBy": "StartDate"}
     url = f"{_STRYD_API_BASE}/users/{athlete_id}/calendar?{urlencode(params)}"
-    if user_id:
-        data = _stryd_http_json(user_id, url)
-    else:
-        req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        with _urllib_request.urlopen(req, timeout=30) as resp:
+            data = _json.loads(resp.read())
+    except _urllib_error.HTTPError as exc:
+        body = ""
         try:
-            with _urllib_request.urlopen(req, timeout=30) as resp:
-                data = _json.loads(resp.read())
-        except _urllib_error.HTTPError as exc:
-            body = ""
-            try:
-                body = exc.read().decode()[:300]
-            except Exception:
-                pass
-            raise RuntimeError(f"Stryd API error: {exc.code} {body}") from exc
+            body = exc.read().decode()[:300]
+        except Exception:
+            pass
+        raise RuntimeError(f"Stryd API error: {exc.code} {body}") from exc
 
     acts: list[dict] | None = None
     if isinstance(data, list):
@@ -124,18 +88,11 @@ def fetch_stryd_activities(
     return [{k: v for k, v in a.items() if not k.endswith("_list")} for a in acts]
 
 
-def fetch_stryd_activity_streams(
-    token: str,
-    activity_id,
-    *,
-    user_id: Optional[str] = None,
-) -> dict:
+def fetch_stryd_activity_streams(token: str, activity_id) -> dict:
     """Full per-point streams for one activity: GET /activities/{id}
     (timestamp_list, total_power_list, heart_rate_list, cadence_list,
     stride_length_list, distance_list, speed_list, …). Verified live."""
     url = f"{_STRYD_API_BASE}/activities/{activity_id}"
-    if user_id:
-        return _stryd_http_json(user_id, url)
     req = _urllib_request.Request(url, headers={"Authorization": f"Bearer {token}"})
     with _urllib_request.urlopen(req, timeout=30) as resp:
         return _json.loads(resp.read())
@@ -146,17 +103,14 @@ def _mean(xs):
     return sum(xs) / len(xs) if xs else None
 
 
-def _stream_sample_interval_seconds(timestamp_list) -> float:
-    ts = [t for t in (timestamp_list or []) if isinstance(t, (int, float))]
-    if len(ts) < 2:
-        return 1.0
-    deltas = [abs(ts[i + 1] - ts[i]) for i in range(len(ts) - 1) if ts[i + 1] != ts[i]]
-    if not deltas:
-        return 1.0
-    med = sorted(deltas)[len(deltas) // 2]
-    if med > 120:
-        return med
-    return max(med, 0.5)
+def _normalized_power(power_list, window: int = 30):
+    """Coggan NP: 4th root of the mean of 30s-rolling-avg power^4. Stream is ~1 Hz."""
+    p = [x for x in power_list if isinstance(x, (int, float))]
+    if len(p) < 2:
+        return None
+    w = min(window, len(p))
+    roll = [sum(p[i:i + w]) / w for i in range(0, len(p) - w + 1)] or p
+    return round((sum(x ** 4 for x in roll) / len(roll)) ** 0.25)
 
 
 def compute_km_splits(streams: dict) -> list[dict]:
@@ -248,11 +202,6 @@ def map_stryd_activity(raw: dict, user_id: str) -> dict:
         "vertical_ratio": _first(raw, "average_vertical_ratio"),
         "stride_length_m": _first(raw, "average_stride_length"),
         "cadence_spm": _first(raw, "average_cadence"),
-        # Form power (W). Calendar JSON has no form-power key (verified live
-        # 2026-11-24); enrichment fills this from streams.vertical_power_list.
-        "form_power_w": _first(
-            raw, "average_form_power", "form_power", "average_vertical_power", "vertical_power"
-        ),
     }
     form = {k: v for k, v in form.items() if v is not None}
     # Power zones: definition (zones[]) + time-in-zone (seconds_in_zones) + CP (ftp).
@@ -323,28 +272,20 @@ _STREAM_HEAL_CAP = 60
 _ENRICH_WORKERS = int(_os.environ.get("STRYD_ENRICH_WORKERS", "2"))
 
 
-def _enrich_one(token: str, aid, base_form: dict | None = None, *, user_id: Optional[str] = None) -> bool:
+def _enrich_one(token: str, aid, base_form: dict | None = None) -> bool:
     """Fetch one Stryd activity's streams and store streams_payload + splits +
     NP / max power. Returns True if streams were stored. Swallows errors (logged)
     so one bad activity never aborts a sync."""
     try:
-        streams = fetch_stryd_activity_streams(token, aid, user_id=user_id)
+        streams = fetch_stryd_activity_streams(token, aid)
         splits = compute_km_splits(streams)
         powers = [x for x in (streams.get("total_power_list") or []) if isinstance(x, (int, float))]
         fm = dict(base_form or {})
-        from backend.services.normalized_power import compute_normalized_power
-
-        interval = _stream_sample_interval_seconds(streams.get("timestamp_list"))
-        np_val, _ = compute_normalized_power(powers, interval)
-        if np_val is not None:
-            fm["np_w"] = round(float(np_val))
+        np = _normalized_power(powers)
+        if np is not None:
+            fm["np_w"] = np
         if powers:
             fm["max_power_w"] = round(max(powers))
-        from backend.services.form_metrics_extractor import form_power_w_from_streams
-
-        form_w = form_power_w_from_streams(streams)
-        if form_w is not None:
-            fm["form_power_w"] = form_w
         from backend.services.stryd_laps import compute_manual_laps
         manual_laps = compute_manual_laps(streams)
         vals: dict = {}
@@ -368,16 +309,11 @@ def _enrich_one(token: str, aid, base_form: dict | None = None, *, user_id: Opti
         return False
 
 
-def _enrich_many(token: str, aids: list, base_form: dict | None = None, *, user_id: Optional[str] = None) -> None:
+def _enrich_many(token: str, aids: list, base_form: dict | None = None) -> None:
     """Enrich a list of activities in parallel using a thread pool."""
     bf = base_form or {}
-    uid = user_id
-
-    def _run(aid):
-        return _enrich_one(token, aid, bf.get(aid), user_id=uid)
-
     with _TPool(max_workers=_ENRICH_WORKERS) as pool:
-        list(pool.map(_run, aids))
+        list(pool.map(lambda aid: _enrich_one(token, aid, bf.get(aid)), aids))
 
 
 def sync_stryd_activities(
@@ -441,9 +377,7 @@ def sync_stryd_activities(
             athlete_id = cred.athlete_id
         if not athlete_id:
             raise RuntimeError("Stryd athlete_id missing; reconnect Stryd")
-        raw_acts = fetch_stryd_activities(
-            token, athlete_id, since_date=since_date, user_id=str(uid),
-        )
+        raw_acts = fetch_stryd_activities(token, athlete_id, since_date=since_date)
         fetched = len(raw_acts)
         mapped = [map_stryd_activity(a, str(uid)) for a in raw_acts]
         mapped = [m for m in mapped if m["stryd_activity_id"] and m["stryd_activity_id"] != "None"]
@@ -514,7 +448,7 @@ def sync_stryd_activities(
             if to_enrich:
                 # Store raw streams (timestamp_list + channel *_list) so manual
                 # laps / interval stats can be computed; also per-km splits + NP.
-                _enrich_many(token, to_enrich, base_form, user_id=str(uid))
+                _enrich_many(token, to_enrich, base_form)
 
         # Self-heal: backfill streams for activities still missing them
         # (e.g. enriched before streams capture). Only runs on full syncs to
@@ -524,7 +458,7 @@ def sync_stryd_activities(
             with Session(engine) as session:
                 heal_ids = _heal_candidate_ids(session, uid, processed)
             remaining = len(heal_ids)
-            _enrich_many(token, heal_ids[:_STREAM_HEAL_CAP], user_id=str(uid))
+            _enrich_many(token, heal_ids[:_STREAM_HEAL_CAP])
             if remaining > _STREAM_HEAL_CAP:
                 logger.info(
                     "stryd stream heal capped",
@@ -549,26 +483,6 @@ def sync_stryd_activities(
             "since_date": since_date,
         }
 
-    except StrydAuthError as exc:
-        err = "Stryd authentication failed — reconnect in Settings."
-        with Session(engine) as session:
-            jr = session.get(SyncJob, job_db_id)
-            if jr is not None:
-                jr.status = "failed"
-                jr.error_message = err
-                jr.completed_at = datetime.now(tz=timezone.utc)
-                session.commit()
-        raise StrydAuthError(exc.detail) from exc
-    except StrydUnavailable as exc:
-        err = "Stryd temporarily unavailable — try again later."
-        with Session(engine) as session:
-            jr = session.get(SyncJob, job_db_id)
-            if jr is not None:
-                jr.status = "failed"
-                jr.error_message = err
-                jr.completed_at = datetime.now(tz=timezone.utc)
-                session.commit()
-        raise StrydUnavailable(exc.detail) from exc
     except Exception as exc:
         with Session(engine) as session:
             jr = session.get(SyncJob, job_db_id)

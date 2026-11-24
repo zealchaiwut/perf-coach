@@ -22,7 +22,7 @@
 4. **Session Lifecycle**
    - Stryd sessions last approximately 25 days
    - Sessions are refreshed automatically (re-authenticating with the stored encrypted password) when less than 1 day remains
-   - If re-authentication fails (wrong password), `GET /api/stryd/status` keeps the row, sets `status: reauth_required`, and shows the reconnect form. Transient outages return `status: unreachable`. Only `DELETE /api/stryd/disconnect` removes credentials.
+   - If re-authentication fails (wrong password, account locked), `GET /api/stryd/status` returns `connected: false` and **deletes** the credentials row
 
 5. **Verify Connection**
    - Call `GET /api/stryd/status` → should return `{"connected": true, ...}`

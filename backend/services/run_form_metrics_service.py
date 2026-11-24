@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from backend.db import engine
 from backend.models import RunFormMetrics, StrydActivity, Workout
-from backend.services.form_metrics_extractor import extract_form_metrics_row, form_power_w_from_streams
+from backend.services.form_metrics_extractor import extract_form_metrics_row
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,9 @@ def upsert_form_metrics_for_activity(
     Returns True if a row was written, False if the payload had no metrics.
     The activity's form_metrics column must already be loaded (not deferred).
     """
-    form_metrics = dict(activity.form_metrics or {})
-    if form_metrics.get("form_power_w") is None:
-        try:
-            session.refresh(activity, attribute_names=["streams_payload"])
-        except Exception:
-            pass
-        form_w = form_power_w_from_streams(getattr(activity, "streams_payload", None))
-        if form_w is not None:
-            form_metrics["form_power_w"] = form_w
+    form_metrics = activity.form_metrics
+    if form_metrics is None:
+        form_metrics = {}
 
     run_date: date | None = None
     if activity.start_time is not None:
@@ -72,7 +66,6 @@ def upsert_form_metrics_for_activity(
                 "vertical_oscillation_cm": row["vertical_oscillation_cm"],
                 "cadence_spm": row["cadence_spm"],
                 "power_w": row["power_w"],
-                "form_power_ratio": row["form_power_ratio"],
                 "workout_id": row["workout_id"],
             },
         )

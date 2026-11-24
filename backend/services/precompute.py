@@ -154,113 +154,11 @@ def _warm_plan_bundle(user_id: str) -> str:
     return "overlayed" if bundle.get("races") else "seeded"
 
 
-def _store_derived(session, uid, key: str, today: date, compute) -> None:
-    from backend.services.derived_cache import get_or_compute
-
-    get_or_compute(session, uid, key, today, compute)
-
-
-def _warm_v2_derived(user_id: str, today: date) -> dict:
-    """Warm revamp derived payloads (radar, scores, hero, projection, …)."""
-    from sqlalchemy.orm import Session
-
-    from backend.db import engine
-    from backend.services import (
-        projection_view,
-        race_hero,
-        race_list,
-        revamp_home,
-        score_cards,
-    )
-    from backend.services import axis_snapshot
-    from backend.services.derived_cache import (
-        DERIVED_HERO,
-        DERIVED_PROJECTION,
-        DERIVED_RACE_LIST,
-        DERIVED_SCORE_CARDS,
-    )
-    from backend.services.radar_cache import get_radar_payload
-
-    uid = _uuid.UUID(str(user_id))
-    warmed: list[str] = []
-    with Session(engine) as session:
-        try:
-            get_radar_payload(session, uid, today)
-            warmed.append("radar")
-        except Exception:
-            _log.exception("precompute v2 radar failed for %s", user_id)
-        try:
-            _store_derived(
-                session, uid, DERIVED_SCORE_CARDS, today,
-                lambda: score_cards.build_cards(uid, as_of=today),
-            )
-            warmed.append("score_cards")
-        except Exception:
-            _log.exception("precompute v2 score_cards failed for %s", user_id)
-        try:
-            axis_snapshot.snapshot_user(session, uid, today)
-            warmed.append("axis_snapshot")
-        except Exception:
-            _log.exception("precompute axis snapshot failed for %s", user_id)
-        try:
-            _store_derived(
-                session, uid, DERIVED_HERO, today,
-                lambda: race_hero.build_hero(session, uid, today),
-            )
-            warmed.append("hero")
-        except Exception:
-            _log.exception("precompute hero failed for %s", user_id)
-        try:
-            _store_derived(
-                session, uid, DERIVED_PROJECTION, today,
-                lambda: projection_view.build_projection(session, uid, today),
-            )
-            warmed.append("projection")
-        except Exception:
-            _log.exception("precompute projection failed for %s", user_id)
-        try:
-            _store_derived(
-                session, uid, DERIVED_RACE_LIST, today,
-                lambda: race_list.build_race_list(session, uid, today),
-            )
-            warmed.append("race_list")
-        except Exception:
-            _log.exception("precompute race_list failed for %s", user_id)
-        try:
-            revamp_home.home_payload(session, uid, today=today)
-            warmed.append("home_revamp")
-        except Exception:
-            _log.exception("precompute home_revamp failed for %s", user_id)
-    return {"warmed": warmed}
-
-
-def run_nightly_precompute(as_of: Optional[date] = None) -> dict[str, str]:
-    """Warm v2 derived caches for every active user (#1938)."""
-    from sqlalchemy.orm import Session
-
-    from backend.db import engine
-    from backend.models import User
-
-    day = as_of or today_bangkok()
-    results: dict[str, str] = {}
-    with Session(engine) as s:
-        users = [r.id for r in s.query(User.id).filter(User.is_active.is_(True)).all()]
-    for uid in users:
-        try:
-            precompute_user(str(uid), as_of=day, v2=True)
-            results[str(uid)] = "ok"
-        except Exception:
-            _log.exception("nightly precompute failed for %s", uid)
-            results[str(uid)] = "error"
-    return results
-
-
 def precompute_user(
     user_id: str,
     *,
     dates: Optional[Iterable[Any]] = None,
     as_of: Optional[date] = None,
-    v2: bool = False,
 ) -> dict:
     """Warm load snapshots and dashboard caches for ``user_id``.
 
@@ -294,12 +192,5 @@ def precompute_user(
     except Exception:
         _log.exception("precompute plan bundle failed for %s", user_id)
         out["plan_bundle"] = "error"
-
-    if v2:
-        try:
-            out["v2_derived"] = _warm_v2_derived(user_id, end)
-        except Exception:
-            _log.exception("precompute v2 derived failed for %s", user_id)
-            out["v2_derived"] = "error"
 
     return out

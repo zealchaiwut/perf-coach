@@ -12,22 +12,11 @@ database_url = os.getenv("DATABASE_URL") or (
     os.getenv("DATABASE_URL_UAT") if environment == "uat" else os.getenv("DATABASE_URL_PRD")
 )
 
-def _pool_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw.strip() == "":
-        return default
-    try:
-        return max(1, int(raw))
-    except ValueError:
-        return default
-
-
 engine = create_engine(
     database_url,
     pool_pre_ping=True,
-    pool_size=_pool_int("DB_POOL_SIZE", 10),
-    max_overflow=_pool_int("DB_POOL_MAX_OVERFLOW", 10),
-    pool_timeout=_pool_int("DB_POOL_TIMEOUT", 10),
+    pool_size=3,
+    max_overflow=2,
     pool_recycle=3600,
 )
 
