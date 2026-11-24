@@ -627,6 +627,7 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
     from backend.db import engine
     from backend.models import UserPreferences, Workout, WorkoutSplit
     from backend.services.session_tss import refresh_workout_tss_storage
+    from backend.services.tss import persist_running_tss
 
     uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
     with _Session(engine) as session:
@@ -660,7 +661,20 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
                 if w.avg_hr <= z_max:
                     w.easy_minutes = round(w.duration_seconds / 60)
 
-            refresh_workout_tss_storage(session, w)
+            # Strava-only runs have no NP / Stryd stress. refresh_workout_tss_storage
+            # only copies power/stryd columns, so tss stayed NULL and the week bar
+            # counted 0 until a later PATCH. persist_running_tss fills pace/HR TSS.
+            try:
+                if w.tss is None and getattr(w, "tss_source", None) != "manual":
+                    persist_running_tss(w.id, session)
+                else:
+                    refresh_workout_tss_storage(session, w)
+            except Exception:
+                _log.warning(
+                    "TSS persist failed for workout %s; zone-2 still saved",
+                    getattr(w, "id", None),
+                    exc_info=True,
+                )
 
         # Weeks touched by these runs — collected while attributes are still
         # loaded (before commit expires them).
@@ -678,10 +692,8 @@ def compute_run_metrics(user_id, workout_ids: set | list | None = None) -> None:
     # freshly-computed zone2_minutes. Runs after the commit above so autofill's
     # own session sees the persisted values.
     if touched_weeks:
-        import logging
         from backend.services.habit_autofill import recompute_autofill_for_week
 
-        _log = logging.getLogger(__name__)
         for ws in touched_weeks:
             try:
                 recompute_autofill_for_week(uid, ws)
