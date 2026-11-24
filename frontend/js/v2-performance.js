@@ -16,11 +16,13 @@
   ];
 
   function scoreText(obj, raw) {
-    if (typeof obj === "number") return String(obj);
+    if (typeof obj === "number") return String(Math.round(obj));
     if (obj && obj.score_display != null) return String(obj.score_display);
     if (raw === undefined) raw = obj && obj.score;
     if (raw == null) return "—";
-    return String(raw);
+    if (typeof raw === "number") return String(Math.round(raw));
+    var n = Number(raw);
+    return isNaN(n) ? String(raw) : String(Math.round(n));
   }
 
   function toast(msg) {
@@ -123,14 +125,27 @@
   }
 
   function sendJSON(method, url, body) {
-    return fetch(url, {
+    var opts = {
       method: method,
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).then(function (r) {
-      return r.json().then(function (data) {
-        if (!r.ok) throw new Error(errText(data, r.status));
+    };
+    if (body !== undefined && body !== null) opts.body = JSON.stringify(body);
+    return fetch(url, opts).then(function (r) {
+      if (r.status === 204 || r.status === 205) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return null;
+      }
+      return r.text().then(function (text) {
+        var data = null;
+        if (text) {
+          try { data = JSON.parse(text); } catch (e) { data = { detail: text }; }
+        }
+        if (!r.ok) {
+          var err = new Error(errText(data, r.status));
+          err.status = r.status;
+          throw err;
+        }
         return data;
       });
     });
@@ -446,6 +461,29 @@
     return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(r).padStart(2, "0");
   }
   function fmtPace(sec) { return sec == null ? "—" : fmtHMS(sec).replace(/^0:/, "") + " /km"; }
+  var MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function fmtDayMonth(iso) {
+    if (!iso) return "";
+    var p = String(iso).slice(0, 10).split("-");
+    if (p.length < 3) return String(iso);
+    var d = parseInt(p[2], 10);
+    var mi = parseInt(p[1], 10) - 1;
+    if (!d || mi < 0 || mi > 11) return String(iso);
+    return d + " " + MONTHS_SHORT[mi];
+  }
+  function fmtKm(km, label) {
+    if (label) return String(label);
+    if (km == null || km === "") return "";
+    var n = Number(km);
+    if (isNaN(n)) return String(km);
+    if (Math.abs(n - 21.0975) < 0.2 || Math.abs(n - 42.195) < 0.2 || n >= 21) {
+      return (Math.round(n * 10) / 10).toFixed(1);
+    }
+    if (Math.abs(n - Math.round(n)) < 1e-6) return String(Math.round(n));
+    return String(n);
+  }
+  var ICON_EDIT = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  var ICON_TRASH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>';
   function signedGap(sec) {
     if (sec == null) return "—";
     if (sec === 0) return "0:00";
@@ -473,7 +511,7 @@
     if (!r) {
       host.innerHTML = '<div class="rv-perf-hero-empty"><div><span class="rv-label">A race</span>' +
         '<p class="rv-subtitle">No upcoming A race. Pick the race this block is building to, and the radar targets switch to its distance and goal time.</p></div>' +
-        '<a href="/v2/training/plan?setup=1" class="rv-btn rv-btn--secondary">+ Add an A race</a></div>';
+        '<a href="/v2/training/plan?setup=1" class="rv-btn rv-btn--secondary rv-btn--sm">+ Add an A race</a></div>';
     } else {
       var est = data.estimate || {};
       var goal = data.goal || {};
@@ -492,7 +530,7 @@
         '<div class="rv-perf-hero-head">' +
         '<div class="rv-race-row__head">' + prBadge(r) +
         '<div><h2 class="rv-perf-hero-title">' + esc(r.name) + '</h2>' +
-        '<span class="rv-perf-hero-meta rv-mono">' + esc(r.race_date) + (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") +
+        '<span class="rv-perf-hero-meta rv-mono">' + esc(fmtDayMonth(r.race_date)) + (r.distance_km ? " · " + esc(fmtKm(r.distance_km, r.distance_label)) + " km" : "") +
         ' · ' + esc(r.role_label || "A race") + '</span></div></div>' +
         '<div class="rv-row">' +
         '<div class="rv-perf-countdown" data-hero="countdown"><div class="rv-perf-countdown-val rv-mono">' + esc(r.days_to_race) + '</div>' +
@@ -524,8 +562,8 @@
     if (cp) {
       var ce = cp.estimate || {};
       cpHtml = '<div class="rv-perf-checkpoint" data-after="checkpoint">' +
-        '<span class="rv-subtitle" style="font-size:12px;font-weight:700">' + esc(cp.label) + ' · ' + esc(cp.target_date) +
-        (cp.distance_km ? " · " + esc(cp.distance_km) + " km" : "") + '</span>' +
+        '<span class="rv-subtitle" style="font-size:12px;font-weight:700">' + esc(cp.label) + ' · ' + esc(fmtDayMonth(cp.target_date)) +
+        (cp.distance_km ? " · " + esc(fmtKm(cp.distance_km, cp.distance_label)) + " km" : "") + '</span>' +
         '<span class="rv-mono" style="font-size:1.35rem;font-weight:600">' +
         (ce.available ? esc(fmtHMS(ce.est_sec)) : "Estimate not available") + '</span>' +
         (ce.available && cp.goal_sec ? '<span class="rv-mono rv-subtitle">goal ' + esc(fmtHMS(cp.goal_sec)) +
@@ -571,25 +609,29 @@
   function renderReadiness(host, data) {
     if (!data || !data.available) {
       host.hidden = true;
+      host.innerHTML = "";
       return;
     }
     host.hidden = false;
     var items = (data.items || []).map(function (it) {
-      var actions = "";
+      var action = "";
       if (it.action === "update_cp") {
-        actions = ' <a class="rv-btn rv-btn--secondary" href="/v2/settings#thresholds" data-readiness-action="update-cp">Update CP</a>';
+        action = '<a class="rv-btn rv-btn--secondary rv-btn--sm" href="/v2/settings#thresholds" data-readiness-action="update-cp">Update CP</a>';
       }
       if (it.manual) {
-        actions += ' <button type="button" class="rv-btn rv-btn--secondary" data-toilet-save>Save plan</button>';
+        action = '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-toilet-save>Save plan</button>';
       }
-      return '<div class="rv-row" data-readiness-item="' + esc(it.key) + '" style="align-items:flex-start;border-top:1px solid #eef1f7;padding:10px 0">' +
-        '<div style="flex:1"><strong>' + esc(it.label) + '</strong><br>' +
-        '<span class="rv-subtitle">' + esc(it.count_label) + ' · ' + esc(it.source) + '</span></div>' +
-        stateChip(it.state) + actions + (it.manual ? '<textarea rows="2" style="width:100%;margin-top:8px" data-toilet-note placeholder="Race-morning toilet plan…">' +
-          esc(it.detail || "") + "</textarea>" : "") + "</div>";
+      var note = it.note != null ? it.note : "";
+      return '<div class="rv-readiness-row" data-readiness-item="' + esc(it.key) + '">' +
+        '<div class="rv-readiness-copy"><div class="rv-readiness-title">' + esc(it.label) + "</div>" +
+        '<div class="rv-readiness-detail">' + esc(it.detail || "") + "</div>" +
+        (it.manual ? '<textarea class="rv-readiness-note" rows="2" data-toilet-note placeholder="Race-morning toilet plan\u2026">' +
+          esc(note) + "</textarea>" : "") + "</div>" +
+        '<div class="rv-readiness-status">' + stateChip(it.state) + "</div>" +
+        '<div class="rv-readiness-action">' + action + "</div></div>";
     }).join("");
     host.innerHTML = '<h2 class="rv-label">A-race readiness</h2><p class="rv-subtitle">' +
-      esc(data.summary.count_label) + " items complete.</p>" + items;
+      esc((data.summary && data.summary.count_label) || "") + " items complete.</p>" + items;
     var raceId = data.race_id;
     var saveBtn = host.querySelector("[data-toilet-save]");
     var noteEl = host.querySelector("[data-toilet-note]");
@@ -731,15 +773,11 @@
   var NA = "not available";
 
   function projTile(label, tileData, render) {
-    var body = tileData && tileData.available ? render(tileData) : '<span class="rv-subtitle">' + NA + '</span>';
-    return '<div class="rv-perf-tile" data-tile="' + esc(label.toLowerCase().replace(/\s+/g, "-")) + '"><span class="rv-subtitle" style="font-size:12px;font-weight:700">' +
-      esc(label) + '</span><span class="rv-perf-tile-val">' + body + '</span></div>';
-  }
-
-  function goodChip(val) {
-    var low = String(val || "").toLowerCase();
-    var good = low === "sufficient" || low === "high";
-    return '<span class="rv-chip' + (good ? " rv-chip--good" : "") + '">' + esc(val) + '</span>';
+    var inner = tileData && tileData.available
+      ? render(tileData)
+      : '<span class="rv-perf-tile-val rv-subtitle">' + NA + "</span>";
+    return '<div class="rv-perf-tile" data-tile="' + esc(label.toLowerCase().replace(/\s+/g, "-")) + '">' +
+      '<span class="rv-perf-tile-lbl">' + esc(label) + "</span>" + inner + "</div>";
   }
 
   function renderTiles(t, built) {
@@ -749,26 +787,33 @@
       projTile("Last recalibrated", t.last_recalibrated, function (d) {
         var sub = "";
         if (built.race_time_sec != null || built.cp_w != null) {
-          sub = '<span class="rv-subtitle" style="font-size:12px;font-weight:500;display:block">' +
+          sub = '<span class="rv-perf-tile-sub">' +
             (built.race_time_sec != null ? esc(fmtHMS(built.race_time_sec)) : "") +
             (built.cp_w != null ? (built.race_time_sec != null ? " \u00b7 " : "") + "CP " + esc(built.cp_w) + " W" : "") +
             (built.cp_stale ? ' <span class="rv-chip rv-chip--warn">CP stale</span>' : "") +
             "</span>";
         }
-        return esc(d.date) + (d.race_name ? " \u00b7 " + esc(d.race_name) : "") + sub;
+        return '<span class="rv-perf-tile-val">' + esc(fmtDayMonth(d.date)) +
+          (d.race_name ? " \u00b7 " + esc(d.race_name) : "") + "</span>" + sub;
       }) +
-      projTile("Data", t.data_sufficiency, function (d) { return goodChip(d.value); }) +
-      projTile("Band confidence", t.band_confidence, function (d) { return goodChip(d.value); }) +
+      projTile("Data", t.data_sufficiency, function (d) {
+        return '<span class="rv-perf-tile-val rv-perf-tile-val--good">' + esc(d.value) + "</span>";
+      }) +
+      projTile("Band confidence", t.band_confidence, function (d) {
+        return '<span class="rv-perf-tile-val rv-perf-tile-val--good">' + esc(d.value) + "</span>";
+      }) +
       projTile("Model correction", t.model_correction, function (d) {
         var sign = d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "";
-        return esc(sign + Math.abs(d.pct)) + '% <span class="rv-subtitle" style="font-weight:500">' +
-          esc(d.reading || "") + ' \u00b7 ' + esc(d.n_races) + ' race' + (d.n_races === 1 ? "" : "s") + '</span>';
-      }) + '</div>';
+        return '<span class="rv-perf-tile-val rv-mono">' + esc(sign + Math.abs(d.pct)) + "%</span>" +
+          '<span class="rv-perf-tile-sub">' + esc(d.reading || "") + " over " + esc(d.n_races) +
+          " race" + (d.n_races === 1 ? "" : "s") + "</span>";
+      }) + "</div>";
   }
 
   function paceOrNA(st) {
-    return st && st.available ? '<span class="rv-mono" style="font-size:18px;font-weight:600">' + esc(fmtPace(st.pace_seconds_per_km)) + '</span>' :
-      '<span class="rv-subtitle">' + NA + '</span>';
+    return st && st.available
+      ? '<span class="rv-mono rv-proj-stage-val">' + esc(fmtPace(st.pace_seconds_per_km)) + "</span>"
+      : '<span class="rv-subtitle">' + NA + "</span>";
   }
 
   function corrLabel(c) {
@@ -784,11 +829,14 @@
     var fit = chain.fitness || {}, c = chain.correction || {}, f = chain.final || {};
     var arrow = '<span class="rv-proj-chain__arrow" aria-hidden="true">\u2192</span>';
     var scoreLine = function (name, st) {
-      return '<div><span class="rv-subtitle" style="font-size:12px">' + name + (st.score != null ? ' <b style="color:var(--rv-ink)">' + esc(scoreText(st)) + '</b>' : "") + '</span>' + paceOrNA(st) + '</div>';
+      return '<div class="rv-proj-score-row"><span class="rv-proj-score-lbl">' + esc(name) +
+        (st.score != null || st.score_display != null ? " " + esc(scoreText(st)) : "") +
+        '</span><span class="rv-mono rv-proj-score-pace">' +
+        (st && st.available ? esc(fmtPace(st.pace_seconds_per_km)) : NA) + "</span></div>";
     };
     var vs = f.vs_goal;
     var finalMod = vs === "slower" ? " rv-proj-final--warn" : (f.available ? " rv-proj-final--good" : "");
-    var dateBit = race && race.race_date ? " \u00b7 " + esc(race.race_date) : "";
+    var dateBit = race && race.race_date ? " \u00b7 " + esc(fmtDayMonth(race.race_date)) : "";
     var gapBit = "";
     if (f.available && f.goal && f.goal.time_sec != null && f.est_sec != null) {
       var g = f.goal.time_sec - f.est_sec;
@@ -796,25 +844,27 @@
     }
     var finalHtml = f.available
       ? '<div class="rv-proj-final' + finalMod + '" data-chain="final"><span class="rv-proj-final-lbl">' +
-        esc(f.race_name || "") + dateBit + '</span>' +
+        esc(f.race_name || "") + dateBit + "</span>" +
         '<div class="rv-proj-final-val" data-chain-final>' + esc(fmtHMS(f.est_sec)) +
-        (f.band_sec != null ? ' <span style="font-size:13px;font-weight:600">\u00b1' + esc(fmtHMS(f.band_sec)).replace(/^0:/, "") + "</span>" : "") +
+        (f.band_sec != null ? ' <span class="rv-proj-final-band">\u00b1' +
+          esc(fmtHMS(f.band_sec)).replace(/^0:/, "") + "</span>" : "") +
         '</div><span class="rv-subtitle" style="font-size:11.5px">' + esc(fmtPace(f.pace_seconds_per_km)) + gapBit + "</span></div>"
       : '<div class="rv-proj-final" data-chain="final"><span class="rv-subtitle">' +
         esc((f && f.reason) || NA) + "</span></div>";
     var blendLabel = b.available ? "Blend \u00b7 " + esc(b.speed_weight_pct) + "% speed" : "Blend";
     var corrTxt = corrLabel(c);
     var corrInner = corrTxt
-      ? '<span class="rv-subtitle" style="font-size:12px;font-weight:700;color:var(--rv-secondary)">Model correction</span>' +
-        '<span class="rv-mono" style="font-size:18px;font-weight:700">' + esc(corrTxt) + "</span>"
+      ? '<span class="rv-proj-stage-lbl">Model correction</span>' +
+        '<span class="rv-mono rv-proj-stage-val">' + esc(corrTxt) + "</span>"
       : '<span class="rv-subtitle">' + NA + "</span>";
     var blendInner = b.available
-      ? '<span style="font-size:12px;font-weight:700;color:var(--rv-primary)">' + blendLabel + "</span>" + paceOrNA(b)
+      ? '<span class="rv-proj-stage-lbl rv-proj-stage-lbl--blend">' + blendLabel + "</span>" + paceOrNA(b)
       : '<span class="rv-subtitle">' + NA + "</span>";
     var fitInner = fit.available
-      ? '<span class="rv-subtitle" style="font-size:12px;font-weight:700">Race-day fitness</span>' +
-        '<span class="rv-mono" style="font-size:18px;font-weight:700">' + esc(fit.formatted || corrLabel(fit) || "\u00d71.000") + "</span>" +
-        (fit.projected_ctl != null ? '<span class="rv-subtitle" style="font-size:11.5px">projected CTL ' + esc(num(fit.projected_ctl)) + "</span>" : "")
+      ? '<span class="rv-proj-stage-lbl">Race-day fitness</span>' +
+        '<span class="rv-mono rv-proj-stage-val">' + esc(fit.formatted || corrLabel(fit) || "\u00d71.000") + "</span>" +
+        (fit.projected_ctl != null ? '<span class="rv-subtitle" style="font-size:11.5px">projected CTL on ' +
+          (race && race.race_date ? esc(fmtDayMonth(race.race_date)) : "") + "</span>" : "")
       : '<span class="rv-subtitle">' + NA + "</span>";
     return '<div class="rv-proj-chain" data-chain-row>' +
       '<div class="rv-proj-stage rv-proj-stage--scores" data-chain="scores">' + scoreLine("Endurance", e) + scoreLine("Speed", sp) + "</div>" +
@@ -826,77 +876,194 @@
 
   function renderChart(ch) {
     if (!ch || !ch.available) {
-      return '<p class="rv-subtitle" data-chart-na>Chart ' + NA + '.</p>';
+      return '<p class="rv-subtitle" data-chart-na>Chart ' + NA + ".</p>";
     }
-    var W = 1000, top = 20, bottom = 210, tagY = 228;
-    var lo = ch.y_min_sec, hi = ch.y_max_sec, pad = Math.max(60, (hi - lo) * 0.08);
-    lo -= pad; hi += pad;
-    var X = function (f) { return Math.round(f * W * 10) / 10; };
-    var Y = function (sec) { return Math.round((top + (hi - sec) / (hi - lo) * (bottom - top)) * 10) / 10; };
+    var W = 1200, H = 270, PX_L = 56, PX_R = 1140, PY_TOP = 20, PY_AXIS = 210;
+    var lo = ch.y_min_sec, hi = ch.y_max_sec;
+    var yTicks = ch.y_ticks || [];
+    if (yTicks.length) {
+      lo = Math.min(lo, yTicks[0].sec);
+      hi = Math.max(hi, yTicks[yTicks.length - 1].sec);
+    }
+    if (hi === lo) { lo -= 150; hi += 150; }
+    var X = function (f) { return Math.round((PX_L + f * (PX_R - PX_L)) * 10) / 10; };
+    var Y = function (sec) { return Math.round((PY_TOP + (sec - lo) / (hi - lo) * (PY_AXIS - PY_TOP)) * 10) / 10; };
     var parts = [];
-    parts.push('<line x1="0" y1="' + bottom + '" x2="' + W + '" y2="' + bottom + '" stroke="#dfe5f1"/>');
-    if (ch.goal_sec != null) {
-      parts.push('<line data-chart="goal" x1="0" y1="' + Y(ch.goal_sec) + '" x2="' + W + '" y2="' + Y(ch.goal_sec) + '" stroke="#15803d" stroke-width="2" stroke-dasharray="7 6"/>');
+    function svgLine(x1, y1, x2, y2, stroke, width, dash, attr) {
+      return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="' + stroke +
+        '" stroke-width="' + (width || 1) + '"' + (dash ? ' stroke-dasharray="' + dash + '"' : "") +
+        (attr || "") + "/>";
     }
-    function chartTag(m, fill, ink, label) {
-      var cx = X(m.x);
-      var lane = m.tag_lane || 0;
-      var y = tagY + lane * 26;
-      var w = Math.max(64, String(label).length * 7.2 + 16);
-      parts.push('<circle cx="' + cx + '" cy="' + Y((ch.history || []).reduce(function (found, h) {
-        return Math.abs(h.x - m.x) < 0.01 ? h.est_sec : found;
-      }, (ch.projection && ch.projection.est_sec) || lo)) + '" r="4" fill="#ffffff" stroke="#1f3b8a" stroke-width="2"/>');
-      parts.push('<line x1="' + cx + '" y1="' + bottom + '" x2="' + cx + '" y2="' + y + '" stroke="#c3cbdb" stroke-dasharray="2 3"/>');
-      parts.push('<rect data-chart-tag x="' + (cx - w / 2) + '" y="' + y + '" width="' + w + '" height="22" rx="6" fill="' + fill + '"/>' +
-        '<text x="' + cx + '" y="' + (y + 15) + '" text-anchor="middle" font-size="11.5" font-weight="700" fill="' + ink + '">' + esc(label) + "</text>");
+    yTicks.forEach(function (t) {
+      var y = Y(t.sec);
+      var isGoal = ch.goal_sec != null && Math.abs(t.sec - ch.goal_sec) < 45;
+      parts.push(svgLine(PX_L, y, PX_R, y, isGoal ? "#15803d" : "#eef1f7", isGoal ? 1.8 : 1, isGoal ? "7 6" : null));
+      parts.push('<text x="' + (PX_L - 8) + '" y="' + (y + 4) + '" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="12" fill="' +
+        (isGoal ? "#15803d" : "#56627f") + '">' + esc(t.label) + "</text>");
+    });
+    if (ch.goal_sec != null && !yTicks.some(function (t) { return Math.abs(t.sec - ch.goal_sec) < 45; })) {
+      parts.push(svgLine(PX_L, Y(ch.goal_sec), PX_R, Y(ch.goal_sec), "#15803d", 1.8, "7 6", ' data-chart="goal"'));
     }
-    (ch.ticks || []).forEach(function (m) {
-      parts.push('<line data-chart-tick="' + esc(m.role) + '" x1="' + X(m.x) + '" y1="' + (bottom - 16) + '" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-width="2"><title>' + esc(m.name) + "</title></line>");
-      chartTag(m, "#eef2fb", "#33405e", m.name);
-    });
-    (ch.recalibrations || []).forEach(function (m) {
-      parts.push('<line data-chart-recal x1="' + X(m.x) + '" y1="20" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#9aa5bd" stroke-dasharray="3 4"/>');
-      chartTag(m, "#eef2fb", "#33405e", m.name);
-    });
-    (ch.pending || []).forEach(function (m) {
-      parts.push('<line data-chart-pending x1="' + X(m.x) + '" y1="40" x2="' + X(m.x) + '" y2="' + bottom + '" stroke="#e0a56b" stroke-dasharray="3 4"/>');
-      chartTag(m, "#fff1dc", "#7a3a10", "CP \u00b7 not recorded");
-    });
+    parts.push(svgLine(PX_L, PY_AXIS, PX_R, PY_AXIS, "#dfe5f1"));
+
+    function daysBetween(a, b) {
+      var ms = Date.parse(b) - Date.parse(a);
+      return isNaN(ms) ? 0 : Math.abs(ms) / 86400000;
+    }
+    function estAtX(x) {
+      var pts = (ch.history || []).map(function (h) { return { x: h.x, sec: h.est_sec }; });
+      if (ch.projection && ch.now_x != null) {
+        var last = pts.length ? pts[pts.length - 1] : null;
+        if (!last || last.x < ch.now_x - 0.001) pts.push({ x: ch.now_x, sec: ch.projection.est_sec });
+      }
+      if (!pts.length) return null;
+      if (x <= pts[0].x) return pts[0].sec;
+      for (var i = 1; i < pts.length; i++) {
+        if (x <= pts[i].x) {
+          var a = pts[i - 1], b = pts[i];
+          var t = (b.x - a.x) ? (x - a.x) / (b.x - a.x) : 0;
+          return a.sec + t * (b.sec - a.sec);
+        }
+      }
+      return pts[pts.length - 1].sec;
+    }
+
     var nowX = X(ch.now_x), p = ch.projection, band = ch.band;
     if (band && p) {
-      parts.push('<polygon data-chart="band" points="' + nowX + ',' + Y(p.est_sec) + ' ' + W + ',' + Y(band.high_sec) + ' ' + W + ',' + Y(band.low_sec) + '" fill="#c9d9f6"/>');
+      parts.push('<polygon data-chart="band" points="' + nowX + "," + Y(p.est_sec) + " " + PX_R + "," +
+        Y(band.high_sec) + " " + PX_R + "," + Y(band.low_sec) + '" fill="#dbe7ff"/>');
     }
-    var pts = (ch.history || []).map(function (h) { return X(h.x) + "," + Y(h.est_sec); });
-    if (pts.length >= 2) {
-      parts.push('<polyline data-chart="history" points="' + pts.join(" ") + '" fill="none" stroke="#1f3b8a" stroke-width="3" stroke-linejoin="round"/>');
-    } else if (pts.length === 1) {
-      parts.push('<circle data-chart="history" cx="' + pts[0].split(",")[0] + '" cy="' + pts[0].split(",")[1] + '" r="4" fill="#1f3b8a"/>');
+
+    var NOW_R = 5.5;
+    var yNow = p ? Y(p.est_sec) : null;
+    var hist = (ch.history || []).map(function (h) {
+      return { x: h.x, est_sec: h.est_sec, date: h.date };
+    });
+    if (p && ch.now_x != null) {
+      var lastH = hist.length ? hist[hist.length - 1] : null;
+      if (lastH && Math.abs(lastH.x - ch.now_x) < 0.008) lastH.est_sec = p.est_sec;
+      else hist.push({ x: ch.now_x, est_sec: p.est_sec, date: ch.today });
     }
-    if (p) {
-      var fromY = (ch.history && ch.history.length) ? Y(ch.history[ch.history.length - 1].est_sec) : Y(p.est_sec);
-      parts.push('<line data-chart="projection" x1="' + nowX + '" y1="' + fromY + '" x2="' + W + '" y2="' + Y(p.est_sec) + '" stroke="#1f3b8a" stroke-width="3" stroke-dasharray="6 5"/>');
+    function isNowX(x) { return ch.now_x != null && Math.abs(x - ch.now_x) < 0.008; }
+    var histAttr = ' data-chart="history"';
+    if (hist.length >= 2) {
+      var solid = [];
+      hist.forEach(function (h, i) {
+        if (i === 0) {
+          solid.push(h);
+          return;
+        }
+        var prev = hist[i - 1];
+        var dashed = daysBetween(prev.date, h.date) > 12;
+        if (dashed) {
+          if (solid.length >= 2) {
+            parts.push('<polyline' + histAttr + ' points="' + solid.map(function (pt) { return X(pt.x) + "," + Y(pt.est_sec); }).join(" ") +
+              '" fill="none" stroke="#1f3b8a" stroke-width="2.5" stroke-linejoin="round"/>');
+            histAttr = "";
+          }
+          parts.push(svgLine(X(prev.x), Y(prev.est_sec), X(h.x), Y(h.est_sec), "#1f3b8a", 2.5, "6 5", histAttr));
+          histAttr = "";
+          solid = [h];
+        } else {
+          solid.push(h);
+        }
+      });
+      if (solid.length >= 2) {
+        parts.push('<polyline' + histAttr + ' points="' + solid.map(function (pt) { return X(pt.x) + "," + Y(pt.est_sec); }).join(" ") +
+          '" fill="none" stroke="#1f3b8a" stroke-width="2.5" stroke-linejoin="round"/>');
+        histAttr = "";
+      }
+    } else if (p && yNow != null) {
+      parts.push(svgLine(PX_L, yNow, nowX, yNow, "#1f3b8a", 2.5, null, histAttr));
     }
-    parts.push('<line x1="' + nowX + '" y1="10" x2="' + nowX + '" y2="' + bottom + '" stroke="#0b1530" stroke-width="1.5"/>' +
-      '<text x="' + (nowX + 6) + '" y="22" font-size="12" font-weight="700" fill="#0b1530">Now' +
+    hist.forEach(function (h) {
+      if (isNowX(h.x)) return;
+      parts.push('<circle cx="' + X(h.x) + '" cy="' + Y(h.est_sec) + '" r="4" fill="#ffffff" stroke="#1f3b8a" stroke-width="2"/>');
+    });
+    if (p && yNow != null) {
+      parts.push(svgLine(nowX + NOW_R, yNow, PX_R, yNow, "#1f3b8a", 2, "5 4", ' data-chart="projection"'));
+    }
+
+    var tagItems = [];
+    function pushTag(m, fill, ink, label, kind) {
+      var name = String(label || m.name || "").trim();
+      if (!name) return;
+      tagItems.push({
+        xFrac: m.x, name: name, fill: fill, ink: ink, kind: kind, role: m.role, tag_lane: m.tag_lane
+      });
+    }
+    (ch.ticks || []).forEach(function (m) { pushTag(m, "#eef2fb", "#33405e", m.name, "tick"); });
+    (ch.recalibrations || []).forEach(function (m) { pushTag(m, "#eef2fb", "#33405e", m.name, "recal"); });
+    (ch.pending || []).forEach(function (m) { pushTag(m, "#fff1dc", "#7a3a10", m.name ? "CP \u00b7 not recorded" : "", "pending"); });
+    tagItems.sort(function (a, b) { return a.xFrac - b.xFrac; });
+    var laid = [];
+    tagItems.forEach(function (it) {
+      var full = String(it.name);
+      var label = full.length > 16 ? full.slice(0, 15) + "\u2026" : full;
+      var tw = Math.min(Math.max(56, label.length * 7.2 + 16), 128);
+      var x = X(it.xFrac);
+      var tx = Math.max(PX_L, Math.min(x - tw / 2, PX_R - tw));
+      var lane = it.tag_lane || 0;
+      function hits(laneN, txN, twN) {
+        return laid.some(function (p) {
+          return p.lane === laneN && txN < p.tx + p.tw + 8 && txN + twN > p.tx - 8;
+        });
+      }
+      if (hits(lane, tx, tw)) lane = 1 - lane;
+      if (hits(lane, tx, tw)) {
+        var nudged = Math.min(tx + 12, PX_R - tw);
+        if (!hits(lane, nudged, tw)) tx = nudged;
+      }
+      var yOn = estAtX(it.xFrac);
+      laid.push({ x: x, tx: tx, tw: tw, lane: lane, label: label, full: full, fill: it.fill, ink: it.ink, kind: it.kind, role: it.role, yOn: yOn });
+    });
+    laid.forEach(function (tag) {
+      var yOn = tag.yOn != null ? Y(tag.yOn) : PY_AXIS;
+      var tagY = PY_AXIS + 10 + tag.lane * 26;
+      var attr = tag.kind === "recal" ? " data-chart-recal" : tag.kind === "pending" ? " data-chart-pending" :
+        ' data-chart-tick="' + esc(tag.role || "") + '"';
+      parts.push(svgLine(tag.x, yOn, tag.x, PY_AXIS, "#c3cbdb", 1, "2 3", attr));
+      if (!(p && Math.abs(tag.x - nowX) < 0.8)) {
+        parts.push('<circle cx="' + tag.x + '" cy="' + yOn + '" r="4" fill="#ffffff" stroke="#1f3b8a" stroke-width="2"/>');
+      }
+      parts.push('<rect data-chart-tag x="' + tag.tx + '" y="' + tagY + '" width="' + tag.tw + '" height="22" rx="6" fill="' + tag.fill + '">' +
+        "<title>" + esc(tag.full) + "</title></rect>" +
+        '<text x="' + (tag.tx + tag.tw / 2) + '" y="' + (tagY + 15) + '" text-anchor="middle" font-size="11.5" font-weight="700" fill="' + tag.ink + '">' +
+        '<title>' + esc(tag.full) + "</title>" + esc(tag.label) + "</text>");
+    });
+
+    parts.push(svgLine(nowX, PY_TOP, nowX, PY_AXIS, "#0b1530", 1.2) +
+      '<text x="' + Math.min(nowX + 6, PX_R - 80) + '" y="30" font-size="12" font-weight="700" fill="#0b1530">Now' +
       (p && p.est_label ? " \u00b7 " + esc(p.est_label) : "") + "</text>");
+    if (p && yNow != null) {
+      parts.push('<circle data-chart="now" cx="' + nowX + '" cy="' + yNow + '" r="' + NOW_R + '" fill="#1f3b8a"/>');
+    }
     if (!ch.history_only) {
-      parts.push('<line x1="' + W + '" y1="10" x2="' + W + '" y2="' + bottom + '" stroke="#b45309" stroke-width="1.2" stroke-dasharray="3 3"/>' +
-        '<text x="' + (W - 4) + '" y="22" text-anchor="end" font-size="12" font-weight="700" fill="#7a3a10">Race day</text>');
+      parts.push(svgLine(PX_R, PY_TOP, PX_R, PY_AXIS, "#b45309", 1.2, "3 3") +
+        '<text x="' + (PX_R - 4) + '" y="30" text-anchor="end" font-size="12" font-weight="700" fill="#7a3a10">Race day</text>');
     }
     var mono = ' font-size="11.5" text-anchor="end" font-family="JetBrains Mono, monospace"';
     if (band && p) {
-      parts.push('<text data-band-label="high" x="' + (W - 4) + '" y="' + (Y(band.high_sec) - 4) + '" fill="#56627f"' + mono + '>' + esc(band.high_label) + '</text>');
-      parts.push('<text data-band-label="low" x="' + (W - 4) + '" y="' + (Y(band.low_sec) + 14) + '" fill="#56627f"' + mono + '>' + esc(band.low_label) + '</text>');
-      parts.push('<text data-band-label="estimate" x="' + (W - 4) + '" y="' + (Y(p.est_sec) - 4) + '" fill="#0b1530" font-weight="700"' + mono + '>' + esc(p.est_label) + '</text>');
+      function bandLabelY(sec, fallbackShift) {
+        var y = Y(sec) + fallbackShift;
+        if (y < 52) y = 52;
+        if (y > PY_AXIS - 6) y = PY_AXIS - 6;
+        return y;
+      }
+      parts.push('<text data-band-label="high" x="' + (PX_R - 8) + '" y="' + bandLabelY(band.high_sec, -4) + '" fill="#56627f"' + mono + ">" + esc(band.high_label) + "</text>");
+      parts.push('<text data-band-label="low" x="' + (PX_R - 8) + '" y="' + bandLabelY(band.low_sec, 14) + '" fill="#56627f"' + mono + ">" + esc(band.low_label) + "</text>");
+      parts.push('<text data-band-label="estimate" x="' + (PX_R - 8) + '" y="' + bandLabelY(p.est_sec, -4) + '" fill="#0b1530" font-weight="700"' + mono + ">" + esc(p.est_label) + "</text>");
     }
-    var endLabel = ch.history_only ? esc(ch.end) : esc(ch.end);
-    parts.push('<text x="0" y="280" font-size="11.5" fill="#56627f" font-family="JetBrains Mono, monospace">' + esc(ch.start) + "</text>" +
-      '<text x="' + W + '" y="280" font-size="11.5" fill="#56627f" text-anchor="end" font-family="JetBrains Mono, monospace">' + endLabel + "</text>");
-    var label = ch.history_only
-      ? ("Finish estimate trend for " + ch.race_name + " from " + ch.start + " to " + ch.end + ".")
-      : ("Projected " + ch.race_name + " time from " + ch.start + " to race day " + ch.end + ", ending at " + p.est_label +
-        (band ? " with a band from " + band.low_label + " to " + band.high_label : "") + (ch.goal_label ? ". Goal " + ch.goal_label : "") + ".");
-    return '<svg viewBox="0 0 1000 290" style="width:100%;height:290px;display:block" role="img" aria-label="' + esc(label) + '" data-projection-chart>' + parts.join("") + "</svg>";
+    parts.push('<text x="' + PX_L + '" y="262" font-size="11.5" fill="#56627f" font-family="JetBrains Mono, monospace">' + esc(fmtDayMonth(ch.start)) + "</text>" +
+      '<text x="' + PX_R + '" y="262" font-size="11.5" fill="#56627f" text-anchor="end" font-family="JetBrains Mono, monospace">' + esc(fmtDayMonth(ch.end)) + "</text>");
+    var aria = ch.history_only
+      ? ("Finish estimate trend for " + ch.race_name + " from " + fmtDayMonth(ch.start) + " to " + fmtDayMonth(ch.end) + ".")
+      : ("Projected " + ch.race_name + " time from " + fmtDayMonth(ch.start) + " to race day " + fmtDayMonth(ch.end) +
+        (p && p.est_label ? ", ending at " + p.est_label : "") +
+        (band ? " with a band from " + band.low_label + " to " + band.high_label : "") +
+        (ch.goal_label ? ". Goal " + ch.goal_label : "") + ".");
+    return '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block" role="img" aria-label="' +
+      esc(aria) + '" data-projection-chart>' + parts.join("") + "</svg>";
   }
 
   function renderBuiltFrom(b) {
@@ -915,26 +1082,30 @@
 
   function chartLegend(ch) {
     if (!ch || !ch.available) return "";
-    return '<div class="rv-row" style="align-items:center"><span class="rv-score-bd-title">' +
-      esc(ch.race_name || "") + ' estimate over time</span>' +
-      '<span class="rv-chart-legend"><span><span style="width:18px;height:0;border-top:2px solid #1f3b8a;display:inline-block"></span>Estimate</span>' +
-      '<span><span style="width:14px;height:10px;background:#dbe7ff;border-radius:2px;display:inline-block"></span>Band to race day</span>' +
-      (ch.goal_label ? '<span><span style="width:18px;height:0;border-top:2px dashed #15803d;display:inline-block"></span>Goal ' +
-        esc(ch.goal_label) + "</span>" : "") +
+    return '<div class="rv-proj-chart-head"><span class="rv-perf-tile-lbl">' +
+      esc(ch.race_name || "") + " estimate over time</span>" +
+      '<span class="rv-chart-legend"><span><span class="rv-chart-legend-line"></span>Estimate</span>' +
+      '<span><span class="rv-chart-legend-band"></span>Band to race day</span>' +
+      (ch.goal_label ? '<span><span class="rv-chart-legend-goal"></span>Goal ' + esc(ch.goal_label) + "</span>" : "") +
       "</span></div>";
   }
 
   function renderProjection(host, data) {
+    var chainName = data.race && data.race.name ? data.race.name : "finish";
     host.innerHTML =
       '<div class="rv-perf-proj-head">' +
       '<div><h2 class="rv-perf-proj-title">Races and projections</h2>' +
-      '<p class="rv-subtitle" style="margin:4px 0 0;font-size:13px">How the finish time is built, and how it has moved. The band tightens after each recalibration.</p></div>' +
+      '<p class="rv-subtitle" style="margin:4px 0 0;font-size:13px">How the finish time is built and how it has moved. The band tightens after each recalibration.</p></div>' +
       '<div class="rv-row rv-perf-proj-actions">' +
       '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-proj-recalibrate">Recalibrate</button>' +
       '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" id="v2-race-add">+ Add a race</button></div></div>' +
       renderTiles(data.tiles, data.built_from) +
+      '<div class="rv-proj-chain-block"><span class="rv-perf-tile-lbl">How the ' + esc(chainName) + " estimate is built</span>" +
       (data.chain ? renderChain(data.chain, data.race) : '<p class="rv-subtitle" data-chain-na>Pace blend is ' + NA + " until an upcoming race is set.</p>") +
-      ((data.chart && data.chart.available) ? chartLegend(data.chart) + renderChart(data.chart) : "");
+      "</div>" +
+      ((data.chart && data.chart.available)
+        ? '<div class="rv-proj-chart-block">' + chartLegend(data.chart) + renderChart(data.chart) + "</div>"
+        : "");
     var recal = host.querySelector("#v2-proj-recalibrate");
     if (recal) {
       recal.addEventListener("click", function () {
@@ -1034,8 +1205,8 @@
     var recal = r.recalibrates_here ? ' · <span class="rv-race-recal" data-recalibrates-here>recalibrates here</span>' : "";
     return '<div class="rv-race-row__name"><div class="rv-race-row__head">' + prBadge(r) +
       '<div><span class="rv-race-row__title">' + esc(r.name) + target + (extra || "") + '</span>' +
-      '<span class="rv-mono rv-subtitle rv-race-row__meta">' + esc(r.race_date) +
-      (r.distance_km ? " · " + esc(r.distance_km) + " km" : "") +
+      '<span class="rv-mono rv-subtitle rv-race-row__meta">' + esc(fmtDayMonth(r.race_date)) +
+      (r.distance_km ? " · " + esc(fmtKm(r.distance_km, r.distance_label)) + " km" : "") +
       (r.role_label ? ' · <span data-race-role="' + esc(r.role || "") + '">' + esc(r.role_label) + "</span>" : "") +
       recal + '</span></div></div></div>';
   }
@@ -1050,8 +1221,25 @@
   function statusChip(chip) {
     if (!chip || !chip.text) return '<div class="rv-race-row__status"></div>';
     var tone = chip.tone || "warn";
+    var title = chip.title || chip.aria_label || chip.text;
     return '<div class="rv-race-row__status"><span class="rv-status-chip rv-status-chip--' + esc(tone) +
-      '" data-status-chip>' + esc(chip.text) + "</span></div>";
+      '" data-status-chip title="' + esc(title) + '" aria-label="' + esc(chip.aria_label || title) + '">' +
+      esc(chip.text) + "</span></div>";
+  }
+
+  function timeToneClass(chip) {
+    if (!chip) return "";
+    if (chip.tone === "good") return " rv-race-time--good";
+    if (chip.tone === "bad") return " rv-race-time--bad rv-race-time--warn";
+    if (chip.tone === "warn") return " rv-race-time--warn";
+    return "";
+  }
+
+  function raceRowIcons(r) {
+    return '<button type="button" class="rv-icon-btn" data-edit-race="' + esc(r.id) +
+      '" aria-label="Edit ' + esc(r.name) + '">' + ICON_EDIT + "</button>" +
+      '<button type="button" class="rv-icon-btn" data-delete-race="' + esc(r.id) +
+      '" aria-label="Delete ' + esc(r.name) + '">' + ICON_TRASH + "</button>";
   }
 
   function debriefChip(r) {
@@ -1075,14 +1263,13 @@
       '<label class="sr-only" for="actual-' + esc(r.id) + '">Finish time</label>' +
       '<input id="actual-' + esc(r.id) + '" type="text" inputmode="numeric" placeholder="h:mm:ss" data-actual-input value="' +
       esc(sug ? fmtHMS(sug.moving_seconds) : "") + '">' +
-      '<button type="button" class="rv-btn rv-btn--accent rv-btn--sm" data-record="' + esc(r.id) + '">Record</button></div></div></div>';
+      '<button type="button" class="rv-btn rv-btn--accent rv-btn--sm" data-record="' + esc(r.id) + '">Record</button></div>' +
+      raceRowIcons(r) + "</div></div>";
   }
 
   function renderUpcoming(r) {
     var est = r.estimate || {};
-    var timeCls = "rv-mono rv-race-time";
-    if (r.estimate_vs_goal === "slower") timeCls += " rv-race-time--warn";
-    else if (r.estimate_vs_goal === "faster") timeCls += " rv-race-time--good";
+    var timeCls = "rv-mono rv-race-time" + timeToneClass(r.status_chip);
     var estHtml = est.available
       ? '<span class="' + timeCls + '" data-race-estimate>' + esc(fmtHMS(est.est_sec)) + "</span>" +
         (est.band_sec != null ? ' <span class="rv-subtitle rv-mono">\u00b1' + esc(fmtHMS(est.band_sec)).replace(/^0:/, "") + "</span>" : "")
@@ -1092,21 +1279,87 @@
       raceNameCell(r) + goalCell(r) +
       '<div class="rv-race-row__est"><span class="rv-race-col-lbl">Estimate</span>' + estHtml + "</div>" +
       statusChip(r.status_chip) +
-      '<div class="rv-race-row__actions"><button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-edit-race="' + esc(r.id) + '">Edit</button></div></div>';
+      '<div class="rv-race-row__actions">' + raceRowIcons(r) + "</div></div>";
   }
 
   function renderCompleted(r) {
-    var d = r.debrief;
-    var action = d
-      ? '<a class="rv-score-trend-link" data-debrief-chip href="' + esc(d.link) + '">Debrief \u203a</a>'
+    var href = (r.debrief && r.debrief.link) || (r.workout_id ? "/log?workout=" + encodeURIComponent(r.workout_id) : "");
+    var action = href
+      ? '<a class="rv-score-trend-link" data-debrief-chip href="' + esc(href) + '">Debrief \u203a</a>'
       : "";
+    var pace = r.actual_pace_seconds_per_km;
+    var timeCls = "rv-mono rv-race-time" + timeToneClass(r.status_chip);
     return '<div class="rv-race-row" data-completed="' + esc(r.id) + '">' +
       raceNameCell(r) + goalCell(r) +
       '<div class="rv-race-row__actual"><span class="rv-race-col-lbl">Actual</span>' +
-      '<span class="rv-mono rv-race-time" data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + "</span>" +
-      (r.moving_time_sec != null ? ' <span class="rv-mono rv-subtitle" data-moving-time>' + esc(fmtHMS(r.moving_time_sec)) + "</span>" : "") +
+      '<span class="' + timeCls + '" data-chip-time>' + esc(fmtHMS(r.chip_time_sec)) + "</span>" +
+      (pace != null ? ' <span class="rv-mono rv-subtitle" data-moving-time data-actual-pace>' +
+        esc(fmtPace(pace).replace(" /km", "")) + "</span>" : "") +
       "</div>" + statusChip(r.status_chip) +
-      '<div class="rv-race-row__actions">' + action + "</div></div>";
+      '<div class="rv-race-row__actions">' + action + raceRowIcons(r) + "</div></div>";
+  }
+
+  function calibratesOnDelete(r) {
+    if (!r) return false;
+    var role = r.role;
+    var hasResult = r.chip_time_sec != null || (r.actual && r.actual.time_sec != null);
+    return hasResult && (role === "a_race" || role === "pb");
+  }
+
+  function closeDeleteConfirm() {
+    var root = document.getElementById("v2-race-delete-root");
+    if (root) root.innerHTML = "";
+  }
+
+  function openDeleteRaceConfirm(r) {
+    if (!r) return;
+    var root = document.getElementById("v2-race-delete-root");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "v2-race-delete-root";
+      document.body.appendChild(root);
+    }
+    var extra = calibratesOnDelete(r)
+      ? "<p>The projection will recalibrate without this race.</p>"
+      : "";
+    root.innerHTML =
+      '<div class="rv-confirm-backdrop" id="v2-race-delete-backdrop">' +
+      '<div class="rv-confirm" role="dialog" aria-modal="true" aria-labelledby="v2-race-delete-title">' +
+      '<h2 id="v2-race-delete-title">Delete ' + esc(r.name) + "?</h2>" +
+      "<p>Its result and calibration will be removed.</p>" + extra +
+      '<div class="rv-confirm__actions">' +
+      '<button type="button" class="rv-btn rv-btn--secondary rv-btn--sm" data-delete-cancel>Cancel</button>' +
+      '<button type="button" class="rv-btn rv-btn--danger rv-btn--sm" data-delete-confirm>Delete</button>' +
+      "</div></div></div>";
+    function onKey(ev) {
+      if (ev.key === "Escape") { ev.preventDefault(); closeDeleteConfirm(); }
+    }
+    document.addEventListener("keydown", onKey, { once: true });
+    root.querySelector("[data-delete-cancel]").addEventListener("click", closeDeleteConfirm);
+    root.querySelector("#v2-race-delete-backdrop").addEventListener("click", function (ev) {
+      if (ev.target.id === "v2-race-delete-backdrop") closeDeleteConfirm();
+    });
+    root.querySelector("[data-delete-confirm]").addEventListener("click", function () {
+      var btn = this;
+      btn.disabled = true;
+      sendJSON("DELETE", "/api/races/" + encodeURIComponent(r.id))
+        .then(function () {
+          closeDeleteConfirm();
+          toast("Race deleted");
+          reloadProjectionViews();
+        })
+        .catch(function (e) {
+          var gone = e && (e.status === 404 || /not found/i.test(String(e.message || "")));
+          if (gone) {
+            closeDeleteConfirm();
+            toast("Race deleted");
+            reloadProjectionViews();
+            return;
+          }
+          btn.disabled = false;
+          toast("Could not delete: " + e.message);
+        });
+    });
   }
 
   function renderRaces(host, data) {
@@ -1133,6 +1386,11 @@
         done.map(renderCompleted).join("") + earlier + "</div>" : "");
     Array.prototype.forEach.call(host.querySelectorAll("[data-edit-race]"), function (b) {
       b.addEventListener("click", function () { openRaceDrawer(raceIndex[b.getAttribute("data-edit-race")]); });
+    });
+    Array.prototype.forEach.call(host.querySelectorAll("[data-delete-race]"), function (b) {
+      b.addEventListener("click", function () {
+        openDeleteRaceConfirm(raceIndex[b.getAttribute("data-delete-race")]);
+      });
     });
     Array.prototype.forEach.call(host.querySelectorAll("[data-record]"), function (b) {
       b.addEventListener("click", function () {

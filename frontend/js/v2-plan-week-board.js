@@ -9,6 +9,78 @@
     }
   }
 
+  var COACH_WEEK_EXAMPLE = [
+    "Mon rest",
+    "Tue easy 60min",
+    "Wed interval 40min",
+    "Thu tempo 50min",
+    "Fri easy 45min",
+    "Sat long 130min",
+    "Sun rest",
+  ].join("\n");
+
+  var COACH_WEEK_PROMPT = [
+    "# Coach week import — prompt + template",
+    "",
+    "Paste this into Claude (or any assistant) with your coach's week",
+    "(notes, screenshot description, or a photo). Ask it to return only",
+    "the import lines — nothing else. Then paste those lines into",
+    "perf-coach → Training → Import coach week → Preview.",
+    "",
+    "---",
+    "",
+    "Convert the following training week into perf-coach import lines.",
+    "",
+    "Rules:",
+    "- One session per line. No headings, bullets, markdown, or commentary.",
+    "- Format: {Day} {type} {load}",
+    "- Day: Mon Tue Wed Thu Fri Sat Sun (full names are also fine).",
+    "- Type must be exactly one of: easy, long, tempo, interval, hills, race, rest.",
+    "- Load is duration (60min or 1.5h), distance (18km), or repeats (2km x 7).",
+    "- Prefer minutes when you know them. Distance-only lines work if a recent easy pace is on file.",
+    "- Rest days are just: Sun rest",
+    "- Two sessions on the same day → two lines with the same day.",
+    "- Skip strength, gym, mobility, and notes that are not a run.",
+    "- Do not invent sessions. If a day is blank, omit it or use rest.",
+    "- If the coach wrote paces or watts, drop them — this format has no pace field.",
+    "",
+    "Example (this is a valid week):",
+    "",
+    COACH_WEEK_EXAMPLE,
+    "",
+    "Coach notes / photo transcription:",
+    "",
+    "[paste the week here]",
+    "",
+  ].join("\n");
+
+  function downloadText(name, content, mime) {
+    var blob = new Blob([content], { type: mime || "text/plain;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+    return Promise.resolve();
+  }
+
   function cardClass(item) {
     var kind = (item.kind || item.session_type || '').toLowerCase();
     if (item.kind === 'rest') return 'rv-sess--rest';
@@ -304,8 +376,13 @@
       var photoInput = document.getElementById('v2-coach-import-photo');
       var photoHint = document.getElementById('v2-coach-import-photo-hint');
       var photoWrap = document.getElementById('v2-coach-import-photo-wrap');
+      var examplePre = document.getElementById('v2-coach-import-example-pre');
+      var useExampleBtn = document.getElementById('v2-coach-import-use-example');
+      var downloadBtn = document.getElementById('v2-coach-import-download');
+      var copyPromptBtn = document.getElementById('v2-coach-import-copy-prompt');
       var photoCaps = null;
       var parsedRows = [];
+      if (examplePre) examplePre.textContent = COACH_WEEK_EXAMPLE;
 
       function close() {
         if (panel) panel.hidden = true;
@@ -334,6 +411,27 @@
       if (openBtn) openBtn.onclick = show;
       if (cancelBtn) cancelBtn.onclick = close;
       if (backdrop) backdrop.onclick = close;
+      if (useExampleBtn) {
+        useExampleBtn.onclick = function () {
+          if (text) text.value = COACH_WEEK_EXAMPLE;
+          if (text && text.focus) text.focus();
+        };
+      }
+      if (downloadBtn) {
+        downloadBtn.onclick = function () {
+          downloadText("coach-week-import-prompt.md", COACH_WEEK_PROMPT, "text/markdown;charset=utf-8");
+          toast("Downloaded template + prompt");
+        };
+      }
+      if (copyPromptBtn) {
+        copyPromptBtn.onclick = function () {
+          copyText(COACH_WEEK_PROMPT).then(function () {
+            toast("Prompt copied — paste it into Claude with your coach week");
+          }).catch(function () {
+            toast("Could not copy prompt");
+          });
+        };
+      }
 
       function renderPreview(payload) {
         parsedRows = payload.rows || [];

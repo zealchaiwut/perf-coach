@@ -109,7 +109,8 @@ def test_chart_time_scaled_fixture_with_one_recalibration_and_one_pending():
 def test_chart_script_renders_all_marks():
     js = Path("frontend/js/v2-performance.js").read_text()
     for needle in ("data-chart-recal", "data-chart-pending", "data-chart-tick", 'data-chart="band"',
-                   'data-chart="history"', 'data-chart="projection"', "data-band-label", "Now"):
+                   'data-chart="history"', 'data-chart="projection"', "data-band-label", "Now",
+                   'data-chart="now"', "NOW_R"):
         assert needle in js
 
 

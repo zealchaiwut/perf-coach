@@ -404,7 +404,22 @@ def record_todays_predictions(db, user_id, today: Optional[date] = None) -> int:
 
 
 def after_race_write(db, user_id) -> None:
-    """Best-effort persist of today's predictions after a race mutation (#1937)."""
+    """Best-effort persist of today's predictions after a race mutation (#1937).
+
+    Also bumps ``data_version`` so derived Performance payloads (hero,
+    projection, race list) cannot keep serving a row that was just written.
+    """
+    try:
+        from backend.services.data_version import bump_data_version
+
+        bump_data_version(db, user_id)
+        db.commit()
+    except Exception:
+        _log.warning("after_race_write data_version bump failed for %s", user_id, exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass
     try:
         record_todays_predictions(db, user_id)
     except Exception:

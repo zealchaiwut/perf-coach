@@ -99,22 +99,44 @@ def _planned_item(session: Session, row: PlannedSession, today: date) -> dict[st
 
 
 def _week_target_meta(rollup: dict) -> dict:
-    """Target bar helpers for the month WEEK column."""
+    """Target bar helpers for the month WEEK column.
+
+    ``on_target`` stays the original ±5% flag. ``tone`` is the WEEK-column
+    colour: green within ±10% of target, red over that, yellow under it.
+    ``fill_pct`` / ``target_pct`` are positions on a scale that leaves room
+    past the target so the vertical tick at 334 is visible on over weeks.
+    """
     actual = float(rollup.get("tss_total") or 0)
     target = rollup.get("target_tss")
     planned = rollup.get("planned_tss")
     if target is None and planned:
         target = float(planned) + actual if rollup.get("partial") else float(planned)
     if target is None or target <= 0:
-        return {"target_tss": None, "delta": None, "on_target": None, "bar_pct": None}
-    delta = round(actual - target, 1)
-    on_target = abs(delta) <= target * 0.05
-    bar_pct = min(100, round((actual / target) * 100))
+        return {
+            "target_tss": None, "delta": None, "on_target": None, "bar_pct": None,
+            "tone": None, "fill_pct": None, "target_pct": None,
+        }
+    target_f = float(target)
+    delta = round(actual - target_f, 1)
+    on_target = abs(delta) <= target_f * 0.05
+    if abs(delta) <= target_f * 0.10:
+        tone = "good"
+    elif delta > 0:
+        tone = "bad"
+    else:
+        tone = "warn"
+    bar_pct = min(100, round((actual / target_f) * 100))
+    scale = max(target_f * 1.25, actual, 1.0)
+    fill_pct = min(100, round((actual / scale) * 100))
+    target_pct = min(100, round((target_f / scale) * 100))
     return {
-        "target_tss": round(float(target), 1),
+        "target_tss": round(target_f, 1),
         "delta": delta,
         "on_target": on_target,
         "bar_pct": bar_pct,
+        "tone": tone,
+        "fill_pct": fill_pct,
+        "target_pct": target_pct,
     }
 
 

@@ -1,6 +1,7 @@
 """Issue #1840 — coach week typed-text import."""
 
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -156,3 +157,49 @@ def test_parse_text_commit_allowed_false_with_garbage():
         today=date(2026, 11, 9),
     )
     assert payload["commit_allowed"] is False
+
+
+EXAMPLE_WEEK = (
+    "Mon rest\n"
+    "Tue easy 60min\n"
+    "Wed interval 40min\n"
+    "Thu tempo 50min\n"
+    "Fri easy 45min\n"
+    "Sat long 130min\n"
+    "Sun rest"
+)
+
+
+def test_example_week_in_ui_parses():
+    class _DB:
+        def query(self, *a, **k):
+            return self
+
+        def filter(self, *a, **k):
+            return self
+
+        def all(self):
+            return []
+
+    js = Path("frontend/js/v2-plan-week-board.js").read_text(encoding="utf-8")
+    html = Path("frontend/pages/v2-training-plan.html").read_text(encoding="utf-8")
+    assert "v2-coach-import-download" in html
+    assert "v2-coach-import-copy-prompt" in html
+    assert "v2-coach-import-use-example" in html
+    assert "Download template + prompt" in html
+    assert "COACH_WEEK_EXAMPLE" in js
+    assert "COACH_WEEK_PROMPT" in js
+    for line in EXAMPLE_WEEK.splitlines():
+        assert line in js
+
+    payload = parse_coach_week_text(
+        _DB(),
+        uuid4(),
+        week_start=WEEK,
+        text=EXAMPLE_WEEK,
+        today=date(2026, 11, 9),
+    )
+    assert payload["commit_allowed"] is True
+    assert [r["run_type"] for r in payload["rows"]] == [
+        "rest", "easy", "interval", "tempo", "easy", "long", "rest",
+    ]

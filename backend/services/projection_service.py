@@ -192,6 +192,9 @@ def delete_race(plan_id: _uuid.UUID, race_id: _uuid.UUID) -> bool:
             return False
         db.delete(race)
         db.commit()
+        from backend.services.race_calibration import after_race_write
+
+        after_race_write(db, plan.user_id)
         return True
 
 

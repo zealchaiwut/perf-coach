@@ -73,26 +73,75 @@ def match_run(race_date: date, race_distance_km: Optional[float], workouts: list
     }
 
 
+def _gap_clock(delta_sec: int) -> str:
+    from backend.services.race_finish_estimate import _fmt_hms
+
+    return _fmt_hms(abs(int(delta_sec))) or "0:00"
+
+
 def _gap_chip(delta_sec: Optional[int], *, vs_goal: bool) -> Optional[dict[str, Any]]:
-    """Server-side status chip. Positive delta means faster than / under goal."""
+    """Server-side status chip. Positive delta means faster than / under goal.
+
+    Visible text is ``+m:ss`` (red) or ``−m:ss`` (U+2212, green). The long
+    wording lives in ``title`` / ``aria_label`` so the UI does not invent it.
+    """
     if delta_sec is None:
         return None
     faster = delta_sec >= 0
-    secs = abs(int(delta_sec))
-    from backend.services.race_finish_estimate import _fmt_hms
-
-    label = _fmt_hms(secs) or "0:00"
+    clock = _gap_clock(delta_sec)
     if vs_goal:
-        # upcoming estimate vs goal
-        tone = "good" if faster else "warn"
-        text = f"{label} {'faster' if faster else 'slower'} than goal"
+        long = f"{clock} {'faster' if faster else 'slower'} than goal"
     else:
-        tone = "good" if faster else "bad"
-        text = f"{label} {'under' if faster else 'over'} goal"
-    return {"tone": tone, "text": text, "faster": faster, "delta_sec": int(delta_sec)}
+        long = f"{clock} {'under' if faster else 'over'} goal"
+    if faster:
+        text = "0:00" if delta_sec == 0 else f"\u2212{clock}"
+        tone = "good"
+    else:
+        text = f"+{clock}"
+        tone = "bad"
+    return {
+        "tone": tone,
+        "text": text,
+        "title": long,
+        "aria_label": long,
+        "faster": faster,
+        "delta_sec": int(delta_sec),
+    }
+
+
+_HALF_KM = 21.0975
+_FULL_KM = 42.195
+
+
+def canonical_race_km(km: Optional[float]) -> Optional[float]:
+    """Map stored half/full approximations onto the official distances for pace."""
+    if km is None:
+        return None
+    k = float(km)
+    if abs(k - _HALF_KM) <= 0.15 or abs(k - 21.1) <= 0.05 or abs(k - 21.0) < 1e-6:
+        return _HALF_KM
+    if abs(k - _FULL_KM) <= 0.3 or abs(k - 42.2) <= 0.05 or abs(k - 42.0) < 1e-6:
+        return _FULL_KM
+    return k
+
+
+def format_distance_km(km: Optional[float]) -> Optional[str]:
+    """Half/full show one decimal (21.1, 42.2); shorter races stay whole."""
+    if km is None:
+        return None
+    canon = canonical_race_km(km)
+    if canon == _HALF_KM:
+        return "21.1"
+    if canon == _FULL_KM:
+        return "42.2"
+    k = float(km)
+    if abs(k - round(k)) < 1e-6:
+        return str(int(round(k)))
+    return f"{k:g}"
 
 
 def _pace(sec: Optional[int], km: Optional[float]) -> Optional[int]:
+    km = canonical_race_km(km)
     if sec is None or not km:
         return None
     from backend.models import compute_goal_pace
@@ -103,13 +152,15 @@ def _pace(sec: Optional[int], km: Optional[float]) -> Optional[int]:
 
 def _base(race) -> dict[str, Any]:
     role = race_role(race)
-    distance = float(race.distance_km) if race.distance_km is not None else None
+    stored = float(race.distance_km) if race.distance_km is not None else None
+    distance = canonical_race_km(stored)
     goal = int(race.goal_time_seconds) if race.goal_time_seconds is not None else None
     return {
         "id": str(race.id),
         "name": race.name,
         "race_date": race.race_date.isoformat(),
-        "distance_km": distance,
+        "distance_km": stored,
+        "distance_label": format_distance_km(stored),
         "priority": race.priority,
         "race_type": race.race_type,
         "role": role,
@@ -169,7 +220,14 @@ def needs_result_row(race, workouts: list) -> dict[str, Any]:
     row["suggested_actual"] = suggestion
     row["suggestion_reason"] = None if suggestion else "No synced run matched"
     if row["role"] == "long_run":
-        row["status_chip"] = {"tone": "warn", "text": "not recorded", "faster": None, "delta_sec": None}
+        row["status_chip"] = {
+            "tone": "warn",
+            "text": "not recorded",
+            "title": "not recorded",
+            "aria_label": "not recorded",
+            "faster": None,
+            "delta_sec": None,
+        }
     else:
         row["status_chip"] = None
     return row
@@ -183,6 +241,7 @@ def completed_row(race, workouts: list) -> dict[str, Any]:
     row.update(
         chip_time_sec=actual,
         moving_time_sec=run["moving_seconds"] if run else None,
+        workout_id=run["workout_id"] if run else None,
         goal_minus_actual_sec=gap,
         actual_pace_seconds_per_km=_pace(actual, row["distance_km"]),
         status_chip=_gap_chip(gap, vs_goal=False),

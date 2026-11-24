@@ -28,6 +28,7 @@ from typing import Any, Optional
 from backend.services.perf_a_race import next_a_race
 from backend.services.race_finish_estimate import _fmt_hms, estimate_race_finish
 from backend.services.race_roles import RECALIBRATING_ROLES, race_role
+from backend.services.score_format import display_score
 from backend.utils.log import get_logger
 
 _log = get_logger(__name__)
@@ -160,9 +161,15 @@ def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict
     def _stage_score(name: str) -> dict[str, Any]:
         pace = basis.get(f"{name}_pace_seconds_per_km")
         score = basis.get(f"{name}_score")
+        disp = display_score(score)
         if pace is None:
-            return _na(score=score)
-        return {"available": True, "score": score, "pace_seconds_per_km": pace}
+            return _na(score=score, score_display=disp)
+        return {
+            "available": True,
+            "score": score,
+            "score_display": disp,
+            "pace_seconds_per_km": pace,
+        }
 
     blended_pace = basis.get("blended_pace_seconds_per_km")
     blended = (
@@ -213,8 +220,8 @@ def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict
     if correction.get("available") and correction.get("factor") is not None:
         correction["formatted"] = _fmt_factor(correction["factor"])
     steps = [
-        {"key": "endurance", "label": "Endurance", **{k: _stage_score("endurance").get(k) for k in ("available", "score", "pace_seconds_per_km")}},
-        {"key": "speed", "label": "Speed", **{k: _stage_score("speed").get(k) for k in ("available", "score", "pace_seconds_per_km")}},
+        {"key": "endurance", "label": "Endurance", **{k: _stage_score("endurance").get(k) for k in ("available", "score", "score_display", "pace_seconds_per_km")}},
+        {"key": "speed", "label": "Speed", **{k: _stage_score("speed").get(k) for k in ("available", "score", "score_display", "pace_seconds_per_km")}},
         {"key": "blend", "label": "Blend", **blended},
         {"key": "fitness", "label": "Race-day fitness", **fitness},
         {"key": "correction", "label": "Model correction", **correction},
@@ -273,7 +280,33 @@ def goal_state(session, user_id: uuid.UUID, race) -> dict[str, Any]:
 
 # ── Chart ────────────────────────────────────────────────────────────────────
 
-def _assign_tag_lanes(marks: list[dict[str, Any]], *, min_dx: float = 0.08) -> None:
+def _fmt_hm(sec: Optional[int]) -> Optional[str]:
+    if sec is None:
+        return None
+    s = abs(int(round(sec)))
+    h, m = divmod(s // 60, 60)
+    return f"{h}:{m:02d}"
+
+
+def build_y_ticks(y_min: int, y_max: int) -> list[dict[str, Any]]:
+    """Left-axis labels at 5-minute (or 10-minute) marks covering the plot range."""
+    if y_max < y_min:
+        y_min, y_max = y_max, y_min
+    span = max(1, int(y_max) - int(y_min))
+    step = 300 if span <= 900 else 600
+    lo = (int(y_min) // step) * step
+    hi = ((int(y_max) + step - 1) // step) * step
+    ticks: list[dict[str, Any]] = []
+    sec = lo
+    while sec <= hi and len(ticks) < 8:
+        ticks.append({"sec": sec, "label": _fmt_hm(sec)})
+        sec += step
+    if not ticks:
+        ticks.append({"sec": int(y_min), "label": _fmt_hm(y_min)})
+    return ticks
+
+
+def _assign_tag_lanes(marks: list[dict[str, Any]], *, min_dx: float = 0.10) -> None:
     """Offset overlapping race-name tags (two races ~6 days apart on an 84-day window)."""
     ordered = sorted(marks, key=lambda m: float(m.get("x") or 0.0))
     prev_x: Optional[float] = None
@@ -348,6 +381,7 @@ def build_chart_history_window(
         "pending": pend_m,
         "y_min_sec": min(ys),
         "y_max_sec": max(ys),
+        "y_ticks": build_y_ticks(min(ys), max(ys)),
     }
 
 
@@ -373,6 +407,8 @@ def build_chart(*, start: date, today: date, race, est: dict[str, Any], goal_sec
         {"date": d.isoformat(), "x": _x_frac(d, start, end), "est_sec": s}
         for d, s in history if start <= d <= today
     ]
+    if not any(h["date"] == today.isoformat() for h in hist):
+        hist.append({"date": today.isoformat(), "x": _x_frac(today, start, end), "est_sec": est_sec})
     ys = [est_sec] + [h["est_sec"] for h in hist]
     for v in (low, high, goal_sec):
         if v is not None:
@@ -405,6 +441,7 @@ def build_chart(*, start: date, today: date, race, est: dict[str, Any], goal_sec
         "pending": pend_m,
         "y_min_sec": min(ys),
         "y_max_sec": max(ys),
+        "y_ticks": build_y_ticks(min(ys), max(ys)),
     }
 
 
@@ -483,6 +520,22 @@ def _block_start(session, user_id: uuid.UUID, race, today: date) -> date:
         return revamp_load_plan.block_start_for_race(race.race_date)
     except Exception:
         return today - timedelta(days=DEFAULT_HISTORY_DAYS)
+
+
+def _chart_window_start(session, user_id: uuid.UUID, race, today: date) -> date:
+    """Earliest of the plan-block start and 84 days ago; never after today.
+
+    A block that has not started yet (A race months out) used to make ``start``
+    a future date, so history and race tags all clamped to x=0 and the line
+    never ran through October.
+    """
+    floor = today - timedelta(days=DEFAULT_HISTORY_DAYS)
+    try:
+        block = _block_start(session, user_id, race, today)
+    except Exception:
+        return floor
+    start = min(block, floor)
+    return floor if start > today else start
 
 
 def build_built_from(
@@ -613,7 +666,7 @@ def build_projection(
             _log.warning("partial projection chain unavailable", exc_info=True)
         ref = _reference_race_for_history(session, user_id, cal_rows)
         if ref is not None:
-            start = max(today - timedelta(days=DEFAULT_HISTORY_DAYS), _block_start(session, user_id, ref, today))
+            start = _chart_window_start(session, user_id, ref, today)
             end = max(today, ref.race_date)
             recal, ticks, pending = _markers(session, user_id, ref, start, today)
             goal_sec = int(ref.goal_time_seconds) if ref.goal_time_seconds is not None else None
@@ -645,7 +698,7 @@ def build_projection(
     except Exception:
         _log.warning("projection basis unavailable", exc_info=True)
 
-    start = _block_start(session, user_id, race, today)
+    start = _chart_window_start(session, user_id, race, today)
     recal, ticks, pending = _markers(session, user_id, race, start, today)
     payload["race"] = {
         "id": str(race.id), "name": race.name, "race_date": race.race_date.isoformat(),
