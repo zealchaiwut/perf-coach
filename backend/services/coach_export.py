@@ -905,6 +905,9 @@ def _session_row(workout, exercise_counts: dict, prefs=None) -> dict:
         row["decoupling_pct"] = _f(workout.decoupling_percent, 1)
     if workout.feeling:
         row["feeling"] = workout.feeling
+    effort = getattr(workout, "session_effort", None)
+    if effort is not None:
+        row["rpe"] = effort
 
     count = exercise_counts.get(workout.id)
     if count:

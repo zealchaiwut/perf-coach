@@ -232,7 +232,7 @@ def build_checklist(
             "race_id": None,
             "available": False,
             "reason": "no_a_race",
-            "summary": {"done": 0, "total": 6, "count_label": "0 / 6"},
+            "summary": {"done": 0, "total": 5, "count_label": "0 / 5"},
             "items": [],
         }
     items = [
@@ -241,11 +241,11 @@ def build_checklist(
         item_fuel_rehearsal(session, user_id, race.race_date),
         item_pb_block(session, user_id, race.race_date),
         item_cp_fresh(session, user_id, today),
-        item_toilet_plan(race),
     ]
     done = sum(1 for it in items if it["state"] == "done")
     return {
         "race_id": str(race.id),
+        "race_name": race.name,
         "available": True,
         "summary": {"done": done, "total": len(items), "count_label": f"{done} / {len(items)}"},
         "items": items,

@@ -863,7 +863,13 @@
     }
     var feel = '';
     if (!missed && entry.id && String(entry.id).indexOf('plan:') !== 0) {
-      feel = '<span class="rv-list-feel" data-feel-id="' + esc(entry.id) + '" data-feeling="' + esc(entry.feeling || '') + '"></span>';
+      var isRun = isRunType(entry) ? '1' : '0';
+      var subtype = entry.run_subtype || '';
+      var rpe = entry.session_effort != null ? String(entry.session_effort) : '';
+      feel = '<span class="rv-list-feel" data-feel-id="' + esc(entry.id) +
+        '" data-is-run="' + isRun +
+        '" data-run-subtype="' + esc(subtype) +
+        '" data-rpe="' + esc(rpe) + '"></span>';
     }
     var tssBlock;
     if (missed) {
@@ -1134,10 +1140,20 @@
       return;
     }
     el.innerHTML = html.join('');
-    if (window.V2FeelButtons) {
+    var tagsApi = window.V2SessionTags || window.V2FeelButtons;
+    if (tagsApi) {
       el.querySelectorAll('[data-feel-id]').forEach(function (host) {
-        window.V2FeelButtons.mount(host, host.getAttribute('data-feel-id'), host.getAttribute('data-feeling') || null, function (val) {
-          applyFeelInPlace(host.getAttribute('data-feel-id'), val);
+        tagsApi.mount(host, {
+          workoutId: host.getAttribute('data-feel-id'),
+          isRun: host.getAttribute('data-is-run') === '1',
+          runSubtype: host.getAttribute('data-run-subtype') || null,
+          rpe: host.getAttribute('data-rpe'),
+          onChange: function (next) {
+            var id = host.getAttribute('data-feel-id');
+            if (!next) return;
+            if (next.field === 'run_subtype') applySubtypeInPlace(id, next.runSubtype);
+            if (next.field === 'session_effort') applyRpeInPlace(id, next.rpe, { tss: next.tss });
+          },
         });
       });
     }
@@ -1185,7 +1201,8 @@
     });
     bindWeekObserver(el);
     el.querySelectorAll('[data-run-id]').forEach(function (row) {
-      function open() {
+      function open(e) {
+        if (e && e.target && e.target.closest && e.target.closest('.rv-list-feel, .rv-tag-menu')) return;
         var id = row.getAttribute('data-run-id');
         var wt = row.getAttribute('data-workout-type') || '';
         if (window.V2StrengthDrawer && window.V2StrengthDrawer.isStrengthType(wt)) {
@@ -1195,7 +1212,10 @@
         }
       }
       row.addEventListener('click', open);
-      row.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); } });
+      row.addEventListener('keydown', function (ev) {
+        if (ev.target && ev.target.closest && ev.target.closest('.rv-list-feel, .rv-tag-menu')) return;
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(ev); }
+      });
     });
   }
 
@@ -1299,6 +1319,47 @@
         if (String(e.id) === String(workoutId)) e.feeling = feeling;
       });
     });
+  }
+
+  function applySubtypeInPlace(workoutId, subtype) {
+    Object.keys(state.weekCache).forEach(function (ws) {
+      (state.weekCache[ws].entries || []).forEach(function (e) {
+        if (String(e.id) === String(workoutId)) e.run_subtype = subtype;
+      });
+    });
+    var host = document.querySelector('.rv-list-feel[data-feel-id="' + workoutId + '"]');
+    if (host) host.setAttribute('data-run-subtype', subtype || '');
+  }
+
+  function applyRpeInPlace(workoutId, rpe, extra) {
+    extra = extra || {};
+    var hitWs = null;
+    Object.keys(state.weekCache).forEach(function (ws) {
+      (state.weekCache[ws].entries || []).forEach(function (e) {
+        if (String(e.id) !== String(workoutId)) return;
+        e.session_effort = rpe;
+        if (extra.tss != null) e.tss = extra.tss;
+        hitWs = ws;
+      });
+    });
+    var host = document.querySelector('.rv-list-feel[data-feel-id="' + workoutId + '"]');
+    if (host) host.setAttribute('data-rpe', rpe == null ? '' : String(rpe));
+    if (extra.tss != null) updateRowTssAndShare(workoutId, extra.tss, hitWs);
+    if (extra.tss != null && hitWs) refreshWeekRollup(hitWs);
+  }
+
+  function updateRowTssAndShare(workoutId, tss, ws) {
+    var row = document.querySelector('.rv-session-row[data-run-id="' + workoutId + '"]');
+    if (!row) return;
+    var tssEl = row.querySelector('.rv-session-tss');
+    if (tssEl) tssEl.textContent = String(Math.round(Number(tss)));
+    var weekTss = Number((state.rollupsByWeek[ws] || {}).tss_total) || 0;
+    if (weekTss <= 0) return;
+    var pct = Math.round((Number(tss) / weekTss) * 100);
+    var fill = row.querySelector('.rv-session-share-fill');
+    var pctEl = row.querySelector('.rv-session-share-pct');
+    if (fill) fill.style.width = pct + '%';
+    if (pctEl) pctEl.textContent = pct + '%';
   }
 
   function applySkipInPlace(plannedId) {

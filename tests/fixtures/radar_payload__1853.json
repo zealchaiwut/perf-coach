@@ -88,6 +88,7 @@
  ],
  "legend": {
   "focus": true,
+  "not_measured": true,
   "past": true,
   "stale": true
  },

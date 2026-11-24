@@ -334,8 +334,9 @@ def load_calibrations(user_id: str, db) -> list[dict]:
     ]
 
 
-def record_prediction(user_id: str, race_id, predicted_seconds: int, band_seconds, db) -> None:
-    """Upsert today's shown prediction for a race (one row per race per day).
+def record_prediction(user_id: str, race_id, predicted_seconds: int, band_seconds, db,
+                      prediction_date: Optional[date] = None) -> None:
+    """Upsert a shown prediction for a race (one row per race per day).
     Honest residual history for a future learned band — never consumed by
     the correction math (see module docstring). Best-effort: failures log
     and never break the caller."""
@@ -348,7 +349,7 @@ def record_prediction(user_id: str, race_id, predicted_seconds: int, band_second
             .values(
                 user_id=user_id,
                 race_id=race_id,
-                prediction_date=today_bangkok(),
+                prediction_date=prediction_date or today_bangkok(),
                 predicted_seconds=int(predicted_seconds),
                 band_seconds=int(band_seconds) if band_seconds is not None else None,
             )
@@ -374,7 +375,7 @@ def record_todays_predictions(db, user_id, today: Optional[date] = None) -> int:
     Returns how many races were recorded. Best-effort per race (#1937).
     """
     from backend.models import Race
-    from backend.services.race_finish_estimate import estimate_race_finish
+    from backend.services.race_finish_estimate import estimate_on
 
     day = today or today_bangkok()
     races = (
@@ -389,10 +390,10 @@ def record_todays_predictions(db, user_id, today: Optional[date] = None) -> int:
     n = 0
     for race in races:
         try:
-            est = estimate_race_finish(user_id, race, today=day, db=db)
+            est = estimate_on(db, user_id, race, day)
             if est.get("unavailable") or est.get("est_sec") is None:
                 continue
-            record_prediction(user_id, race.id, int(est["est_sec"]), est.get("band_sec"), db)
+            record_prediction(user_id, race.id, int(est["est_sec"]), est.get("band_sec"), db, prediction_date=day)
             n += 1
         except Exception:
             _log.warning(
@@ -403,11 +404,16 @@ def record_todays_predictions(db, user_id, today: Optional[date] = None) -> int:
     return n
 
 
-def after_race_write(db, user_id) -> None:
+BACKFILL_MIN_ROWS = 7
+
+
+def after_race_write(db, user_id, *, force_from: Optional[date] = None) -> None:
     """Best-effort persist of today's predictions after a race mutation (#1937).
 
     Also bumps ``data_version`` so derived Performance payloads (hero,
     projection, race list) cannot keep serving a row that was just written.
+    After an add/date-change, fills missing history. After a recalibration,
+    pass ``force_from`` so later rows are recomputed against the new correction.
     """
     try:
         from backend.services.data_version import bump_data_version
@@ -424,6 +430,134 @@ def after_race_write(db, user_id) -> None:
         record_todays_predictions(db, user_id)
     except Exception:
         _log.warning("after_race_write predictions failed for %s", user_id, exc_info=True)
+    try:
+        ensure_prediction_history(db, user_id, force_from=force_from)
+    except Exception:
+        _log.warning("after_race_write history backfill failed for %s", user_id, exc_info=True)
+
+
+def ensure_prediction_history(
+    db, user_id, today: Optional[date] = None, *, race_id=None, force_from: Optional[date] = None,
+) -> int:
+    """Backfill a race when it has too few rows, or after a recalibration."""
+    from backend.models import Race, RacePrediction
+
+    day = today or today_bangkok()
+    q = db.query(Race).filter(
+        Race.user_id == user_id,
+        Race.status == "planned",
+        Race.race_date >= day,
+    )
+    if race_id is not None:
+        q = q.filter(Race.id == race_id)
+    races = q.all()
+    written = 0
+    for race in races:
+        n = (
+            db.query(RacePrediction)
+            .filter(RacePrediction.user_id == user_id, RacePrediction.race_id == race.id)
+            .count()
+        )
+        earliest = (
+            db.query(RacePrediction.prediction_date)
+            .filter(RacePrediction.user_id == user_id, RacePrediction.race_id == race.id)
+            .order_by(RacePrediction.prediction_date.asc())
+            .limit(1)
+            .scalar()
+        )
+        needs = force_from is not None or n < BACKFILL_MIN_ROWS
+        if not needs and earliest is not None:
+            needs = earliest > day - timedelta(days=60)
+        if not needs:
+            continue
+        written += backfill_race_prediction_history(
+            db, user_id, day, race_id=race.id, force_from=force_from,
+        )
+    return written
+
+
+def backfill_race_prediction_history(
+    db, user_id, today: Optional[date] = None, *, race_id=None, force_from: Optional[date] = None,
+) -> int:
+    """Fill missing days with the live estimator. Idempotent: existing rows stay
+    unless ``force_from`` is set, in which case later rows are recomputed.
+    Days with no score snapshot are skipped (dashed gap on the chart)."""
+    from backend.models import Race, RacePrediction
+    from backend.services.axis_snapshot import snapshot_row_on_or_before
+    from backend.services.projection_view import DEFAULT_HISTORY_DAYS, _chart_window_start
+    from backend.services.race_finish_estimate import estimate_on
+
+    day = today or today_bangkok()
+    q = db.query(Race).filter(
+        Race.user_id == user_id,
+        Race.status == "planned",
+        Race.race_date >= day,
+        Race.distance_km.isnot(None),
+    )
+    if race_id is not None:
+        q = q.filter(Race.id == race_id)
+    races = q.all()
+    if not races:
+        return 0
+    if force_from is not None:
+        del_q = db.query(RacePrediction).filter(
+            RacePrediction.user_id == user_id,
+            RacePrediction.prediction_date >= force_from,
+        )
+        if race_id is not None:
+            del_q = del_q.filter(RacePrediction.race_id == race_id)
+        else:
+            del_q = del_q.filter(RacePrediction.race_id.in_([r.id for r in races]))
+        del_q.delete(synchronize_session=False)
+        db.flush()
+    n = 0
+    for race in races:
+        try:
+            start = _chart_window_start(db, user_id, race, day)
+        except Exception:
+            start = day - timedelta(days=DEFAULT_HISTORY_DAYS)
+        existing = {
+            r.prediction_date
+            for r in db.query(RacePrediction.prediction_date)
+            .filter(RacePrediction.race_id == race.id)
+            .all()
+        }
+        skipped = 0
+        d = start
+        while d <= day:
+            if d in existing:
+                d += timedelta(days=1)
+                continue
+            try:
+                snap = snapshot_row_on_or_before(db, user_id, d)
+                if snap is None:
+                    skipped += 1
+                    d += timedelta(days=1)
+                    continue
+                est = estimate_on(db, user_id, race, d)
+                if est.get("unavailable") or est.get("est_sec") is None:
+                    skipped += 1
+                    d += timedelta(days=1)
+                    continue
+                record_prediction(
+                    str(user_id), race.id, int(est["est_sec"]), est.get("band_sec"), db,
+                    prediction_date=d,
+                )
+                existing.add(d)
+                n += 1
+            except Exception:
+                skipped += 1
+                _log.warning(
+                    "prediction backfill failed for race %s on %s",
+                    race.id, d, exc_info=True,
+                )
+            d += timedelta(days=1)
+        if skipped:
+            _log.info(
+                "prediction backfill skipped %s days without a usable snapshot for race %s",
+                skipped, race.id,
+            )
+    return n
 
 
 def run_daily_predictions(as_of: Optional[date] = None) -> dict[str, str]:

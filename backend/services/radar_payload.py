@@ -56,8 +56,60 @@ def axis_status(axis: dict[str, Any]) -> str:
 
 AXIS_ACTIONS: dict[str, tuple[str, Optional[str]]] = {
     "mobility": ("Log a test", "#v2-mobility-log"),
-    "durability": ("Needs a 90-min easy run", "#v2-durability-help"),
+    "durability": ("See the plan", "/v2/training/plan"),
+    "power_to_weight": ("Update CP", "/v2/settings#thresholds"),
 }
+
+HOW_MEASURED: dict[str, str] = {
+    "endurance": "Measured from recent threshold and race efforts.",
+    "speed": "Measured from recent short hard efforts.",
+    "economy": "Measured from Stryd form on easy runs.",
+    "strength": "Measured from the logged anchor lifts.",
+    "mobility": "Measured from a knee-to-wall and sit-and-reach self-test.",
+    "power_to_weight": "Measured from critical power and the weight trend.",
+    "durability": "Measured from pace or HR drift on an easy run of 90 min or longer.",
+}
+
+
+def next_session_hint(session, user_id: uuid.UUID, as_of: date, axis: str) -> Optional[dict[str, Any]]:
+    """Planned session that will measure an unmeasured axis, if any."""
+    if axis != "durability":
+        return None
+    try:
+        from backend.models import PlannedSession
+        from backend.services.long_run_ladder import _is_planned_long_run
+    except Exception:
+        return None
+    rows = (
+        session.query(PlannedSession)
+        .filter(
+            PlannedSession.user_id == user_id,
+            PlannedSession.planned_date >= as_of,
+            PlannedSession.planned_date <= as_of + timedelta(days=14),
+            PlannedSession.status == "planned",
+        )
+        .order_by(PlannedSession.planned_date.asc())
+        .limit(21)
+        .all()
+    )
+    for ps in rows:
+        if not _is_planned_long_run(ps):
+            continue
+        wd = ps.planned_date.strftime("%A")
+        st = ps.structure if isinstance(ps.structure, dict) else {}
+        km = st.get("distance_km") or st.get("distance")
+        if km:
+            try:
+                km_f = float(km)
+                km_s = f"{km_f:.0f}" if abs(km_f - round(km_f)) < 0.05 else f"{km_f:.1f}"
+                text = f"{wd}'s {km_s} km long run will measure it."
+            except (TypeError, ValueError):
+                text = f"{wd}'s long run will measure it."
+        else:
+            name = (ps.name or "long run").strip()
+            text = f"{wd}'s {name} will measure it."
+        return {"text": text, "href": "/v2/training/plan"}
+    return None
 
 
 def axis_action(name: str) -> tuple[str, Optional[str]]:
@@ -139,6 +191,7 @@ def build_axes(
         else:
             axis["action_label"] = None
             axis["action_href"] = None
+        axis["how_measured"] = HOW_MEASURED.get(name)
         axes.append(axis)
     return axes
 
@@ -162,6 +215,11 @@ def build_radar(
         picked = focus_ranker(axes)
         if picked:
             axes = build_axes(overall, axis_blocks, past, picked)
+    for a in axes:
+        if a.get("never_measured"):
+            a["next_session"] = next_session_hint(session, user_id, as_of, a["axis"])
+        else:
+            a["next_session"] = None
     flags = legend_flags(axes)
     return {
         "as_of": as_of.isoformat(),

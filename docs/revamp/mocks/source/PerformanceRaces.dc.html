@@ -52,6 +52,9 @@ a{color:#1f3b8a}a:hover{color:#0b1530}
 .rd2{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-bottom:1px solid #eef1f7}
 .rd2:last-child{border-bottom:0}
 .rd2 .sub{font-size:12px;line-height:1.4}
+.wr{appearance:none;font:inherit;width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 4px;border:0;border-bottom:1px solid #eef1f7;background:transparent;cursor:pointer}
+.wr:last-child{border-bottom:0}
+.wr:hover{background:#f7f9fd}
 .note{font-size:12px;font-weight:700;color:#e4ff52;letter-spacing:0.06em;text-transform:uppercase}
 </style>
 </helmet>
@@ -142,10 +145,6 @@ a{color:#1f3b8a}a:hover{color:#0b1530}
           <span class="k"><span style="width: 11px; height: 11px; border-radius: 50%; background: #b45309"></span>Focus</span>
           <span class="k"><span style="width: 18px; height: 0; border-top: 2px dashed #8792a8"></span>Not measured</span>
         </div>
-        <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 10px; background: #0b1530; color: #ffffff; border-radius: 12px; padding: 14px 16px">
-          <div style="display: flex; flex-direction: column; gap: 3px"><span class="lbl" style="color: #e4ff52">Most room to grow</span><span style="font-size: 17px; font-weight: 700">Economy <span class="mono">42</span> <span style="font-size: 13px; font-weight: 500; color: #a8b6d6">· plyo 2×, heavy calf raise 1×, drills</span></span></div>
-          <div style="display: flex; gap: 10px; align-items: center"><span class="mono" style="font-size: 12.5px; color: #a8b6d6">+22 TSS / wk</span><button type="button" class="btn btna">Queue this work</button></div>
-        </div>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 16px; border-left: 1px solid #eef1f7; padding-left: 22px; gap: 12px">
@@ -208,37 +207,56 @@ a{color:#1f3b8a}a:hover{color:#0b1530}
     </div>
   </div>
 
-  <!-- other states of the right panel -->
-  <div style="display: flex; flex-direction: column; gap: 10px">
-    <span class="note">Details panel, other states · swaps on click</span>
-    <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px">
-      <div class="card" style="gap: 10px; padding: 16px 18px">
-        <div class="row" style="flex-wrap: wrap; justify-content: flex-start"><span class="lbl" style="color: #7a3a10">Economy · focus</span><span class="chip" style="background: #fff1dc; color: #7a3a10">most room to grow</span></div>
-        <div style="display: flex; gap: 12px; align-items: center"><span class="mono" style="font-size: 32px; font-weight: 700; color: #b45309; line-height: 1">42</span><span class="chip" style="background: #eef1f7; color: #56627f">±0 in 28 days</span></div>
-        <svg viewBox="0 0 300 60" style="width: 100%; height: 34px" aria-hidden="true"><path d="M0,34 L60,36 L120,33 L180,35 L240,34 L300,35 L300,60 L0,60 Z" fill="#fdebd8"></path><polyline points="0,34 60,36 120,33 180,35 240,34 300,35" fill="none" stroke="#b45309" stroke-width="2"></polyline></svg>
-        <span class="tl">Why Economy and not the others</span>
-        <div class="bd" style="font-size: 13px">
-          <div class="bdr"><span class="bul" style="background: #b45309"></span><span style="font-weight: 700; color: #7a3a10">Economy · gap 11.6</span><span class="mono">20%</span></div>
-          <div class="bdr"><span class="bul"></span><span>Endurance · gap 8.9</span><span class="mono">20%</span></div>
-          <div class="bdr"><span class="bul"></span><span>Strength · gap 7.5</span><span class="mono">10%</span></div>
-          <div class="bdr"><span class="bul"></span><span>Speed · gap 2.4</span><span class="mono">5%</span></div>
-        </div>
-        <button type="button" class="btn btna" style="align-self: flex-start">Queue this work</button>
+  <!-- What to work on: one flexible card -->
+  <div class="card" style="gap: 14px; padding: 20px 20px">
+    <div style="display: flex; flex-direction: column; gap: 4px"><span class="lbl">What to work on</span><span class="sub">Only what needs action. Click a row to open it in Status.</span></div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px; background: #0b1530; color: #ffffff; border-radius: 12px; padding: 14px 16px">
+      <span class="lbl" style="color: #e4ff52">Most room to grow</span>
+      <span style="font-size: 20px; font-weight: 700">Economy <span class="mono">42</span></span>
+      <span style="font-size: 12.5px; color: #a8b6d6; line-height: 1.45">Biggest weighted gap among fresh axes: 11.6, next is Endurance at 8.9.</span>
+      <div style="display: flex; gap: 6px; flex-wrap: wrap">
+        <span class="chip" style="background: rgba(255,255,255,0.12); color: #ffffff">Plyo 2× / wk</span>
+        <span class="chip" style="background: rgba(255,255,255,0.12); color: #ffffff">Heavy calf raise 1×</span>
+        <span class="chip" style="background: rgba(255,255,255,0.12); color: #ffffff">Drills</span>
       </div>
-      <div class="card" style="gap: 10px; padding: 16px 18px">
-        <div class="row" style="flex-wrap: wrap; justify-content: flex-start"><span class="lbl">Power/wt · stale</span><span class="chip" style="background: #fff4d8; color: #6b4408">CP 5 wk old</span></div>
-        <div style="display: flex; gap: 12px; align-items: center"><span class="mono" style="font-size: 32px; font-weight: 700; color: #1f3b8a; line-height: 1">74</span><span class="sub">CP 279 W ÷ trend 71.8 kg</span></div>
-        <svg viewBox="0 0 300 60" style="width: 100%; height: 34px" aria-hidden="true"><polyline points="0,22 60,20 120,18 180,18 240,19 300,19" fill="none" stroke="#1f3b8a" stroke-width="2" stroke-dasharray="5 4"></polyline></svg>
-        <span class="body">Not ranked for focus until CP is fresh. Weight trend is still read daily.</span>
-        <a href="#" class="btn" style="align-self: flex-start">Update CP</a>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap"><button type="button" class="btn btna">Queue this work</button><span class="mono" style="font-size: 12px; color: #a8b6d6">+22 TSS / wk</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div class="row"><span class="sect">Not counted yet</span><span class="mono sub" style="font-size: 12px">3</span></div>
+      <span class="sub" style="font-size: 12px">Stale or unmeasured axes. They don't drive the focus until they're fresh.</span>
+      <div style="display: flex; flex-direction: column; margin-top: 6px">
+        <button type="button" class="wr">
+          <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: left">
+            <span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 700; color: #0b1530">Power/wt 74</span><span class="chip" style="background: #fff4d8; color: #6b4408">stale · CP 5 wk</span></span>
+            <span class="sub" style="font-size: 12.5px; line-height: 1.4">The score uses a 5-week-old CP. Weight is current.</span>
+            <span style="font-size: 12.5px; font-weight: 700; color: #1f3b8a">Update CP</span>
+          </span>
+          <span style="color: #8792a8"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>
+        </button>
+        <button type="button" class="wr">
+          <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: left">
+            <span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 700; color: #56627f">Durability</span><span class="chip" style="background: #eef1f7; color: #56627f">not measured</span></span>
+            <span class="sub" style="font-size: 12.5px; line-height: 1.4">Needs an easy run of 90 min+. Saturday's 22 km long run will measure it.</span>
+            <span style="font-size: 12.5px; font-weight: 700; color: #1f3b8a">See the plan</span>
+          </span>
+          <span style="color: #8792a8"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>
+        </button>
+        <button type="button" class="wr">
+          <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: left">
+            <span style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 700; color: #56627f">Mobility</span><span class="chip" style="background: #eef1f7; color: #56627f">not measured</span></span>
+            <span class="sub" style="font-size: 12.5px; line-height: 1.4">Needs a 5-minute mobility test.</span>
+            <span style="font-size: 12.5px; font-weight: 700; color: #1f3b8a">Log a test</span>
+          </span>
+          <span style="color: #8792a8"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></span>
+        </button>
       </div>
-      <div class="card" style="gap: 10px; padding: 16px 18px">
-        <div class="row" style="flex-wrap: wrap; justify-content: flex-start"><span class="lbl" style="color: #8792a8">Durability · not measured</span></div>
-        <div style="display: flex; gap: 12px; align-items: center"><span class="mono" style="font-size: 32px; font-weight: 700; color: #c3cbdb; line-height: 1">—</span><span class="sub">No history yet</span></div>
-        <span class="body">Measured from pace or HR drift on an easy run of 90 min or longer.</span>
-        <div style="display: flex; gap: 10px; align-items: flex-start; background: #eef3fd; border-radius: 11px; padding: 11px 14px"><span class="mono" style="font-size: 13px; font-weight: 700; color: #1f3b8a">Next</span><span class="body">Saturday's 22 km long run will measure it.</span></div>
-        <a href="TrainingWeek.dc.html" class="btn" style="align-self: flex-start">See the plan</a>
-      </div>
+    </div>
+
+    <div style="margin-top: auto; border-top: 1px dashed #dfe5f1; padding-top: 12px; display: flex; flex-direction: column; gap: 6px">
+      <span class="tl" style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase">When there's nothing to flag</span>
+      <div style="display: flex; gap: 8px; align-items: center; background: #f1faee; border-radius: 10px; padding: 9px 12px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e"></span><span style="font-size: 13px; color: #2d5e10; font-weight: 600">All 7 axes are measured and fresh.</span></div>
     </div>
   </div>
 
@@ -323,7 +341,7 @@ a{color:#1f3b8a}a:hover{color:#0b1530}
           <line x1="563" y1="180" x2="555" y2="190" stroke="#b9c3d6"></line>
           <rect x="530" y="190" width="50" height="34" rx="7" fill="#eef2fb"></rect><text x="555" y="204" font-size="11" font-weight="700" fill="#0b1530">15 Nov</text><text x="555" y="218" font-size="10.5" fill="#56627f">42.2K</text>
           <line x1="602" y1="180" x2="609" y2="190" stroke="#e0b46b"></line>
-          <rect x="584" y="190" width="50" height="34" rx="7" fill="#fff1dc"></rect><text x="609" y="204" font-size="11" font-weight="700" fill="#7a3a10">21 Nov</text><text x="609" y="218" font-size="10.5" fill="#7a3a10">18K · CP</text>
+          <rect x="584" y="190" width="50" height="34" rx="7" fill="#fff1dc"></rect><text x="609" y="204" font-size="11" font-weight="700" fill="#7a3a10">21 Nov</text><text x="609" y="218" font-size="10.5" fill="#7a3a10">18K</text>
         </g>
         <g font-family="JetBrains Mono, monospace" font-size="11.5" fill="#56627f"><text x="80" y="244">1 Sep</text><text x="1240" y="244" text-anchor="end">28 Feb</text></g>
       </svg>
@@ -333,7 +351,7 @@ a{color:#1f3b8a}a:hover{color:#0b1530}
     <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #eef1f7; padding-top: 16px">
       <span class="sect">Needs a result</span>
       <div class="rr" style="background: #fffaf2; border-color: #f2dcb6">
-        <div style="display: flex; gap: 12px; align-items: center; min-width: 0"><span class="badge" style="background: #0f766e">CP</span><div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 15.5px; font-weight: 700">Checkpoint</span><span class="mono sub">21 Nov · 18 km · Long run</span></div></div>
+        <div style="display: flex; gap: 12px; align-items: center; min-width: 0"><span class="badge" style="background: #0f766e">C</span><div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 15.5px; font-weight: 700">Checkpoint</span><span class="mono sub">21 Nov · 18 km · Long run</span></div></div>
         <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Goal</span><span class="mono" style="font-size: 17px; font-weight: 700">1:30:00 <span style="font-size: 12px; color: #56627f; font-weight: 500">5:00</span></span></div>
         <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Actual</span><span class="sub">No synced run matched</span></div>
         <div><span class="chip" style="background: #fff4d8; color: #6b4408">not recorded</span></div>

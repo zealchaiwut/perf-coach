@@ -127,15 +127,22 @@ def snapshot_user(session, user_id: uuid.UUID, as_of: date, *, overall: Optional
 
 
 def snapshot_row_on_or_before(session, user_id: uuid.UUID, day: date, *, formula_version: str = SCORE_VERSION):
-    """Latest snapshot row on/before ``day`` (None when history does not reach back)."""
+    """Latest snapshot row on/before ``day`` (None when history does not reach back).
+
+    Prefer ``formula_version``, then the latest row of any version so a backfill
+    still sees endurance/speed history written under ``vdot-v13``.
+    """
     from backend.models import PerformanceScoreHistory as H
 
-    return (
-        session.query(H)
-        .filter(H.user_id == user_id, H.score_date <= day, H.formula_version == formula_version)
+    q = session.query(H).filter(H.user_id == user_id, H.score_date <= day)
+    preferred = (
+        q.filter(H.formula_version == formula_version)
         .order_by(H.score_date.desc(), H.created_at.desc())
         .first()
     )
+    if preferred is not None:
+        return preferred
+    return q.order_by(H.score_date.desc(), H.created_at.desc()).first()
 
 
 def score_n_days_ago(session, user_id: uuid.UUID, as_of: date, axis: str, days: int = 28) -> Optional[float]:

@@ -14,8 +14,16 @@ STRENGTH_METHODS = frozenset({"exercises", "effort_time"})
 _STRENGTH_RE = re.compile(r"^(lift|strength|wod|crossfit|plyo)", re.IGNORECASE)
 
 
+_EFFORT_SESSION_RE = re.compile(r"^(lift|strength|wod|crossfit|plyo|mobility)", re.IGNORECASE)
+
+
 def is_strength_workout(workout: Workout) -> bool:
     return bool(_STRENGTH_RE.match((workout.workout_type or "").strip()))
+
+
+def is_effort_tss_session(workout: Workout) -> bool:
+    """Strength, plyo, or mobility — sessions whose TSS can follow session_effort."""
+    return bool(_EFFORT_SESSION_RE.match((workout.workout_type or "").strip()))
 
 
 def from_effort_time(*, duration_min: float, effort: int) -> dict[str, Any]:
@@ -174,3 +182,48 @@ def strength_tss_block(
         "tss_power": None,
         "tss_stryd": None,
     }
+
+
+def apply_effort_time_tss(session: Optional[Session], workout: Workout) -> bool:
+    """Persist effort×time TSS when this session uses that method.
+
+    Returns True if ``workout.tss`` was written (including clearing it).
+    Runs are skipped. Sessions with ``strength_tss_method == 'exercises'``
+    keep their existing TSS.
+    """
+    if not is_effort_tss_session(workout):
+        return False
+    if getattr(workout, "tss_source", None) == "manual":
+        return False
+
+    exercises: list[dict[str, Any]] = []
+    if session is not None and getattr(workout, "id", None):
+        try:
+            rows = (
+                session.query(WorkoutExercise)
+                .filter(WorkoutExercise.workout_id == workout.id)
+                .order_by(WorkoutExercise.display_order)
+                .all()
+            )
+            if isinstance(rows, list):
+                exercises = canonical_from_workout_exercises(rows)
+        except Exception:
+            exercises = []
+
+    if resolve_strength_method(workout, exercises) != "effort_time":
+        return False
+
+    duration_min = (workout.duration_seconds or 0) / 60.0 if workout.duration_seconds else 0.0
+    effort = getattr(workout, "session_effort", None)
+    if effort is None:
+        workout.tss = None
+        workout.tss_source = "calculated"
+        workout.tss_method = "effort_time"
+        return True
+
+    result = from_effort_time(duration_min=duration_min, effort=int(effort))
+    new_tss = result.get("tss")
+    workout.tss = float(new_tss) if new_tss is not None else None
+    workout.tss_source = "calculated"
+    workout.tss_method = "effort_time"
+    return True

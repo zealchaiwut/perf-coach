@@ -204,7 +204,7 @@ def _compute_race_day_estimate(
             Race.actual_time_seconds.isnot(None),
             Race.distance_km.isnot(None),
             Race.race_date >= anchor_cut,
-            Race.race_date <= race_day,
+            Race.race_date <= min(race_day, today),
         )
         .all()
     )
@@ -218,6 +218,23 @@ def _compute_race_day_estimate(
 
     cb_pct = float(day_data.get("confidence_band") or 0)
     band_sec = int(seconds * cb_pct / 100.0) if cb_pct else None
+
+    from backend.services.race_finish_estimator import blended_scores_estimate
+
+    basis = blended_scores_estimate(
+        end_score, spd_score, distance_km, thresholds,
+    ).get("basis") or {}
+    blend_pace = basis.get("blended_pace_seconds_per_km")
+    blend_weight = basis.get("speed_weight")
+    if blend_weight is None:
+        blend_weight = speed_weight_for_distance(distance_km) if spd_score is not None else 0.0
+    correction_factor = float(correction)
+    final_seconds = int(seconds)
+    fitness_factor = None
+    if blend_pace and distance_km and correction_factor:
+        denom = float(blend_pace) * float(distance_km) * correction_factor
+        if denom:
+            fitness_factor = final_seconds / denom
 
     return {
         "unavailable": False,
@@ -234,8 +251,47 @@ def _compute_race_day_estimate(
         "spd_score": spd_score,
         "blend_score": float(blend_base) if blend_base is not None else None,
         "projected_ctl": float(day_data["ctl"]),
-        "speed_weight": speed_weight_for_distance(distance_km) if spd_score is not None else 0.0,
+        "speed_weight": float(blend_weight) if blend_weight is not None else 0.0,
+        "base_endurance_pace": basis.get("endurance_pace_seconds_per_km"),
+        "base_speed_pace": basis.get("speed_pace_seconds_per_km"),
+        "blend_weight": float(blend_weight) if blend_weight is not None else None,
+        "blend_pace": float(blend_pace) if blend_pace is not None else None,
+        "fitness_factor": float(fitness_factor) if fitness_factor is not None else None,
+        "correction_factor": correction_factor,
+        "final_seconds": final_seconds,
+        "ctl_now": float(last_row["ctl"]),
     }
+
+
+def estimate_on(db, user_id, race, as_of: date) -> dict[str, Any]:
+    """Finish estimate as it would have been on ``as_of``.
+
+    Same scores, calibration and CTL projection as the live estimate — the
+    backfill and today's row both call this so the history line meets Now.
+    """
+    live = _compute_race_day_estimate(db, user_id, race, as_of)
+    if live.get("unavailable"):
+        return live
+    est = live.get("est_sec")
+    band = live.get("band_sec")
+    out = {
+        "unavailable": False,
+        "est_sec": est,
+        "est_label": _fmt_hms(est) if est is not None else None,
+        "band_sec": band,
+        "uncertainty_min": int(round(band / 60)) if band else None,
+        "source": live.get("source") or "performance_time_curve",
+        "reason": None,
+    }
+    for k in (
+        "form_factor", "correction", "pre_correction_sec", "post_correction_sec",
+        "end_score", "spd_score", "blend_score", "projected_ctl", "speed_weight",
+        "base_endurance_pace", "base_speed_pace", "blend_weight", "blend_pace",
+        "fitness_factor", "correction_factor", "final_seconds", "ctl_now",
+    ):
+        if k in live:
+            out[k] = live[k]
+    return out
 
 
 def _estimate_race_finish_uncached(db, user_id, race, today: date) -> dict[str, Any]:
@@ -256,25 +312,12 @@ def _estimate_race_finish_uncached(db, user_id, race, today: date) -> dict[str, 
         shown = _latest_shown_prediction(db, race.id)
         if shown and shown.get("as_of"):
             try:
-                as_of = date.fromisoformat(str(shown["as_of"])[:10])
                 from backend.services.data_version import get_data_version
 
                 pred_dv = shown.get("data_version")
                 cur_dv = get_data_version(db, user_id)
                 if pred_dv is not None and int(pred_dv) != int(cur_dv):
                     shown = None
-                elif as_of == today:
-                    est = shown["est_sec"]
-                    band = shown.get("band_sec")
-                    return {
-                        "unavailable": False,
-                        "est_sec": est,
-                        "est_label": _fmt_hms(est),
-                        "band_sec": band,
-                        "uncertainty_min": int(round(band / 60)) if band else None,
-                        "source": shown["source"],
-                        "reason": None,
-                    }
             except (TypeError, ValueError):
                 pass
 
@@ -318,6 +361,8 @@ def _estimate_race_finish_uncached(db, user_id, race, today: date) -> dict[str, 
             "form_factor", "correction", "pre_correction_sec", "post_correction_sec",
             "end_score", "spd_score",
             "blend_score", "projected_ctl", "speed_weight",
+            "base_endurance_pace", "base_speed_pace", "blend_weight", "blend_pace",
+            "fitness_factor", "correction_factor", "final_seconds", "ctl_now",
         ):
             if k in live:
                 out[k] = live[k]
@@ -354,7 +399,7 @@ def estimate_race_finish(
     try:
         race_id = getattr(race, "id", None)
         if race_id is not None and db is not None:
-            key = f"derived:race_estimate:{race_id}"
+            key = f"derived:race_estimate:v2:{race_id}"
             return get_or_compute(
                 db,
                 user_id,

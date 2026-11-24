@@ -15,10 +15,10 @@ PB_LIMIT_PER_BLOCK = 2
 
 ROLE_LABELS = {"a_race": "A race", "pb": "PB attempt", "long_run": "Long run", "fun": "Fun run"}
 ROLE_TARGETS = {
-    "a_race": "Target: the goal time — this result recalibrates the projection",
-    "pb": "Target: a personal best — this result recalibrates the projection",
-    "long_run": "Target: a steady effort under the power cap",
-    "fun": "Target: enjoy it — this does not recalibrate the projection",
+    "a_race": "the goal time — this result recalibrates the projection",
+    "pb": "a personal best — this result recalibrates the projection",
+    "long_run": "a steady effort under the power cap",
+    "fun": "enjoy it — this does not recalibrate the projection",
 }
 
 
@@ -34,25 +34,39 @@ def recalibrates(race) -> bool:
     return race_role(race) in RECALIBRATING_ROLES
 
 
+def _fmt_clock(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
 def role_target_summary(race) -> str:
+    """One-line target. The UI already labels the column Target — no prefix."""
     role = race_role(race)
     goal = getattr(race, "goal_time_seconds", None)
+    km = getattr(race, "distance_km", None)
+    if role == "a_race" and goal:
+        pace = None
+        if km:
+            from backend.models import compute_goal_pace
+            pace, _ = compute_goal_pace(int(goal), float(km))
+        if pace:
+            return f"{_fmt_clock(int(goal))} · {_fmt_clock(int(pace))} /km"
+        return _fmt_clock(int(goal))
     if role == "pb" and goal:
-        return f"Target: {goal // 60} min"
+        return _fmt_clock(int(goal))
     if role == "long_run":
-        parts = []
         cap = getattr(race, "power_cap_w", None)
-        addon = getattr(race, "addon_distance_km", None)
         if cap:
-            parts.append(f"cap {cap} W")
-        if addon is not None:
-            parts.append(f"+{float(addon):g} km add-on")
-        if parts:
-            return "Target: " + ", ".join(parts)
+            return f"Steady, under {int(cap)} W"
+        return "Steady"
     lo = getattr(race, "goal_band_low_seconds", None)
     hi = getattr(race, "goal_band_high_seconds", None)
     if role == "a_race" and lo and hi:
-        return f"Target: {lo // 60}-{hi // 60} min band"
+        return f"{_fmt_clock(int(lo))}–{_fmt_clock(int(hi))}"
     return ROLE_TARGETS[role]
 
 
@@ -161,6 +175,8 @@ def compute_role_result(
     if role == "a_race":
         lo = race.goal_band_low_seconds
         hi = race.goal_band_high_seconds
+        if lo is None and hi is None and race.goal_time_seconds is not None:
+            lo = hi = int(race.goal_time_seconds)
         if actual is None or lo is None or hi is None:
             return {"role": role, "status": "unknown"}
         if lo <= actual <= hi:

@@ -211,6 +211,17 @@ def _warm_v2_derived(user_id: str, today: date) -> dict:
         except Exception:
             _log.exception("precompute hero failed for %s", user_id)
         try:
+            from backend.services.race_calibration import (
+                ensure_prediction_history,
+                record_todays_predictions,
+            )
+
+            record_todays_predictions(session, uid, today)
+            ensure_prediction_history(session, uid, today)
+            warmed.append("race_predictions")
+        except Exception:
+            _log.exception("precompute race predictions failed for %s", user_id)
+        try:
             _store_derived(
                 session, uid, DERIVED_PROJECTION, today,
                 lambda: projection_view.build_projection(session, uid, today),

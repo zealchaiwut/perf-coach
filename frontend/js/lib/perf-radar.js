@@ -35,7 +35,7 @@
       html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--focus"></span>Focus</span>';
     }
     if (hasMissing) {
-      html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--missing"></span>Not measured yet</span>';
+      html += '<span class="perf-radar-legend-item"><span class="perf-radar-swatch perf-radar-swatch--missing"></span>Not measured</span>';
     }
     legend.innerHTML = html;
     host.appendChild(legend);

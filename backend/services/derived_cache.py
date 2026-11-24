@@ -16,7 +16,7 @@ T = TypeVar("T")
 
 DERIVED_SCORE_CARDS = "derived:score_cards"
 DERIVED_HERO = "derived:hero:v2"
-DERIVED_PROJECTION = "derived:projection:v3"
+DERIVED_PROJECTION = "derived:projection:v4"
 DERIVED_RACE_LIST = "derived:race_list:v2"
 
 

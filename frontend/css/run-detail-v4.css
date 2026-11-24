@@ -102,6 +102,10 @@
    log page's inline styles). */
 .rd4-feeling { margin-top: 8px; }
 .rd4-tags .rd4-feeling { margin-top: 0; }
+.rd4-feeling .rv-session-tags {
+  justify-content: flex-start;
+  max-width: none;
+}
 
 .rd4-tags {
   display: flex;
