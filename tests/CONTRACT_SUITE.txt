@@ -38,3 +38,4 @@ tests/test_revamp_csrf_pages__1893.py
 tests/test_p4_followups_static__1893_1898.py
 tests/test_plan_wizard.py
 tests/test_pwa_phase0_static.py
+tests/test_pwa_phase1_static.py
