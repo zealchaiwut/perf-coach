@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <title>Training plan (revamp) – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/revamp.css?v=20261124g">
+  <link rel="stylesheet" href="/css/revamp.css?v=20261124k">
 </head>
 <body class="rv-page">
   <div class="rv-shell rv-shell--wide rv-training-page">
@@ -55,8 +55,18 @@
       Photo (jpg, png, heic, max 10 MB)
       <input type="file" id="v2-coach-import-photo" accept="image/jpeg,image/png,image/heic,image/heif" disabled>
     </label>
-    <textarea id="v2-coach-import-text" class="rv-input" rows="5" style="width:100%"
+    <p class="rv-subtitle" id="v2-coach-import-format">One session per line: day, type, then <span class="rv-mono">60min</span>, <span class="rv-mono">18km</span>, or <span class="rv-mono">2km x 7</span>.</p>
+    <textarea id="v2-coach-import-text" class="rv-input" rows="7" style="width:100%"
       placeholder="Tue easy 60min&#10;Thu tempo 2km x 7&#10;Sat long 18km"></textarea>
+    <div class="rv-row rv-coach-import-tools">
+      <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-use-example">Use example</button>
+      <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-download">Download template + prompt</button>
+      <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-copy-prompt">Copy prompt</button>
+    </div>
+    <details class="rv-coach-import-example">
+      <summary>Example week</summary>
+      <pre class="rv-mono" id="v2-coach-import-example-pre"></pre>
+    </details>
     <div id="v2-coach-import-preview"></div>
     <div class="rv-row">
       <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-cancel">Cancel</button>
@@ -78,7 +88,7 @@
   <script src="/js/revamp-ui.js"></script>
   <script src="/js/v2-nav.js?v=20261124g"></script>
   <script src="/js/v2-session-editor.js"></script>
-  <script src="/js/v2-plan-week-board.js"></script>
+  <script src="/js/v2-plan-week-board.js?v=20261124l"></script>
   <script src="/js/v2-training-plan.js?v=20261124g"></script>
   <script src="/js/v2-plan-wizard.js?v=20261124h"></script>
 </body>

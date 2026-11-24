@@ -268,7 +268,12 @@ def cancel_performance_queue_item(item_id: str, user: User = Depends(resolve_use
 def get_performance_bundle(user: User = Depends(resolve_user)):
     """Single round-trip for the v2 Performance page (reduces pool fan-out)."""
     from backend.services import focus_ranking as fr
-    from backend.services.derived_cache import get_or_compute
+    from backend.services.derived_cache import (
+        DERIVED_HERO,
+        DERIVED_PROJECTION,
+        DERIVED_RACE_LIST,
+        get_or_compute,
+    )
     from backend.services.projection_view import build_projection
     from backend.services.race_hero import build_hero
     from backend.services.race_list import build_race_list
@@ -285,15 +290,15 @@ def get_performance_bundle(user: User = Depends(resolve_user)):
         radar["svg"] = render_radar_svg(radar, "large")
         focus = fr.rank_axes(radar["axes"], km)
         hero = get_or_compute(
-            db, user.id, "derived:hero", today,
+            db, user.id, DERIVED_HERO, today,
             lambda: build_hero(db, user.id, today),
         )
         projection = get_or_compute(
-            db, user.id, "derived:projection", today,
+            db, user.id, DERIVED_PROJECTION, today,
             lambda: build_projection(db, user.id, today),
         )
         races = get_or_compute(
-            db, user.id, "derived:race_list", today,
+            db, user.id, DERIVED_RACE_LIST, today,
             lambda: build_race_list(db, user.id, today),
         )
     return JSONResponse({

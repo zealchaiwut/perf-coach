@@ -183,3 +183,16 @@ def test_write_events_call_after_race_write():
     assert svc.count("after_race_write") >= 2
     main = Path("backend/main.py").read_text()
     assert main.count("after_race_write") >= 4
+
+
+def test_delete_race_calls_after_race_write():
+    """Stale derived:race_list kept a deleted checkpoint on the Performance tab."""
+    main = Path("backend/main.py").read_text()
+    start = main.index("def delete_race(")
+    end = main.index("def _population_constants_dict", start)
+    body = main[start:end]
+    assert "after_race_write" in body
+    assert "race.user_id != user.id" in body
+    cal = Path("backend/services/race_calibration.py").read_text()
+    fn = cal[cal.index("def after_race_write") : cal.index("\ndef run_daily_predictions")]
+    assert "bump_data_version" in fn

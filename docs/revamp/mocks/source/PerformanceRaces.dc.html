@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Performance · revised page</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1f3b8a}a:hover{color:#0b1530}
+.card{background:#ffffff;border-radius:14px;box-shadow:0 2px 12px rgba(13,30,67,0.10),0 1px 3px rgba(13,30,67,0.06);padding:22px 24px;display:flex;flex-direction:column;gap:18px;box-sizing:border-box;min-width:0}
+.soft{background:#e3eaf8}
+.lbl{font-size:12px;font-weight:700;letter-spacing:0.1em;color:#5f6b84;text-transform:uppercase}
+.sub{font-size:13px;color:#56627f;line-height:1.5}
+.body{font-size:14px;color:#0b1530;line-height:1.5}
+.mono{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.chip{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.tab{font-size:14px;font-weight:700;color:#e3ecff;text-decoration:none;padding:9px 16px;border-radius:10px;display:inline-flex;align-items:center;gap:7px}
+.tab.on{background:#ffffff;color:#0b1530}
+.btn{appearance:none;font:inherit;font-size:13.5px;font-weight:700;border-radius:10px;min-height:40px;cursor:pointer;padding:9px 14px;background:#ffffff;color:#0b1530;border:1px solid #c9d2e3;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.btna{background:#e4ff52;border-color:#e4ff52}
+.ib{appearance:none;width:36px;height:36px;border-radius:9px;border:1px solid #c9d2e3;background:#ffffff;color:#33405e;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.tile{background:#f7f9fd;border-radius:11px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.tl{font-size:12px;color:#56627f;font-weight:600}
+.tv{font-size:15px;font-weight:700;color:#0b1530}
+.k{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:#56627f}
+.pill{appearance:none;font:inherit;font-size:12.5px;font-weight:700;border-radius:999px;padding:6px 11px;border:1px solid #dfe5f1;background:#ffffff;color:#33405e;cursor:pointer;white-space:nowrap;display:inline-flex;gap:6px;align-items:center}
+.pill.on{background:#0b1530;color:#ffffff;border-color:#0b1530}
+.pill.dim{color:#8792a8;border-style:dashed}
+.bd{display:flex;flex-direction:column;background:#f7f9fd;border-radius:11px;padding:6px 14px}
+.bdr{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #e9edf6;font-size:13.5px}
+.bdr:last-child{border-bottom:0}
+.bul{width:7px;height:7px;border-radius:50%;background:#8ba7e6}
+.anc{display:grid;grid-template-columns:80px 60px 64px minmax(0,1fr);gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid #eef1f7;font-size:13.5px}
+.anc:last-child{border-bottom:0}
+.chain{display:grid;grid-template-columns:minmax(0,1.25fr) 20px minmax(0,1fr) 20px minmax(0,1fr) 20px minmax(0,1fr) 20px minmax(0,1.35fr);gap:6px;align-items:stretch}
+.st{border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0;background:#f7f9fd}
+.sh{font-size:11px;font-weight:700;letter-spacing:0.1em;color:#5f6b84;text-transform:uppercase;height:14px;line-height:14px}
+.sv{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em;font-size:20px;font-weight:700;color:#0b1530;line-height:1.15}
+.ss{font-size:11.5px;color:#56627f;line-height:1.35}
+.ar{color:#8792a8;font-size:16px;display:flex;align-items:center;justify-content:center}
+.rr{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,0.9fr) minmax(0,1.1fr) minmax(0,0.8fr) 236px;gap:16px;align-items:center;padding:14px 16px;border-radius:12px;border:1px solid #e6ebf5;background:#ffffff}
+.badge{width:34px;height:34px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#ffffff;flex-shrink:0}
+.sect{font-size:12px;font-weight:700;letter-spacing:0.1em;color:#5f6b84;text-transform:uppercase}
+.rd{display:grid;grid-template-columns:minmax(0,1fr) 110px 130px;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid #eef1f7}
+.rd:last-child{border-bottom:0}
+.rd2{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-bottom:1px solid #eef1f7}
+.rd2:last-child{border-bottom:0}
+.rd2 .sub{font-size:12px;line-height:1.4}
+.note{font-size:12px;font-weight:700;color:#e4ff52;letter-spacing:0.06em;text-transform:uppercase}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 32px 48px 56px; background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%); font-family: 'Inter Tight', system-ui, sans-serif; color: #0b1530; letter-spacing: -0.01em">
+<div style="max-width: 1344px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap">
+    <div style="color: #ffffff; display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 34px; font-weight: 700; letter-spacing: -0.025em">Performance</span>
+      <span style="font-size: 15px; color: #e3ecff">Tuesday 24 November · where you stand, and what work moves it</span>
+    </div>
+    <nav aria-label="Primary" style="display: flex; align-items: center; gap: 4px; background: rgba(11,21,48,0.3); padding: 5px; border-radius: 13px">
+      <a href="Main.dc.html" class="tab">Home</a>
+      <a href="TrainingWeek.dc.html" class="tab">Training</a>
+      <a href="#" class="tab on">Performance</a>
+    </nav>
+  </div>
+
+  <!-- A race -->
+  <div class="card" style="flex-direction: row; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; padding: 18px 24px">
+    <div style="display: flex; gap: 14px; align-items: center">
+      <span class="badge" style="background: #0b1530">A</span>
+      <div style="display: flex; flex-direction: column; gap: 2px"><span class="lbl">A race</span><span style="font-size: 18px; font-weight: 700">Osaka Marathon <span class="mono sub" style="font-size: 13px; font-weight: 500">28 Feb · 42.2 km · 96 days</span></span></div>
+    </div>
+    <div style="display: flex; gap: 28px; align-items: center; flex-wrap: wrap">
+      <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Goal</span><span class="mono" style="font-size: 18px; font-weight: 700">4:30:00</span></div>
+      <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Estimate</span><span class="mono" style="font-size: 18px; font-weight: 700; color: #15803d">4:28:53 <span style="font-size: 12px; font-weight: 500">±13:10</span></span></div>
+      <span class="chip mono" title="1:07 faster than goal" style="background: #dff5d6; color: #2d5e10; font-size: 13px; padding: 5px 11px">−1:07</span>
+      <a href="#races" class="btn">Races ›</a>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr); gap: 16px; align-items: stretch">
+  <!-- Status: one widget, radar left, details right -->
+  <div class="card" style="gap: 14px; padding: 20px 22px">
+    <div class="row" style="align-items: flex-start; flex-wrap: wrap">
+      <div style="display: flex; flex-direction: column; gap: 4px"><span class="lbl">Status</span><span class="sub">0–100 against your marathon profile. Click a point to see its details and history.</span></div>
+      <span class="sub">Updated 06:58 · after today's sync</span>
+    </div>
+    <div style="display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 22px; align-items: stretch; flex: 1">
+
+      <div style="display: flex; flex-direction: column; gap: 14px; justify-content: space-between">
+        <svg viewBox="-30 0 580 440" style="width: 100%; max-width: 380px; margin: 0 auto; height: auto; display: block" role="img" aria-label="Status radar. Endurance 56 selected. Speed 53, Economy 42 focus, Strength 25, Power to weight 74 stale. Mobility and Durability not measured yet.">
+          <polygon points="260.0,65.0 385.1,125.2 416.0,260.6 329.4,369.2 190.6,369.2 104.0,260.6 134.9,125.2" fill="#f7f9fd" stroke="#dfe5f1" stroke-width="1.5"></polygon>
+          <polygon points="260.0,105.0 353.8,150.2 377.0,251.7 312.1,333.1 207.9,333.1 143.0,251.7 166.2,150.2" fill="none" stroke="#e6ebf5"></polygon>
+          <polygon points="260.0,145.0 322.5,175.1 338.0,242.8 294.7,297.1 225.3,297.1 182.0,242.8 197.5,175.1" fill="none" stroke="#e6ebf5"></polygon>
+          <polygon points="260.0,185.0 291.3,200.1 299.0,233.9 277.4,261.0 242.6,261.0 221.0,233.9 228.7,200.1" fill="none" stroke="#e6ebf5"></polygon>
+          <line x1="260" y1="225" x2="260.0" y2="65.0" stroke="#1f3b8a" stroke-width="1.5"></line>
+          <line x1="260" y1="225" x2="385.1" y2="125.2" stroke="#e6ebf5"></line>
+          <line x1="260" y1="225" x2="416.0" y2="260.6" stroke="#e6ebf5"></line>
+          <line x1="260" y1="225" x2="329.4" y2="369.2" stroke="#e6ebf5"></line>
+          <line x1="260" y1="225" x2="190.6" y2="369.2" stroke="#c3cbdb" stroke-dasharray="4 4"></line>
+          <line x1="260" y1="225" x2="104.0" y2="260.6" stroke="#e6ebf5"></line>
+          <line x1="260" y1="225" x2="134.9" y2="125.2" stroke="#c3cbdb" stroke-dasharray="4 4"></line>
+          <polygon points="260.0,135.4 326.3,172.1 325.5,240.0 277.4,261.0 144.6,251.3" fill="rgba(31,59,138,0.14)"></polygon>
+          <polyline points="260.0,135.4 326.3,172.1 325.5,240.0 277.4,261.0" fill="none" stroke="#1f3b8a" stroke-width="3" stroke-linejoin="round"></polyline>
+          <line x1="277.4" y1="261.0" x2="144.6" y2="251.3" stroke="#8792a8" stroke-width="2" stroke-dasharray="5 5"></line>
+          <line x1="144.6" y1="251.3" x2="260.0" y2="135.4" stroke="#8792a8" stroke-width="2" stroke-dasharray="5 5"></line>
+          <circle cx="260.0" cy="135.4" r="15" fill="rgba(228,255,82,0.55)" stroke="#0b1530" stroke-width="2"></circle>
+          <circle cx="260.0" cy="135.4" r="7" fill="#1f3b8a"></circle>
+          <circle cx="326.3" cy="172.1" r="6.5" fill="#1f3b8a"></circle>
+          <circle cx="325.5" cy="240.0" r="10" fill="#b45309" stroke="#ffffff" stroke-width="2"></circle>
+          <circle cx="277.4" cy="261.0" r="6.5" fill="#1f3b8a"></circle>
+          <circle cx="144.6" cy="251.3" r="7" fill="#ffffff" stroke="#1f3b8a" stroke-width="3"></circle>
+          <circle cx="190.6" cy="369.2" r="11" fill="#ffffff" stroke="#c3cbdb" stroke-width="1.5" stroke-dasharray="3 3"></circle>
+          <text x="190.6" y="373.5" text-anchor="middle" font-size="14" font-weight="700" fill="#8792a8">+</text>
+          <circle cx="134.9" cy="125.2" r="11" fill="#ffffff" stroke="#c3cbdb" stroke-width="1.5" stroke-dasharray="3 3"></circle>
+          <text x="134.9" y="129.5" text-anchor="middle" font-size="14" font-weight="700" fill="#8792a8">+</text>
+          <rect x="196" y="6" width="128" height="46" rx="10" fill="#0b1530"></rect>
+          <text x="260" y="26" text-anchor="middle" font-size="18" font-weight="700" fill="#ffffff">Endurance</text>
+          <text x="260" y="44" text-anchor="middle" font-size="13.5" font-family="JetBrains Mono, monospace" font-weight="600" fill="#e4ff52">56 · +15</text>
+          <text x="402" y="100" font-size="18" font-weight="700" fill="#0b1530">Speed</text>
+          <text x="402" y="119" font-size="13.5" font-family="JetBrains Mono, monospace" font-weight="600" fill="#56627f">53 · +7</text>
+          <text x="436" y="262" font-size="18" font-weight="800" fill="#7a3a10">Economy</text>
+          <text x="436" y="281" font-size="13.5" font-family="JetBrains Mono, monospace" font-weight="600" fill="#7a3a10">42 · focus</text>
+          <text x="340" y="402" font-size="18" font-weight="700" fill="#0b1530">Strength</text>
+          <text x="340" y="421" font-size="13.5" font-family="JetBrains Mono, monospace" font-weight="600" fill="#56627f">25</text>
+          <text x="180" y="402" text-anchor="end" font-size="18" font-weight="700" fill="#8792a8">Mobility</text>
+          <text x="180" y="421" text-anchor="end" font-size="13" font-weight="600" fill="#8792a8">not measured</text>
+          <text x="84" y="262" text-anchor="end" font-size="18" font-weight="700" fill="#0b1530">Power/wt</text>
+          <text x="84" y="281" text-anchor="end" font-size="13.5" font-family="JetBrains Mono, monospace" font-weight="600" fill="#56627f">74 · stale</text>
+          <text x="118" y="100" text-anchor="end" font-size="18" font-weight="700" fill="#8792a8">Durability</text>
+          <text x="118" y="119" text-anchor="end" font-size="13" font-weight="600" fill="#8792a8">not measured</text>
+        </svg>
+        <div style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: center">
+          <span class="k"><span style="width: 16px; height: 10px; border-radius: 3px; background: rgba(31,59,138,0.2); border: 2px solid #1f3b8a; box-sizing: border-box"></span>Now</span>
+          <span class="k"><span style="width: 11px; height: 11px; border-radius: 50%; border: 2.5px solid #1f3b8a; box-sizing: border-box"></span>Stale</span>
+          <span class="k"><span style="width: 11px; height: 11px; border-radius: 50%; background: #b45309"></span>Focus</span>
+          <span class="k"><span style="width: 18px; height: 0; border-top: 2px dashed #8792a8"></span>Not measured</span>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 10px; background: #0b1530; color: #ffffff; border-radius: 12px; padding: 14px 16px">
+          <div style="display: flex; flex-direction: column; gap: 3px"><span class="lbl" style="color: #e4ff52">Most room to grow</span><span style="font-size: 17px; font-weight: 700">Economy <span class="mono">42</span> <span style="font-size: 13px; font-weight: 500; color: #a8b6d6">· plyo 2×, heavy calf raise 1×, drills</span></span></div>
+          <div style="display: flex; gap: 10px; align-items: center"><span class="mono" style="font-size: 12.5px; color: #a8b6d6">+22 TSS / wk</span><button type="button" class="btn btna">Queue this work</button></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 16px; border-left: 1px solid #eef1f7; padding-left: 22px; gap: 12px">
+        <div role="tablist" aria-label="Axis" style="display: flex; gap: 6px; flex-wrap: wrap">
+          <button type="button" role="tab" aria-selected="true" class="pill on">Endurance <span class="mono">56</span></button>
+          <button type="button" role="tab" class="pill">Speed <span class="mono">53</span></button>
+          <button type="button" role="tab" class="pill" style="color: #7a3a10; border-color: #f2c99a">Economy <span class="mono">42</span></button>
+          <button type="button" role="tab" class="pill">Strength <span class="mono">25</span></button>
+          <button type="button" role="tab" class="pill">Power/wt <span class="mono">74</span></button>
+          <button type="button" role="tab" class="pill dim">Durability</button>
+          <button type="button" role="tab" class="pill dim">Mobility</button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: center">
+          <span class="mono" style="font-size: 40px; font-weight: 700; color: #1f3b8a; line-height: 1">56</span>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap"><span class="chip" style="background: #dff5d6; color: #2d5e10">+15 in 28 days</span><span class="chip" style="background: #fff4d8; color: #6b4408">2 of 3 anchors stale</span></div>
+            <span style="font-size: 14.5px; font-weight: 600">Up 15, but two anchors are over five weeks old and decaying.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div class="row"><span class="tl">History · 12 weeks</span><span style="display: flex; gap: 12px"><span class="k"><span style="width: 14px; border-top: 2px solid #1f3b8a"></span>Score</span><span class="k"><span style="width: 8px; height: 8px; border-radius: 50%; background: #1f3b8a"></span>Anchor effort</span><span class="k"><span style="width: 8px; height: 8px; transform: rotate(45deg); background: #b45309"></span>Race</span></span></div>
+          <svg viewBox="0 0 600 150" preserveAspectRatio="none" height="110" style="width: 100%; height: auto; display: block" role="img" aria-label="Endurance over 12 weeks: from 44 in early September down to 41 in early November, then up to 56 now.">
+            <g font-family="JetBrains Mono, monospace" font-size="11" fill="#8792a8" text-anchor="end"><text x="26" y="18">70</text><text x="26" y="58">55</text><text x="26" y="98">40</text></g>
+            <g stroke="#eef1f7"><line x1="34" y1="14" x2="596" y2="14"></line><line x1="34" y1="54" x2="596" y2="54"></line><line x1="34" y1="94" x2="596" y2="94"></line></g>
+            <line x1="34" y1="124" x2="596" y2="124" stroke="#dfe5f1"></line>
+            <path d="M34,78 L80,76 L126,73 L172,62 L218,66 L264,70 L310,74 L356,78 L402,83 L448,86 L494,70 L540,58 L596,51 L596,124 L34,124 Z" fill="#e3eaf8"></path>
+            <polyline points="34,78 80,76 126,73 172,62 218,66 264,70 310,74 356,78 402,83 448,86 494,70 540,58 596,51" fill="none" stroke="#1f3b8a" stroke-width="2.2" stroke-linejoin="round"></polyline>
+            <g fill="#1f3b8a"><circle cx="172" cy="62" r="4"></circle><circle cx="186" cy="58" r="4"></circle><circle cx="540" cy="58" r="4"></circle></g>
+            <rect x="447" y="62" width="9" height="9" transform="rotate(45 451.5 66.5)" fill="#b45309"></rect>
+            <circle cx="596" cy="51" r="5" fill="#ffffff" stroke="#1f3b8a" stroke-width="2.5"></circle>
+            <g font-family="JetBrains Mono, monospace" font-size="11" fill="#56627f"><text x="34" y="142">1 Sep</text><text x="300" y="142" text-anchor="middle">12 Oct</text><text x="451" y="142" text-anchor="middle">15 Nov</text><text x="596" y="142" text-anchor="end">Now</text></g>
+          </svg>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <span class="tl">Where 56 comes from</span>
+          <div class="bd">
+            <div class="bdr"><span class="bul"></span><span>Average of 3 anchor efforts, after decay</span><span class="mono" style="font-weight: 600">53.4</span></div>
+            <div class="bdr"><span class="bul" style="background: #c3cbdb"></span><span style="color: #56627f">Race floor (used only if higher)</span><span class="mono" style="color: #56627f">25.6</span></div>
+            <div class="bdr"><span class="bul" style="background: #22c55e"></span><span>Consistency bonus</span><span class="mono" style="font-weight: 600; color: #2d5e10">+2.1</span></div>
+            <div class="bdr"><span></span><span style="font-weight: 700">Score</span><span class="mono" style="font-weight: 700">55.5 → 56</span></div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: flex-start; background: #eef3fd; border-radius: 11px; padding: 11px 14px">
+          <span class="mono" style="font-size: 13px; font-weight: 700; color: #1f3b8a; white-space: nowrap">→ 60</span>
+          <span class="body">Hold 4:47 /km for 30 min at threshold.</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span class="tl">Anchor efforts</span>
+          <div class="anc" style="color: #5f6b84; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase"><span>Date</span><span>Raw</span><span>Age</span><span>Status</span></div>
+          <div class="anc"><span class="mono">18 Nov</span><span class="mono" style="font-weight: 600">49.6</span><span class="mono">0.7 wk</span><span><span class="chip" style="background: #dff5d6; color: #2d5e10">Fresh</span></span></div>
+          <div class="anc"><span class="mono">15 Oct</span><span class="mono" style="font-weight: 600">65.2</span><span class="mono">5.6 wk</span><span><span class="chip" style="background: #fff4d8; color: #6b4408">Stale · decaying</span></span></div>
+          <div class="anc"><span class="mono">12 Oct</span><span class="mono" style="font-weight: 600">57.3</span><span class="mono">6.0 wk</span><span><span class="chip" style="background: #fff4d8; color: #6b4408">Stale · decaying</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- other states of the right panel -->
+  <div style="display: flex; flex-direction: column; gap: 10px">
+    <span class="note">Details panel, other states · swaps on click</span>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px">
+      <div class="card" style="gap: 10px; padding: 16px 18px">
+        <div class="row" style="flex-wrap: wrap; justify-content: flex-start"><span class="lbl" style="color: #7a3a10">Economy · focus</span><span class="chip" style="background: #fff1dc; color: #7a3a10">most room to grow</span></div>
+        <div style="display: flex; gap: 12px; align-items: center"><span class="mono" style="font-size: 32px; font-weight: 700; color: #b45309; line-height: 1">42</span><span class="chip" style="background: #eef1f7; color: #56627f">±0 in 28 days</span></div>
+        <svg viewBox="0 0 300 60" style="width: 100%; height: 34px" aria-hidden="true"><path d="M0,34 L60,36 L120,33 L180,35 L240,34 L300,35 L300,60 L0,60 Z" fill="#fdebd8"></path><polyline points="0,34 60,36 120,33 180,35 240,34 300,35" fill="none" stroke="#b45309" stroke-width="2"></polyline></svg>
+        <span class="tl">Why Economy and not the others</span>
+        <div class="bd" style="font-size: 13px">
+          <div class="bdr"><span class="bul" style="background: #b45309"></span><span style="font-weight: 700; color: #7a3a10">Economy · gap 11.6</span><span class="mono">20%</span></div>
+          <div class="bdr"><span class="bul"></span><span>Endurance · gap 8.9</span><span class="mono">20%</span></div>
+          <div class="bdr"><span class="bul"></span><span>Strength · gap 7.5</span><span class="mono">10%</span></div>
+          <div class="bdr"><span class="bul"></span><span>Speed · gap 2.4</span><span class="mono">5%</span></div>
+        </div>
+        <button type="button" class="btn btna" style="align-self: flex-start">Queue this work</button>
+      </div>
+      <div class="card" style="gap: 10px; padding: 16px 18px">
+        <div class="row" style="flex-wrap: wrap; justify-content: flex-start"><span class="lbl">Power/wt · stale</span><span class="chip" style="background: #fff4d8; color: #6b4408">CP 5 wk old</span></div>
+        <div style="display: flex; gap: 12px; align-items: center"><span class="mono" style="font-size: 32px; font-weight: 700; color: #1f3b8a; line-height: 1">74</span><span class="sub">CP 279 W ÷ trend 71.8 kg</span></div>
+        <svg viewBox="0 0 300 60" style="width: 100%; height: 34px" aria-hidden="true"><polyline points="0,22 60,20 120,18 180,18 240,19 300,19" fill="none" stroke="#1f3b8a" stroke-width="2" stroke-dasharray="5 4"></polyline></svg>
+        <span class="body">Not ranked for focus until CP is fresh. Weight trend is still read daily.</span>
+        <a href="#" class="btn" style="align-self: flex-start">Update CP</a>
+      </div>
+      <div class="card" style="gap: 10px; padding: 16px 18px">
+        <div class="row" style="flex-wrap: wrap; justify-content: flex-start"><span class="lbl" style="color: #8792a8">Durability · not measured</span></div>
+        <div style="display: flex; gap: 12px; align-items: center"><span class="mono" style="font-size: 32px; font-weight: 700; color: #c3cbdb; line-height: 1">—</span><span class="sub">No history yet</span></div>
+        <span class="body">Measured from pace or HR drift on an easy run of 90 min or longer.</span>
+        <div style="display: flex; gap: 10px; align-items: flex-start; background: #eef3fd; border-radius: 11px; padding: 11px 14px"><span class="mono" style="font-size: 13px; font-weight: 700; color: #1f3b8a">Next</span><span class="body">Saturday's 22 km long run will measure it.</span></div>
+        <a href="TrainingWeek.dc.html" class="btn" style="align-self: flex-start">See the plan</a>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 1fr); gap: 16px; align-items: stretch">
+  <!-- Races and projections -->
+  <div class="card" id="races">
+    <div class="row" style="align-items: flex-start; flex-wrap: wrap">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <span class="lbl">Races and projections</span>
+        <span class="sub">How the finish time is built and how it has moved. The band tightens after each recalibration.</span>
+      </div>
+      <div style="display: flex; gap: 8px"><button type="button" class="btn">Recalibrate</button><button type="button" class="btn">+ Add a race</button></div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+      <div class="tile"><span class="tl">Last recalibrated</span><span class="tv">15 Nov · Bangsaen42</span><span class="sub" style="font-size: 12px">5:29:32 · CP 279 W <span class="chip" style="background: #fff4d8; color: #6b4408; font-size: 10.5px">CP stale</span></span></div>
+      <div class="tile"><span class="tl">Data</span><span class="tv" style="color: #2d5e10">Sufficient</span></div>
+      <div class="tile"><span class="tl">Band confidence</span><span class="tv" style="color: #2d5e10">High</span></div>
+      <div class="tile"><span class="tl">Model correction</span><span class="tv mono">×1.098</span><span class="sub" style="font-size: 12px">ran 9.8% optimistic over 4 races</span></div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span class="tl">How the Osaka Marathon estimate is built</span>
+      <div class="chain">
+        <div class="st">
+          <span class="sh">Base</span>
+          <div class="row" style="gap: 8px"><span class="ss" style="font-size: 12.5px; font-weight: 600; color: #33405e">Endurance 56</span><span class="mono" style="font-size: 15px; font-weight: 700">6:04 /km</span></div>
+          <div class="row" style="gap: 8px"><span class="ss" style="font-size: 12.5px; font-weight: 600; color: #33405e">Speed 53</span><span class="mono" style="font-size: 15px; font-weight: 700">5:44 /km</span></div>
+        </div>
+        <span class="ar" aria-hidden="true">→</span>
+        <div class="st" style="background: #eef3fd"><span class="sh" style="color: #1f3b8a">Blend</span><span class="sv">5:56 /km</span><span class="ss">38% speed for a marathon</span></div>
+        <span class="ar" aria-hidden="true">→</span>
+        <div class="st"><span class="sh">Race-day fitness</span><span class="sv">×0.977</span><span class="ss">CTL 38 now → 52 on 28 Feb</span></div>
+        <span class="ar" aria-hidden="true">→</span>
+        <div class="st"><span class="sh">Model correction</span><span class="sv">×1.098</span><span class="ss">past races ran slower</span></div>
+        <span class="ar" aria-hidden="true">→</span>
+        <div class="st" style="background: #e9f8e4"><span class="sh" style="color: #2d5e10">Race · Osaka 28 Feb</span><span class="sv" style="font-size: 24px; color: #15803d">4:28:53 <span style="font-size: 12.5px; font-weight: 600">±13:10</span></span><span class="ss">6:22 /km · <b style="color: #15803d">−1:07</b> vs goal</span></div>
+      </div>
+      <span class="sub" style="font-size: 12px">The time uses Endurance and Speed. The other five axes don't move it yet.</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <div class="row" style="flex-wrap: wrap">
+        <span class="tl">Osaka Marathon estimate over time</span>
+        <span style="display: flex; gap: 16px; flex-wrap: wrap">
+          <span class="k"><span style="width: 18px; border-top: 2.5px solid #1f3b8a"></span>Estimate that day</span>
+          <span class="k"><span style="width: 9px; height: 9px; transform: rotate(45deg); background: #b45309"></span>Actual, as marathon time</span>
+          <span class="k"><span style="width: 14px; height: 10px; background: #dbe7ff; border-radius: 2px"></span>Band</span>
+          <span class="k"><span style="width: 18px; border-top: 2px dashed #15803d"></span>Goal 4:30</span>
+        </span>
+      </div>
+      <svg viewBox="0 0 1280 252" style="width: 100%; height: auto; display: block" role="img" aria-label="Osaka Marathon estimate between 4:28 and 4:35 since September. Actual results: KFC 10K faster, Chiang Mai half slightly slower, Saucony 10K faster, Bangsaen42 far slower at 5:29:32, below the chart. Now 4:28:53 against a 4:30 goal.">
+        <g font-family="JetBrains Mono, monospace" font-size="12" fill="#56627f" text-anchor="end"><text x="66" y="24">4:10</text><text x="66" y="64">4:20</text><text x="66" y="104">4:30</text><text x="66" y="144">4:40</text><text x="66" y="184">4:50</text></g>
+        <g stroke="#eef1f7"><line x1="80" y1="20" x2="1240" y2="20"></line><line x1="80" y1="60" x2="1240" y2="60"></line><line x1="80" y1="140" x2="1240" y2="140"></line></g>
+        <line x1="80" y1="180" x2="1240" y2="180" stroke="#dfe5f1"></line>
+        <line x1="80" y1="100" x2="1240" y2="100" stroke="#15803d" stroke-width="1.6" stroke-dasharray="7 6"></line>
+        <path d="M621,96 L1240,43 L1240,148 Z" fill="#dbe7ff"></path>
+        <line x1="621" y1="96" x2="1240" y2="96" stroke="#1f3b8a" stroke-width="2" stroke-dasharray="5 4"></line>
+        <polyline points="80,116 119,120 125,104 177,112 248,100 254,96 338,108 434,96 441,92 518,104 563,120 570,104 621,96" fill="none" stroke="#1f3b8a" stroke-width="2.5" stroke-linejoin="round"></polyline>
+        <g stroke="#b45309" stroke-width="1.5"><line x1="119" y1="120" x2="119" y2="76"></line><line x1="248" y1="100" x2="248" y2="112"></line><line x1="434" y1="96" x2="434" y2="84"></line><line x1="563" y1="120" x2="563" y2="168" stroke-dasharray="3 3"></line></g>
+        <g fill="#ffffff" stroke="#1f3b8a" stroke-width="2"><circle cx="119" cy="120" r="4.5"></circle><circle cx="248" cy="100" r="4.5"></circle><circle cx="434" cy="96" r="4.5"></circle><circle cx="563" cy="120" r="4.5"></circle></g>
+        <g fill="#b45309"><rect x="113.5" y="70.5" width="11" height="11" transform="rotate(45 119 76)"></rect><rect x="242.5" y="106.5" width="11" height="11" transform="rotate(45 248 112)"></rect><rect x="428.5" y="78.5" width="11" height="11" transform="rotate(45 434 84)"></rect></g>
+        <path d="M557,166 L569,166 L563,176 Z" fill="#b45309"></path>
+        <g font-family="JetBrains Mono, monospace" font-size="11.5" font-weight="700">
+          <text x="128" y="74" fill="#15803d">−11:00</text>
+          <text x="257" y="124" fill="#b91c1c">+3:00</text>
+          <text x="443" y="82" fill="#15803d">−3:00</text>
+          <text x="573" y="164" fill="#b91c1c">5:29:32 · +54:32 ↓</text>
+        </g>
+        <line x1="621" y1="20" x2="621" y2="180" stroke="#0b1530" stroke-width="1.2"></line>
+        <circle cx="621" cy="96" r="6" fill="#1f3b8a"></circle>
+        <text x="627" y="34" font-size="12.5" font-weight="700" fill="#0b1530">Now · 4:28:53</text>
+        <line x1="1240" y1="20" x2="1240" y2="180" stroke="#b45309" stroke-width="1.2" stroke-dasharray="3 3"></line>
+        <text x="1234" y="34" text-anchor="end" font-size="12.5" font-weight="700" fill="#7a3a10">Race day</text>
+        <g font-family="JetBrains Mono, monospace" font-size="11" fill="#33405e" text-anchor="end"><text x="1232" y="56">4:15:43</text><text x="1232" y="91">4:28:53</text><text x="1232" y="162">4:42:03</text></g>
+        <g font-family="Inter Tight, sans-serif" text-anchor="middle">
+          <rect x="94" y="190" width="50" height="34" rx="7" fill="#eef2fb"></rect><text x="119" y="204" font-size="11" font-weight="700" fill="#0b1530">7 Sep</text><text x="119" y="218" font-size="10.5" fill="#56627f">10K</text>
+          <rect x="223" y="190" width="50" height="34" rx="7" fill="#eef2fb"></rect><text x="248" y="204" font-size="11" font-weight="700" fill="#0b1530">27 Sep</text><text x="248" y="218" font-size="10.5" fill="#56627f">21.1K</text>
+          <rect x="409" y="190" width="50" height="34" rx="7" fill="#eef2fb"></rect><text x="434" y="204" font-size="11" font-weight="700" fill="#0b1530">26 Oct</text><text x="434" y="218" font-size="10.5" fill="#56627f">10K</text>
+          <line x1="563" y1="180" x2="555" y2="190" stroke="#b9c3d6"></line>
+          <rect x="530" y="190" width="50" height="34" rx="7" fill="#eef2fb"></rect><text x="555" y="204" font-size="11" font-weight="700" fill="#0b1530">15 Nov</text><text x="555" y="218" font-size="10.5" fill="#56627f">42.2K</text>
+          <line x1="602" y1="180" x2="609" y2="190" stroke="#e0b46b"></line>
+          <rect x="584" y="190" width="50" height="34" rx="7" fill="#fff1dc"></rect><text x="609" y="204" font-size="11" font-weight="700" fill="#7a3a10">21 Nov</text><text x="609" y="218" font-size="10.5" fill="#7a3a10">18K · CP</text>
+        </g>
+        <g font-family="JetBrains Mono, monospace" font-size="11.5" fill="#56627f"><text x="80" y="244">1 Sep</text><text x="1240" y="244" text-anchor="end">28 Feb</text></g>
+      </svg>
+      <span class="sub" style="font-size: 12px">The y axis fits the estimate, not every result. A result outside it sits on the edge with an arrow and its real time.</span>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px; border-top: 1px solid #eef1f7; padding-top: 16px">
+      <span class="sect">Needs a result</span>
+      <div class="rr" style="background: #fffaf2; border-color: #f2dcb6">
+        <div style="display: flex; gap: 12px; align-items: center; min-width: 0"><span class="badge" style="background: #0f766e">CP</span><div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 15.5px; font-weight: 700">Checkpoint</span><span class="mono sub">21 Nov · 18 km · Long run</span></div></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Goal</span><span class="mono" style="font-size: 17px; font-weight: 700">1:30:00 <span style="font-size: 12px; color: #56627f; font-weight: 500">5:00</span></span></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Actual</span><span class="sub">No synced run matched</span></div>
+        <div><span class="chip" style="background: #fff4d8; color: #6b4408">not recorded</span></div>
+        <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end">
+          <input aria-label="Finish time" placeholder="h:mm:ss" style="width: 84px; height: 36px; box-sizing: border-box; border: 1px solid #c9d2e3; border-radius: 9px; padding: 0 9px; font-family: 'JetBrains Mono', monospace; font-size: 13px">
+          <button type="button" style="appearance: none; height: 36px; border-radius: 9px; border: 0; background: #e4ff52; color: #0b1530; font: inherit; font-size: 13px; font-weight: 800; padding: 0 12px">Record</button>
+          <button type="button" class="ib" aria-label="Edit Checkpoint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></button>
+          <button type="button" class="ib" aria-label="Delete Checkpoint"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg></button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 6px"><span class="sect">Upcoming</span><a href="SeasonRoad.dc.html" style="font-size: 13px; font-weight: 600">Season road ›</a></div>
+      <div class="rr">
+        <div style="display: flex; gap: 12px; align-items: center; min-width: 0"><span class="badge" style="background: #0b1530">A</span><div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 15.5px; font-weight: 700">Osaka Marathon</span><span class="mono sub">28 Feb · 42.2 km · A race</span></div></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Goal</span><span class="mono" style="font-size: 17px; font-weight: 700">4:30:00 <span style="font-size: 12px; color: #56627f; font-weight: 500">6:24</span></span></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Estimate</span><span class="mono" style="font-size: 17px; font-weight: 700; color: #15803d">4:28:53 <span style="font-size: 12px; font-weight: 500">±13:10</span></span></div>
+        <div><span class="chip mono" title="1:07 faster than goal" style="background: #dff5d6; color: #2d5e10">−1:07</span></div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end"><button type="button" class="ib" aria-label="Edit Osaka Marathon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></button><button type="button" class="ib" aria-label="Delete Osaka Marathon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg></button></div>
+      </div>
+      <div class="rr">
+        <div style="display: flex; gap: 12px; align-items: center; min-width: 0"><span class="badge" style="background: #b45309">B</span><div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 15.5px; font-weight: 700">Bangsaen21</span><span class="mono sub">20 Dec · 21.1 km · PB attempt</span></div></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Goal</span><span class="mono" style="font-size: 17px; font-weight: 700">1:50:00 <span style="font-size: 12px; color: #56627f; font-weight: 500">5:13</span></span></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Estimate</span><span class="mono" style="font-size: 17px; font-weight: 700; color: #b91c1c">1:58:20 <span style="font-size: 12px; font-weight: 500">±3:01</span></span></div>
+        <div><span class="chip mono" title="8:20 slower than goal" style="background: #fde8e8; color: #7a1a1a">+8:20</span></div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end"><button type="button" class="ib" aria-label="Edit Bangsaen21"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></button><button type="button" class="ib" aria-label="Delete Bangsaen21"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg></button></div>
+      </div>
+
+      <span class="sect" style="margin-top: 6px">Completed</span>
+      <div class="rr" style="background: #fafbfe">
+        <div style="display: flex; gap: 12px; align-items: center; min-width: 0"><span class="badge" style="background: #33405e">A</span><div style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-size: 15.5px; font-weight: 700">Bangsaen42</span><span class="mono sub">15 Nov · 42.2 km · A race</span></div></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Goal</span><span class="mono" style="font-size: 17px; font-weight: 700">4:30:00 <span style="font-size: 12px; color: #56627f; font-weight: 500">6:24</span></span></div>
+        <div style="display: flex; flex-direction: column; gap: 2px"><span class="tl">Actual</span><span class="mono" style="font-size: 17px; font-weight: 700; color: #b91c1c">5:29:32 <span style="font-size: 12px; color: #56627f; font-weight: 500">7:48</span></span></div>
+        <div><span class="chip mono" title="59:32 over goal" style="background: #fde8e8; color: #7a1a1a">+59:32</span></div>
+        <div style="display: flex; gap: 8px; align-items: center; justify-content: flex-end"><a href="TrainingSession.dc.html" style="font-size: 13px; font-weight: 600; margin-right: 4px">Debrief ›</a><button type="button" class="ib" aria-label="Edit Bangsaen42"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"></path></svg></button><button type="button" class="ib" aria-label="Delete Bangsaen42"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M6 7l1 13h10l1-13"></path></svg></button></div>
+      </div>
+      <button type="button" style="appearance: none; font: inherit; font-size: 13.5px; font-weight: 700; color: #1f3b8a; background: transparent; border: 0; padding: 4px 0; align-self: flex-start; cursor: pointer">Show 5 earlier races</button>
+    </div>
+  </div>
+
+  <!-- Readiness, bottom -->
+  <div class="card" style="gap: 12px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div style="display: flex; flex-direction: column; gap: 4px"><span class="lbl">A-race readiness</span><span class="sub">Osaka Marathon · five things to have done before race day.</span></div>
+      <div style="display: flex; flex-direction: column; gap: 6px"><span class="mono" style="font-size: 14px; font-weight: 700; line-height: 1.3">0 of 5 done</span><span style="width: 100%; height: 6px; border-radius: 999px; background: #eef2fb"></span></div>
+    </div>
+    <div>
+      <div class="rd2"><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; line-height: 1.3">Two runs of 3:30 or longer</span><span class="sub">0 of 2 done · between 10 and 3 weeks out</span></div><span class="chip" style="background: #eef1f7; color: #56627f; align-self: flex-start">not started</span></div>
+      <div class="rd2"><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; line-height: 1.3">Race shoes on a run of 30 km or more</span><span class="sub">Log the shoe on one 30 km+ run</span></div><span class="chip" style="background: #eef1f7; color: #56627f; align-self: flex-start">not started</span></div>
+      <div class="rd2"><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; line-height: 1.3">Fuel rehearsed on 90 min+ runs</span><span class="sub">Log gels and fluid on 4 runs over 90 min</span></div><span class="chip" style="background: #eef1f7; color: #56627f; align-self: flex-start">not started</span></div>
+      <div class="rd2"><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; line-height: 1.3">A PB result in the 6 weeks before</span><span class="sub">Run a PB-attempt race between 17 Jan and 28 Feb</span></div><span class="chip" style="background: #eef1f7; color: #56627f; align-self: flex-start">not started</span></div>
+      <div class="rd2"><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 700; line-height: 1.3">CP not stale</span><span class="sub">Update CP with a recent hard effort</span></div><span class="chip" style="background: #fff4d8; color: #6b4408; align-self: flex-start">stale</span><button type="button" class="btn" style="align-self: flex-start; min-height: 36px; padding: 6px 12px; font-size: 13px">Update CP</button></div>
+    </div>
+  </div>
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2500}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

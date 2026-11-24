@@ -71,11 +71,15 @@ def test_long_runs_item_counts_in_window():
     with patch.object(arc, "_run_workouts", return_value=rows):
         item = arc.item_long_runs(session, UID, RACE_DATE)
     assert item["state"] == "done" and item["count_label"] == "2 / 2"
+    assert item["detail"] == "2 of 2 long runs done"
+    assert "workouts.duration_seconds" in item["source"]
 
 
 def test_toilet_plan_manual_only():
     done = arc.item_toilet_plan(a_race(notes="Portaloo by village", toilet_plan_done=True))
     assert done["state"] == "done" and done["manual"]
+    assert done["detail"] == "Write your race-morning plan"
+    assert done["note"] == "Portaloo by village"
     todo = arc.item_toilet_plan(a_race())
     assert todo["state"] == "not_started"
 
@@ -106,6 +110,12 @@ def test_v2_performance_has_readiness_mount_points():
     assert 'data-hero="readiness"' in V2_JS
     assert "applyReadiness" in V2_JS
     assert 'href="/v2/settings#thresholds"' in V2_JS and "Update CP" in V2_JS
+    assert "it.source" not in V2_JS
+    assert "it.detail" in V2_JS
+    assert "host.hidden = true" in V2_JS
+    assert "workouts.duration_seconds" not in V2_JS
+    assert "cp_staleness" not in V2_JS
+    assert "P6-14" not in V2_JS
 
 
 @pytest.fixture

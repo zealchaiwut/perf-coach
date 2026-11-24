@@ -15649,10 +15649,17 @@ def delete_race(race_id: str, user: User = Depends(resolve_user)):
         raise HTTPException(status_code=400, detail="invalid race_id")
     with Session(engine) as session:
         race = session.get(Race, rid)
-        if race is None or race.user_id != user.id:
+        if race is not None and race.user_id != user.id:
             raise HTTPException(status_code=404, detail="race not found")
-        session.delete(race)
-        session.commit()
+        if race is not None:
+            session.delete(race)
+            session.commit()
+        # Always bump derived caches. A 204 on a missing id is the
+        # idempotent DELETE; without the bump the Performance list can
+        # keep serving the row from ``derived:race_list``.
+        from backend.services.race_calibration import after_race_write as _after_race_write
+
+        _after_race_write(session, user.id)
 
 
 # ── Race calibration ───────────────────────────────────────────────────────────

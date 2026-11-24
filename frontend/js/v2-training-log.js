@@ -182,11 +182,16 @@
       var bar = '';
       var cap = '';
       if (tm.bar_pct != null && tm.target_tss != null) {
-        var barColor = tm.on_target ? '#6d93e8' : '#b45309';
-        bar = '<div class="rv-month-target-bar"><span style="width:' + tm.bar_pct + '%;background:' + barColor + '"></span></div>';
-        if (tm.on_target) cap = 'on target · ' + Math.round(tm.target_tss);
-        else if (tm.delta > 0) cap = '+' + tm.delta + ' over ' + Math.round(tm.target_tss);
-        else cap = tm.delta + ' under ' + Math.round(tm.target_tss);
+        var tone = tm.tone || (tm.on_target ? 'good' : (tm.delta > 0 ? 'bad' : 'warn'));
+        var fill = tm.fill_pct != null ? tm.fill_pct : tm.bar_pct;
+        var tick = tm.target_pct != null ? tm.target_pct : 100;
+        var tgt = Math.round(tm.target_tss);
+        bar = '<div class="rv-month-target-bar rv-month-target-bar--' + esc(tone) + '">' +
+          '<span style="width:' + fill + '%"></span>' +
+          '<i class="rv-month-target-tick" style="left:' + tick + '%" title="target ' + tgt + '"></i></div>';
+        if (tone === 'good') cap = 'on target · ' + tgt;
+        else if (tm.delta > 0) cap = '+' + tm.delta + ' over ' + tgt;
+        else cap = tm.delta + ' under ' + tgt;
       } else if (tm.target_tss != null) {
         cap = 'target ' + Math.round(tm.target_tss);
       }
@@ -195,7 +200,7 @@
         '<strong class="rv-mono" style="font-size:1.1rem">' + Math.round(r.tss_total || 0) + '</strong>' +
         '<span class="rv-subtitle" style="margin:0;font-family:var(--rv-mono)">' + (r.distance_km || 0) + ' km</span>' +
         bar +
-        (cap ? '<span class="rv-month-target-cap">' + esc(cap) + '</span>' : '') +
+        (cap ? '<span class="rv-month-target-cap' + (tm.tone ? ' rv-month-target-cap--' + esc(tm.tone) : '') + '">' + esc(cap) + '</span>' : '') +
         '</div>'
       );
     });

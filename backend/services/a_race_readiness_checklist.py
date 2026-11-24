@@ -33,6 +33,7 @@ def _item(
     source: str,
     manual: bool = False,
     detail: Optional[str] = None,
+    note: Optional[str] = None,
     action: Optional[str] = None,
 ) -> dict[str, Any]:
     return {
@@ -45,6 +46,7 @@ def _item(
         "source": source,
         "manual": manual,
         "detail": detail,
+        "note": note,
         "action": action,
     }
 
@@ -111,13 +113,15 @@ def item_long_runs(session, user_id: uuid.UUID, race_date: date) -> dict[str, An
     count = sum(
         1 for w in _run_workouts(session, user_id, start, end) if (w.duration_seconds or 0) >= LONG_RUN_TARGET_SEC
     )
+    done = min(count, LONG_RUN_ITEM_TARGET)
     return _item(
         "long_runs_330",
         "Two runs of 3:30 or longer (10-3 weeks out)",
         state=_state_from_counts(count, LONG_RUN_ITEM_TARGET),
-        done=min(count, LONG_RUN_ITEM_TARGET),
+        done=done,
         target=LONG_RUN_ITEM_TARGET,
         source="workouts.duration_seconds",
+        detail=f"{done} of {LONG_RUN_ITEM_TARGET} long runs done",
     )
 
 
@@ -135,6 +139,7 @@ def item_race_shoe(session, user_id: uuid.UUID, race_date: date) -> dict[str, An
         done=1 if found else 0,
         target=1,
         source="workouts.shoe_id or manual_overrides.race_shoe (P6-14)",
+        detail="Log the shoe on one 30 km+ run",
     )
 
 
@@ -150,6 +155,7 @@ def item_fuel_rehearsal(session, user_id: uuid.UUID, race_date: date) -> dict[st
         done=min(count, FUEL_REHEARSAL_TARGET),
         target=FUEL_REHEARSAL_TARGET,
         source="workouts.gel_count, fluid_level (P6-14)",
+        detail=f"Log gels and fluid on {FUEL_REHEARSAL_TARGET} runs over 90 min",
     )
 
 
@@ -174,6 +180,7 @@ def item_pb_block(session, user_id: uuid.UUID, race_date: date) -> dict[str, Any
         done=1 if count else 0,
         target=1,
         source="races with role pb",
+        detail="Run a PB-attempt race in the 6 weeks before",
     )
 
 
@@ -191,6 +198,7 @@ def item_cp_fresh(session, user_id: uuid.UUID, today: date) -> dict[str, Any]:
         target=1,
         source="cp_staleness (#1877)",
         action="update_cp",
+        detail="Update CP with a recent hard effort",
     )
 
 
@@ -205,7 +213,8 @@ def item_toilet_plan(race: Race) -> dict[str, Any]:
         target=1,
         source="manual on A race",
         manual=True,
-        detail=notes[:120] if notes else None,
+        detail="Write your race-morning plan",
+        note=notes[:120] if notes else None,
     )
 
 

@@ -1,5 +1,5 @@
 """Sprint 149 #1951 — derivation chain reconstructs est_sec; next-race chart goal."""
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 from backend.services import projection_view as pv
@@ -36,6 +36,8 @@ def test_chain_steps_multiply_to_est_sec_within_one_second():
     keys = [s["key"] for s in chain["steps"]]
     assert keys == ["endurance", "speed", "blend", "fitness", "correction", "final"]
     assert chain["fitness"]["formatted"] == "×0.939"
+    assert chain["endurance"]["score_display"] == 41
+    assert chain["speed"]["score_display"] == 45
 
     faster = pv.build_chain(
         {**est, "est_sec": 6500, "post_correction_sec": 6500},
@@ -65,6 +67,28 @@ def test_chart_uses_next_race_goal_and_offsets_close_tags():
     assert ch["goal_label"] == "1:50"
     lanes = {m["name"]: m["tag_lane"] for m in ch["recalibrations"] + ch["ticks"]}
     assert lanes["Bangsaen42"] != lanes["KFC 10K"]
+    labels = [t["label"] for t in ch["y_ticks"]]
+    assert any(lab in ("1:50", "1:55", "2:00") for lab in labels)
+    assert ch["history"][-1]["date"] == today.isoformat()
+    assert ch["history"][-1]["est_sec"] == 6782
+
+
+def test_chart_window_start_never_after_today():
+    today = date(2026, 11, 24)
+    future_block = date(2026, 11, 30)
+    race = SimpleNamespace(id="a", race_date=date(2027, 2, 28))
+
+    class Sess:
+        pass
+
+    orig = pv._block_start
+    pv._block_start = lambda *a, **k: future_block
+    try:
+        start = pv._chart_window_start(Sess(), "u", race, today)
+    finally:
+        pv._block_start = orig
+    assert start == today - timedelta(days=pv.DEFAULT_HISTORY_DAYS)
+    assert start <= today
 
 
 def test_next_upcoming_race_prefers_soonest_not_only_a():
