@@ -854,141 +854,181 @@
   .rd4-int-table th, .rd4-int-table td { padding: 5px 4px; }
 }
 
-/* Session signal block (#1052) */
-/* Session-signal card — indigo/lavender treatment (matches design mock). */
+/* Session signal — 7 axes, reasons in tooltips (SessionSignal mock). */
 .rd4-signal {
-  background: #eef1fe;
-  border: 1px solid #dde2fb;
+  background: #ffffff;
+  border: 1px solid var(--card-border, #e8eaf0);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
-
-.rd4-new-badge {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: #dfe3fd;
-  color: #4f46e5;
-  font-size: 0.5625rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  vertical-align: middle;
+.rd4-signal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
-
-.rd4-signal--link { cursor: pointer; transition: background 0.12s, border-color 0.12s; }
-.rd4-signal--link:hover { background: #e6eafe; border-color: #cdd4fb; }
-.rd4-signal--link:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
-.rd4-signal .rd4-sec-title { display: flex; align-items: center; }
-.rd4-signal-go {
-  margin-left: auto;
-  font-size: 0.625rem;
+.rd4-signal-head-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.rd4-signal-lbl {
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0;
-  text-transform: none;
-  color: #4f46e5;
+  letter-spacing: 0.1em;
+  color: #5f6b84;
+  text-transform: uppercase;
 }
-
+.rd4-signal-moved {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.rd4-signal-moved--on { background: #dff5d6; color: #2d5e10; }
+.rd4-signal-moved--off { background: #eef1f7; color: #56627f; }
+.rd4-signal-go {
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  color: #1f3b8a;
+  white-space: nowrap;
+}
+.rd4-signal-go:hover { color: #0b1530; }
+.rd4-signal-sub {
+  margin: 0;
+  font-size: 13px;
+  color: #56627f;
+  font-weight: 500;
+}
 .rd4-signal-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 10px;
 }
-
 .rd4-signal-row {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 10px 16px;
+  grid-template-columns: minmax(0, 1fr) 56px 72px 22px;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border-radius: 9px;
+  border-bottom: 1px solid #eef1f7;
+  outline: none;
 }
-
-.rd4-signal-lbl {
-  font-size: 0.8125rem;
+.rd4-signal-row:last-child { border-bottom: 0; }
+.rd4-signal-row:hover,
+.rd4-signal-row:focus-visible { background: #f3f6fd; }
+.rd4-signal-ax {
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary, #0b1530);
-  flex-shrink: 0;
+  color: #0b1530;
 }
-
-.rd4-signal-vwrap {
-  display: inline-flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 6px;
-  text-align: right;
-  min-width: 0;
-}
-
-.rd4-signal-val {
+.rd4-signal-sc {
   font-family: var(--mono, "JetBrains Mono", monospace);
-  font-size: 1rem;
+  letter-spacing: -0.04em;
+  font-size: 16px;
   font-weight: 700;
-  color: #4f46e5;
-  display: inline-grid;
-  grid-template-columns: 2.75ch auto;
-  align-items: baseline;
-  gap: 6px;
-}
-
-/* The shared current athlete score (today's, = Performance tab). */
-.rd4-signal-cur {
-  font-weight: 700;
-  color: #1b2340;
-  font-size: 1.05rem;
   text-align: right;
-  font-variant-numeric: tabular-nums;
+  color: #0b1530;
 }
-
-/* This session's signed contribution to the score (the per-session figure). */
-.rd4-signal-contrib {
-  font-size: 0.8125rem;
+.rd4-signal-d {
+  justify-self: end;
+  font-family: var(--mono, "JetBrains Mono", monospace);
+  letter-spacing: -0.04em;
+  font-size: 13px;
   font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  min-width: 44px;
+  text-align: center;
+  box-sizing: border-box;
 }
-.rd4-signal-contrib--up {
-  color: #16a34a;
-  background: #dcfce7;
+.rd4-signal-d--up { background: #dff5d6; color: #2d5e10; }
+.rd4-signal-d--down { background: #fde8e8; color: #7a1a1a; }
+.rd4-signal-d--flat { background: #eef1f7; color: #56627f; }
+.rd4-signal-d--none {
+  color: #a3acbf;
+  background: transparent;
+  font-weight: 600;
 }
-.rd4-signal-contrib--down {
-  color: #dc2626;
-  background: #fee2e2;
+.rd4-signal-row.is-on { background: #fbfdf6; }
+.rd4-signal-row.is-off .rd4-signal-ax { color: #56627f; font-weight: 500; }
+.rd4-signal-row.is-off .rd4-signal-sc { color: #8792a8; font-weight: 600; }
+.rd4-signal-i {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid #c3cbdb;
+  color: #8792a8;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: #ffffff;
+  padding: 0;
+  line-height: 1;
+  font-family: inherit;
 }
-.rd4-signal-contrib--flat {
-  color: #6b7280;
-  background: #f1f4fa;
+.rd4-signal-row.is-pin .rd4-signal-i {
+  background: #0b1530;
+  border-color: #0b1530;
+  color: #e4ff52;
 }
-
-/* Sub-label under the signal card title. */
-.rd4-signal-sub {
-  margin: 2px 0 10px;
-  font-size: 0.75rem;
-  color: var(--text-tertiary, #9aa3b2);
-  font-weight: 500;
-}
-
-.rd4-signal-note {
-  font-size: 0.8125rem;
-  color: #6366f1;
-  font-style: normal;
-}
-
-.rd4-signal-hint {
-  margin: 0;
-  font-size: 0.8125rem;
-  color: var(--text-secondary, #3d4a6a);
+.rd4-signal-bub {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  width: 280px;
+  max-width: min(280px, calc(100% - 8px));
+  background: #0b1530;
+  color: #ffffff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
   line-height: 1.45;
-  border-top: 1px solid #dde2fb;
+  box-shadow: 0 8px 24px rgba(11, 21, 48, 0.3);
+}
+.rd4-signal-bub b { color: #e4ff52; }
+.rd4-signal-bub:before {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  background: #0b1530;
+  transform: rotate(45deg);
+}
+.rd4-signal-bub.is-open { display: block; }
+.rd4-signal-bub.is-above {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.rd4-signal-bub.is-above:before {
+  top: auto;
+  bottom: -5px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rd4-signal-row:hover .rd4-signal-bub,
+  .rd4-signal-row:focus-within .rd4-signal-bub { display: block; }
+}
+.rd4-signal-foot {
+  margin: 0;
+  font-size: 12px;
+  color: #56627f;
+  border-top: 1px solid #eef1f7;
   padding-top: 10px;
 }
-
-.rd4-signal-none {
-  margin: 0;
-  font-size: 0.8125rem;
-  color: var(--text-secondary, #3d4a6a);
-}
-
-@media (max-width: 599px) {
-  .rd4-signal-lbl { min-width: 68px; }
-}
+.rd4-signal-foot b.up { color: #2d5e10; }
+.rd4-signal-foot b.dash { color: #8792a8; }
 
 /* ── Social share card (portrait IG/FB screenshot) ── */
 .rd4-social {

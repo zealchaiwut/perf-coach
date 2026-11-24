@@ -6262,24 +6262,32 @@ def _splits_by_workout_map(session, workout_ids: list) -> dict:
     return splits_by_workout_map(session, workout_ids)
 
 
-def _workout_signal_scores(session, workout) -> dict:
-    """Per-session endurance/speed scores for the signal card.
+def _workout_signal_scores(session, workout, exercises=None) -> dict:
+    """Per-session scores for the fitness-signal card.
 
-    Returns the athlete's score as of this workout's date (``*_current``) and
-    the delta that date contributed (current minus the score as of the day
-    before) as ``*_delta``. Any value is None when it can't be computed
-    (non-run, no prefs, insufficient data). Multiple runs on the same date are
-    attributed together (delta ≈ that day's contribution).
+    Legacy keys (``endurance_score_current`` / ``*_delta``) stay for one
+    release. The drawer reads ``axis_signal`` / ``axis_signal_summary``.
     """
     from backend.services.running_performance import (
         compute_endurance_score,
         compute_speed_score,
     )
+    from backend.services.session_axis_signal import axis_signal_summary, session_axis_signal
     from backend.services.zone_constants import make_zone_constants
     from backend.services.lap_classify import classify_laps
 
+    _today = _today_bkk()
+    endurance_result = None
+    speed_result = None
+    extra: dict = {}
+
     if (workout.workout_type or "").lower() != "run" or workout.workout_date is None:
-        return {}
+        rows = session_axis_signal(
+            session, workout, _today, exercises=exercises
+        )
+        extra["axis_signal"] = rows
+        extra["axis_signal_summary"] = axis_signal_summary(rows)
+        return extra
 
     prefs_row = (
         session.query(UserPreferences)
@@ -6301,7 +6309,6 @@ def _workout_signal_scores(session, workout) -> dict:
     except Exception:
         compute_decoupling = None
 
-    _today = _today_bkk()
     _window_start = _today - _timedelta(days=89)
     run_workouts = (
         session.query(Workout)
@@ -6417,22 +6424,36 @@ def _workout_signal_scores(session, workout) -> dict:
     today_runs = _build(_today)
     wid = str(workout.id)
 
-    def _score_and_delta(fn):
+    def _score_result(fn):
         r = fn(today_runs, prefs_dict or None, zone_constants, body_modifier=_bm, race_perf=_race_today)
-        if not isinstance(r, dict):
-            return None, None
+        return r if isinstance(r, dict) else {}
+
+    endurance_result = _score_result(compute_endurance_score)
+    speed_result = _score_result(compute_speed_score)
+
+    def _cur_delta(r):
         s = r.get("score")
         s = s if isinstance(s, (int, float)) and not isinstance(s, bool) else None
         delta = (r.get("run_contributions") or {}).get(wid)
         return s, delta
 
-    e_cur, e_delta = _score_and_delta(compute_endurance_score)
-    s_cur, s_delta = _score_and_delta(compute_speed_score)
+    e_cur, e_delta = _cur_delta(endurance_result)
+    s_cur, s_delta = _cur_delta(speed_result)
+    rows = session_axis_signal(
+        session,
+        workout,
+        _today,
+        endurance_result=endurance_result,
+        speed_result=speed_result,
+        exercises=exercises,
+    )
     return {
         "endurance_score_current": round(e_cur, 1) if e_cur is not None else None,
         "endurance_score_delta": round(e_delta, 1) if e_delta is not None else None,
         "speed_score_current": round(s_cur, 1) if s_cur is not None else None,
         "speed_score_delta": round(s_delta, 1) if s_delta is not None else None,
+        "axis_signal": rows,
+        "axis_signal_summary": axis_signal_summary(rows),
     }
 
 
@@ -7205,7 +7226,7 @@ def get_workout(workout_id: str, user: User = Depends(resolve_user)):
             .all()
         )
         data = _workout_dict(workout, exercises)
-        data.update(_workout_signal_scores(session, workout))
+        data.update(_workout_signal_scores(session, workout, exercises=exercises))
         return JSONResponse(data)
 
 
@@ -7391,7 +7412,7 @@ def get_workout_full(
         }
         intensity_zones = _agg_zones(split_rows, _prefs_dict_for_zones)
         _workout_block = _workout_dict(workout, exercises)
-        _workout_block.update(_workout_signal_scores(session, workout))
+        _workout_block.update(_workout_signal_scores(session, workout, exercises=exercises))
         if (
             _is_run
             and workout.tss_source != "manual"

@@ -137,4 +137,9 @@ def mobility_test_dict(row) -> dict[str, Any]:
     }
 
 
+def session_contribution(workout, as_of: date, *, session=None) -> tuple[str, Optional[float], str]:
+    """Mobility comes from tests, never from a training session."""
+    return "not_this_kind", None, "Mobility comes from tests, not sessions."
+
+
 AXIS_FUNCS = {"mobility": get_mobility}

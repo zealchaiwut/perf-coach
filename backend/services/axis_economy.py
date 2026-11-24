@@ -166,4 +166,43 @@ def get_economy(session, user_id: uuid.UUID, as_of: date) -> dict[str, Any]:
     return compute_economy(fetch_rows(session, user_id, as_of), as_of)
 
 
+def session_contribution(workout, as_of: date, *, session=None) -> tuple[str, Optional[float], str]:
+    """(status, delta, reason) for this workout vs the economy easy-run pool."""
+    wt = (getattr(workout, "workout_type", None) or "").lower()
+    if "run" not in wt:
+        return (
+            "not_this_kind",
+            None,
+            "Plyo and calf work help it over weeks, not in one session.",
+        )
+    if not is_easy_run(workout):
+        return "not_counted", None, "Economy uses easy runs with Stryd form data."
+    wid = str(getattr(workout, "id", "") or "")
+    rows = None
+    if session is not None and getattr(workout, "user_id", None) is not None:
+        try:
+            rows = fetch_rows(session, workout.user_id, as_of)
+        except Exception:
+            rows = None
+    if rows is None:
+        # In the input pool by the easy-run rule, but no form-pool delta available.
+        return "counted", 0.0, "Easy run; in the 28-day economy pool."
+    in_pool = any(str(r.get("workout_id")) == wid for r in rows)
+    if not in_pool:
+        return "not_counted", None, "Economy uses easy runs with Stryd form data."
+    with_score = compute_economy(rows, as_of).get("score")
+    without = [r for r in rows if str(r.get("workout_id")) != wid]
+    without_score = compute_economy(without, as_of).get("score")
+    if with_score is None:
+        return "first", None, "First easy run with form data; Economy needs more before it scores."
+    if without_score is None:
+        return "first", None, "First easy run with form data; Economy needs more before it scores."
+    delta = round(float(with_score) - float(without_score), 1)
+    if delta > 0.05:
+        return "raised", delta, f"Easy-run form data raised the score by {delta}."
+    if delta < -0.05:
+        return "lowered", delta, f"Easy-run form data lowered the score by {abs(delta)}."
+    return "counted", 0.0, "Easy run with form data; in the 28-day economy pool."
+
+
 AXIS_FUNCS = {"economy": get_economy}

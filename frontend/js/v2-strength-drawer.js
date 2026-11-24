@@ -196,6 +196,9 @@
       '</div>' +
       (w.recompute_pending ? '<p class="rv-hint rv-hint--pending">Fitness replay pending…</p>' : '') +
       (custom.length ? '<p class="rv-hint rv-hint--amber">Custom exercises count at 1.0 until an admin maps them.</p>' : '') +
+      (global.RunDetailView && global.RunDetailView.renderFitnessSignal
+        ? global.RunDetailView.renderFitnessSignal(w)
+        : '') +
       '<table class="rv-table"><thead><tr><th>Exercise</th><th>Matched</th><th>Sets</th><th>TSS</th></tr></thead><tbody>' + rows +
       '<tr><td colspan="3"><strong>Total</strong></td><td><strong>' + esc(String(w.tss != null ? w.tss : '—')) + '</strong></td></tr></tbody></table>' +
       (w.remarks ? '<p class="rv-notes">' + esc(w.remarks) + '</p>' : '') +
@@ -251,6 +254,9 @@
     if (state.viewOnly) {
       var editBtn = e.body.querySelector('#v2-str-edit');
       if (editBtn) editBtn.onclick = function () { state.viewOnly = false; render(); bindEdit(); };
+      if (global.RunDetailView && global.RunDetailView.wireFitnessSignal) {
+        global.RunDetailView.wireFitnessSignal(e.body);
+      }
       return;
     }
     bindEdit();
