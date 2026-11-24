@@ -208,6 +208,13 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
         focus_rationale = "Lowest that's fresh and matters"
 
     work = WORK_MAP[focus["axis"]] if focus else None
+    why_line = None
+    if eligible:
+        top = eligible[0]
+        why_line = f"Biggest weighted gap among fresh axes: {top['weighted_gap']:.1f}"
+        if len(eligible) > 1:
+            nxt = eligible[1]
+            why_line += f", next is {nxt['label']} at {nxt['weighted_gap']:.1f}"
     return {
         "distance_class": klass,
         "weights": dict(weights),
@@ -220,12 +227,14 @@ def rank_axes(axes: Iterable[dict[str, Any]], distance_km: Optional[float] = Non
                 "weighted_gap": round(focus["weighted_gap"], 1),
                 "status": "focus",
                 "reason": focus_rationale,
+                "why_line": why_line,
                 "work": {k: work[k] for k in ("name", "advice", "queueable", "kind", "template_tags", "tss_estimate")},
             }
             if focus else None
         ),
         "why_not": why_not,
         "focus_rationale": focus_rationale,
+        "why_line": why_line,
     }
 
 

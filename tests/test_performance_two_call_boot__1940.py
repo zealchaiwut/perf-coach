@@ -73,7 +73,6 @@ def test_mutations_refetch_only_affected_sections():
     assert 'refetchSections("radar"' in JS  # anchors + focus queue
     assert 'refetchSections("mobility,radar"' in JS
     assert 'refetchSections("hero,readiness,projection,races,score_cards,radar"' in JS
-    assert 'refetchSections("readiness,hero"' in JS
     assert 'refetchSections("coach"' in JS
 
 

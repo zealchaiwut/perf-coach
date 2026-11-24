@@ -65,8 +65,12 @@ def test_chart_uses_next_race_goal_and_offsets_close_tags():
     )
     assert ch["goal_sec"] == 6600
     assert ch["goal_label"] == "1:50"
-    lanes = {m["name"]: m["tag_lane"] for m in ch["recalibrations"] + ch["ticks"]}
-    assert lanes["Bangsaen42"] != lanes["KFC 10K"]
+    marks = ch["recalibrations"] + ch["ticks"]
+    assert all(m["tag_lane"] == 0 for m in marks)
+    by = {m["name"]: m for m in marks}
+    assert by["Bangsaen42"]["tag_dx"] != by["KFC 10K"]["tag_dx"] or abs(
+        by["Bangsaen42"]["x"] - by["KFC 10K"]["x"]
+    ) >= 0.08
     labels = [t["label"] for t in ch["y_ticks"]]
     assert any(lab in ("1:50", "1:55", "2:00") for lab in labels)
     assert ch["history"][-1]["date"] == today.isoformat()

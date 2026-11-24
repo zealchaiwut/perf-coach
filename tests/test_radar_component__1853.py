@@ -43,7 +43,7 @@ def test_never_measured_plots_at_center_and_listed_below():
     ox, oy = rs._pt(mobility_i, 7, rs.R)
     missing = re.search(r'perf-radar-point--missing" data-axis="mobility"[^>]*>', svg).group(0)
     assert f'cx="{rs._fmt(ox)}"' in missing and f'cy="{rs._fmt(oy)}"' in missing
-    assert "Log a test" in svg or "Not measured yet" in svg
+    assert "not measured" in svg
 
 
 def test_stale_points_solid_ring_with_core_and_focus_amber():

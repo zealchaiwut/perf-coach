@@ -263,9 +263,16 @@
           return;
         }
         var feelHost = document.getElementById('rd4-feeling');
-        if (feelHost && global.V2FeelButtons && w.id) {
+        if (feelHost && w.id) {
           feelHost.innerHTML = '';
-          global.V2FeelButtons.mount(feelHost, w.id, w.feeling);
+          var tagsApi = global.V2SessionTags || global.V2FeelButtons;
+          if (tagsApi) {
+            tagsApi.mount(feelHost, {
+              workoutId: w.id,
+              isRun: false,
+              rpe: w.session_effort,
+            });
+          }
         }
         var typeHost = document.getElementById('rd4-runtype');
         if (typeHost && global.V2RunTypeButtons && w.id) {

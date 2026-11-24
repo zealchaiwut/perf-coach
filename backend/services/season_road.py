@@ -13,7 +13,14 @@ from backend.services.perf_a_race import next_a_race
 from backend.services.projection_view import goal_state
 from backend.services.race_finish_estimate import estimate_race_finish
 from backend.services.race_hero import build_estimate_block
-from backend.services.race_list import _base, match_run
+from backend.services.race_list import (
+    _base,
+    _gap_chip,
+    _pace,
+    format_distance_km,
+    format_race_date,
+    match_run,
+)
 from backend.services.race_roles import ROLE_LABELS, compute_role_result, race_role, role_target_summary
 def goal_interval_sec(race) -> tuple[Optional[int], Optional[int]]:
     lo = getattr(race, "goal_band_low_seconds", None)
@@ -43,7 +50,7 @@ def track_status(
     estimate: dict[str, Any],
     readiness_done: int,
     *,
-    readiness_total: int = 6,
+    readiness_total: int = 5,
 ) -> dict[str, Any]:
     """On track / building / at risk per #1880."""
     g_lo, g_hi = goal_interval_sec(race)
@@ -87,14 +94,56 @@ def _block_races(races: list, start: date, end: date) -> list:
     )
 
 
-def _result_line(race, suggestion, role_result) -> str:
-    if race.actual_time_seconds is not None:
-        return f"Result {race.actual_time_seconds // 60} min"
-    if suggestion is not None:
-        return "Synced run matched"
-    if role_result and role_result.get("status") in ("pass", "fail", "fast", "slow"):
-        return "Role result recorded"
-    return role_target_summary(race)
+def _hms(sec: Optional[int]) -> Optional[str]:
+    if sec is None:
+        return None
+    sec = max(0, int(sec))
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
+
+
+def _status_chip(race, today: date, role_result, actual_sec, goal_sec) -> dict[str, Any]:
+    days = (race.race_date - today).days
+    if days > 0:
+        text = f"in {days} day" if days == 1 else f"in {days} days"
+        return {"tone": "neutral", "text": text, "title": text, "aria_label": text}
+    if actual_sec is not None and goal_sec is not None:
+        chip = _gap_chip(int(goal_sec) - int(actual_sec), vs_goal=True)
+        if chip:
+            return chip
+    if race_role(race) == "long_run" and role_result:
+        st = role_result.get("status")
+        if st == "pass":
+            return {"tone": "good", "text": "pass", "title": "pass", "aria_label": "pass"}
+        if st == "fail":
+            return {"tone": "bad", "text": "missed", "title": "missed", "aria_label": "missed"}
+    if actual_sec is None:
+        return {
+            "tone": "warn",
+            "text": "needs a result",
+            "title": "needs a result",
+            "aria_label": "needs a result",
+        }
+    return {"tone": "neutral", "text": "done", "title": "done", "aria_label": "done"}
+
+
+def _result_display(race, today: date, km) -> dict[str, Any]:
+    actual = race.actual_time_seconds
+    if actual is not None:
+        pace = _pace(int(actual), km)
+        return {
+            "kind": "result",
+            "time_sec": int(actual),
+            "time_hms": _hms(int(actual)),
+            "pace_seconds_per_km": pace,
+            "pace_label": _hms(pace) if pace is not None else None,
+        }
+    if race.race_date < today:
+        return {"kind": "record"}
+    return {"kind": "empty"}
 
 
 def _row(
@@ -118,11 +167,14 @@ def _row(
     if race.addon_workout_id is not None:
         addon = session.get(Workout, race.addon_workout_id)
     rr = compute_role_result(race, main, addon)
+    actual = int(race.actual_time_seconds) if race.actual_time_seconds is not None else None
+    goal = row.get("goal_sec")
     row["role_result"] = rr
     row["counts_as"] = role_target_summary(race)
-    row["result_line"] = _result_line(race, suggestion, rr)
-    if race.actual_time_seconds is not None:
-        row["chip_time_sec"] = int(race.actual_time_seconds)
+    row["result"] = _result_display(race, today, row.get("distance_km"))
+    row["status_chip"] = _status_chip(race, today, rr, actual, goal)
+    if actual is not None:
+        row["chip_time_sec"] = actual
     row["days_to_race"] = (race.race_date - today).days
     row["recalibrates"] = race_role(race) in ("a_race", "pb")
     return row
@@ -140,6 +192,7 @@ def build_season_road(session, user_id: uuid.UUID, today: date) -> dict[str, Any
         "hero": None,
         "timeline": None,
         "rows": [],
+        "earlier_rows": [],
     }
     if target is None:
         return empty
@@ -177,7 +230,7 @@ def build_season_road(session, user_id: uuid.UUID, today: date) -> dict[str, Any
     checklist = build_checklist(session, user_id, today)
     summary = checklist.get("summary") or {}
     readiness_done = int(summary.get("done") or 0)
-    readiness_total = int(summary.get("total") or 6)
+    readiness_total = int(summary.get("total") or 5)
     status = track_status(target, estimate, readiness_done, readiness_total=readiness_total)
     goal = goal_state(session, user_id, target)
 
@@ -186,7 +239,12 @@ def build_season_road(session, user_id: uuid.UUID, today: date) -> dict[str, Any
             "id": str(target.id),
             "name": target.name,
             "race_date": target.race_date.isoformat(),
+            "race_date_label": format_race_date(target.race_date),
             "distance_km": distance,
+            "distance_label": format_distance_km(distance),
+            "priority": target.priority,
+            "role": race_role(target),
+            "role_label": ROLE_LABELS.get(race_role(target), "A race"),
             "days_to_race": (target.race_date - today).days,
         },
         "goal": goal,
@@ -195,28 +253,42 @@ def build_season_road(session, user_id: uuid.UUID, today: date) -> dict[str, Any
         "readiness": {
             "done": readiness_done,
             "total": readiness_total,
-            "count_label": summary.get("count_label") or f"{readiness_done} / {readiness_total}",
+            "count_label": f"{readiness_done} of {readiness_total}",
         },
     }
 
     nodes = []
     for r in block:
+        actual = r.actual_time_seconds
+        goal = r.goal_time_seconds
+        chip = _status_chip(r, today, None, actual, goal)
         nodes.append(
             {
                 "id": str(r.id),
                 "name": r.name,
                 "race_date": r.race_date.isoformat(),
+                "date_label": format_race_date(r.race_date),
+                "distance_km": float(r.distance_km) if r.distance_km is not None else None,
+                "distance_label": format_distance_km(
+                    float(r.distance_km) if r.distance_km is not None else None
+                ),
+                "priority": r.priority,
                 "role": race_role(r),
                 "role_label": ROLE_LABELS.get(race_role(r), race_role(r)),
-                "role_target": role_target_summary(r),
                 "x": _x_frac(r.race_date, start, end),
                 "is_today": False,
                 "is_target_a": r.id == target.id,
+                "status_tone": chip.get("tone") if actual is not None else "upcoming",
             }
         )
+    from backend.services.projection_view import _assign_tag_lanes
+
+    _assign_tag_lanes(nodes, min_dx=0.10)
     timeline = {
         "start": start.isoformat(),
         "end": end.isoformat(),
+        "start_label": format_race_date(start),
+        "end_label": format_race_date(end),
         "today": today.isoformat(),
         "today_x": _x_frac(today, start, end),
         "prev_a_race_id": str(prev_a.id) if prev_a is not None else None,
@@ -227,10 +299,26 @@ def build_season_road(session, user_id: uuid.UUID, today: date) -> dict[str, Any
     rows = [_row(session, user_id, r, today, runs) for r in block]
     rows = sorted(rows, key=lambda row: row["race_date"])
 
+    from backend.services.projection_view import _chart_window_start
+
+    try:
+        chart_start = _chart_window_start(session, user_id, target, today)
+    except Exception:
+        chart_start = today - timedelta(days=84)
+    season_start = min(chart_start, target.race_date - timedelta(days=183))
+    earlier_races = [
+        r for r in all_races
+        if season_start <= r.race_date < start
+        and (r.status == "done" or r.actual_time_seconds is not None)
+    ]
+    earlier_races.sort(key=lambda r: r.race_date, reverse=True)
+    earlier_rows = [_row(session, user_id, r, today, runs) for r in earlier_races]
+
     return {
         "available": True,
         "today": today.isoformat(),
         "hero": hero,
         "timeline": timeline,
         "rows": rows,
+        "earlier_rows": earlier_rows,
     }

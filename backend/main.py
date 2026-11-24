@@ -7926,6 +7926,17 @@ def patch_workout(workout_id: str, body: WorkoutPatch, user: User = Depends(reso
             _logging.getLogger(__name__).warning(
                 "persist_running_tss failed for workout %s: %s", wid, _tss_exc, exc_info=True
             )
+        if "session_effort" in body.model_fields_set:
+            try:
+                from backend.services.strength_tss import apply_effort_time_tss as _apply_effort_tss
+
+                if _apply_effort_tss(session, workout):
+                    session.commit()
+                    session.refresh(workout)
+            except Exception as _st_exc:
+                _logging.getLogger(__name__).warning(
+                    "apply_effort_time_tss failed for workout %s: %s", wid, _st_exc, exc_info=True
+                )
         _warm_load_after_write(workout.user_id, _old_workout_date, workout.workout_date)
         try:
             for _ws in {_week_start_bangkok(_old_workout_date), _week_start_bangkok(workout.workout_date)}:
@@ -11051,6 +11062,7 @@ def get_training_log(
                 "has_stryd": "stryd" in (w.source or "") or w.stryd_activity_pk is not None,
                 "notes": w.remarks or "",
                 "feeling": w.feeling,
+                "session_effort": w.session_effort if isinstance(getattr(w, "session_effort", None), int) else None,
                 "weight_context": w.remarks,
                 "plan_match": plan_matches.get(str(w.id)),
                 "speed_signal": w.speed_signal,
@@ -15779,7 +15791,7 @@ def calibrate_race(
             _ensure_cals(str(user.id), session)
         except Exception:
             _log.warning("ensure_calibrations failed after calibrate_race", exc_info=True)
-        _after_race_write(session, user.id)
+        _after_race_write(session, user.id, force_from=race.race_date)
 
         # Load user preferences for current personal constants
         prefs = session.query(UserPreferences).filter(UserPreferences.user_id == user.id).first()
@@ -17638,6 +17650,7 @@ def get_performance_score_history(
     user: User = Depends(resolve_user),
     from_date: Optional[str] = Query(default=None, alias="from"),
     to_date: Optional[str] = Query(default=None, alias="to"),
+    axis: Optional[str] = Query(default=None),
 ):
     """Return the persisted performance score series for the session user (issue #1365).
 
@@ -17659,6 +17672,13 @@ def get_performance_score_history(
         raise HTTPException(status_code=422, detail=f"Invalid date: {exc}")
 
     with Session(engine) as session:
+        if axis:
+            from backend.services.axis_breakdown import ALL_AXES, score_history_for_axis
+
+            if axis not in ALL_AXES:
+                raise HTTPException(status_code=422, detail="axis must be a radar axis")
+            result = score_history_for_axis(session, user.id, axis, _from, _to)
+            return JSONResponse({"axis": axis, "history": result})
         rows = (
             session.query(PerformanceScoreHistory)
             .filter(
@@ -17684,7 +17704,10 @@ def get_performance_score_history(
 
 @app.get("/api/performance/score-breakdown")
 def get_score_breakdown(
-    metric: str = "endurance", window: str = "28d", user: User = Depends(resolve_user)
+    metric: Optional[str] = None,
+    axis: Optional[str] = None,
+    window: str = "28d",
+    user: User = Depends(resolve_user),
 ):
     """Decomposition of the score change over the window: score_then + decay
     + efforts + consistency = score_now (asserted — a breakdown that doesn't
@@ -17697,30 +17720,42 @@ def get_score_breakdown(
     BREAKDOWN_WINDOW_DAYS; a mismatched request is rejected rather than
     silently served with a different window.
     """
+    from backend.services.axis_breakdown import ALL_AXES, build_axis_breakdown
     from backend.services.running_performance import BREAKDOWN_WINDOW_DAYS
+    from backend.utils.time import today_bangkok
 
-    if metric not in ("endurance", "speed"):
-        raise HTTPException(status_code=422, detail="metric must be 'endurance' or 'speed'")
+    name = axis or metric or "endurance"
     expected = f"{BREAKDOWN_WINDOW_DAYS}d"
     if window != expected:
         raise HTTPException(status_code=422, detail=f"window must be {expected!r}")
+    if axis:
+        if axis not in ALL_AXES:
+            raise HTTPException(status_code=422, detail="axis must be a radar axis")
+    elif metric not in ("endurance", "speed"):
+        raise HTTPException(status_code=422, detail="metric must be 'endurance' or 'speed'")
 
-    from backend.services.performance_scores import get_performance_payload
+    if name in ("endurance", "speed"):
+        from backend.services.performance_scores import get_performance_payload
 
-    perf = get_performance_payload(user.id)
-    if perf.get("state") != "scored":
-        raise HTTPException(status_code=409, detail=f"scores not available: {perf.get('state')}")
-    block = (perf.get(metric) or {}).get("breakdown")
-    if block is None:
-        raise HTTPException(status_code=500, detail="breakdown unavailable")
-    if block.get("error") == "residual":
-        # The summation invariant failed (display clamp binding) — refuse to
-        # render an authoritative-looking decomposition that doesn't sum.
-        raise HTTPException(
-            status_code=500,
-            detail=f"breakdown residual {block.get('residual')} exceeds tolerance",
-        )
-    return JSONResponse({"metric": metric, **block})
+        perf = get_performance_payload(user.id)
+        if perf.get("state") != "scored":
+            raise HTTPException(status_code=409, detail=f"scores not available: {perf.get('state')}")
+        block = (perf.get(name) or {}).get("breakdown")
+        if block is None:
+            raise HTTPException(status_code=500, detail="breakdown unavailable")
+        if block.get("error") == "residual":
+            raise HTTPException(
+                status_code=500,
+                detail=f"breakdown residual {block.get('residual')} exceeds tolerance",
+            )
+        return JSONResponse({"metric": name, "axis": name, **block})
+
+    with Session(engine) as session:
+        try:
+            payload = build_axis_breakdown(session, user.id, name, today_bangkok())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return JSONResponse(payload)
 
 
 @app.get("/api/athletes/{athlete_id}/performance")

@@ -85,8 +85,9 @@ def test_build_season_road_includes_timeline_and_readiness():
             patch("backend.services.a_race_readiness_checklist.build_checklist", return_value={"summary": {"done": 4, "total": 6, "count_label": "4 / 6"}}):
         out = sr.build_season_road(session, UID, TODAY)
     assert out["available"] is True
-    assert out["hero"]["readiness"]["count_label"] == "4 / 6"
+    assert out["hero"]["readiness"]["count_label"] == "4 of 6"
     assert out["timeline"]["target_a_race_id"] == str(a.id)
+    assert "earlier_rows" in out
     assert len(out["rows"]) == 2
     assert out["rows"][0]["role"] in ("a_race", "pb")
 

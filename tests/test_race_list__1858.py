@@ -73,7 +73,7 @@ def test_needs_result_row_suggestion_and_no_match_text():
     assert row["suggested_actual"]["moving_seconds"] == 3299 and row["suggestion_reason"] is None
     row = rl.needs_result_row(r, [run(date(2026, 10, 30), 10.0)])
     assert row["suggested_actual"] is None and row["suggestion_reason"] == "No synced run matched"
-    assert row["role"] == "fun" and row["role_label"] == "Fun run" and row["role_target"].startswith("Target")
+    assert row["role"] == "fun" and row["role_label"] == "Fun run" and row["role_target"].startswith("enjoy")
 
 
 def test_completed_row_chip_time_first_moving_second_and_goal_delta():

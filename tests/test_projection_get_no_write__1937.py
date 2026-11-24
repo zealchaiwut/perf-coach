@@ -143,14 +143,14 @@ def test_record_todays_predictions_idempotent_across_two_runs():
     session = MagicMock()
     session.query.return_value.filter.return_value.all.return_value = [race]
     with (
-        patch("backend.services.race_finish_estimate.estimate_race_finish", return_value=EST),
+        patch("backend.services.race_finish_estimate.estimate_on", return_value=EST),
         patch.object(rc, "record_prediction") as rec,
     ):
         n1 = rc.record_todays_predictions(session, UID, TODAY)
         n2 = rc.record_todays_predictions(session, UID, TODAY)
     assert n1 == n2 == 1
     assert rec.call_count == 2
-    rec.assert_called_with(UID, RACE_ID, EST["est_sec"], EST["band_sec"], session)
+    rec.assert_called_with(UID, RACE_ID, EST["est_sec"], EST["band_sec"], session, prediction_date=TODAY)
 
 
 def test_run_daily_predictions_two_users_ok():

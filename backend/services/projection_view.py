@@ -155,8 +155,24 @@ def next_upcoming_race(session, user_id: uuid.UUID, today: date):
 
 def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict],
                 distance_km: Optional[float], goal: dict[str, Any], race_name: str) -> dict[str, Any]:
-    """Pure: stage values come from the estimate, blend basis and correction blend."""
-    basis = basis or {}
+    """Pure: stage values come from the estimate, blend basis and correction blend.
+
+    When the estimate carries intermediates from ``_compute_race_day_estimate``
+    those values win — the chain then multiplies to the Race step.
+    """
+    basis = dict(basis or {})
+    if est.get("blend_pace") is not None:
+        if est.get("base_endurance_pace") is not None:
+            basis["endurance_pace_seconds_per_km"] = est["base_endurance_pace"]
+        if est.get("base_speed_pace") is not None:
+            basis["speed_pace_seconds_per_km"] = est["base_speed_pace"]
+        if est.get("end_score") is not None:
+            basis["endurance_score"] = est["end_score"]
+        if est.get("spd_score") is not None:
+            basis["speed_score"] = est["spd_score"]
+        if est.get("blend_weight") is not None:
+            basis["speed_weight"] = est["blend_weight"]
+        basis["blended_pace_seconds_per_km"] = est["blend_pace"]
 
     def _stage_score(name: str) -> dict[str, Any]:
         pace = basis.get(f"{name}_pace_seconds_per_km")
@@ -181,7 +197,9 @@ def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict
         if blended_pace is not None and basis.get("speed_weight") is not None else _na()
     )
     n = (blend or {}).get("n")
-    factor = (blend or {}).get("correction")
+    factor = est.get("correction_factor")
+    if factor is None:
+        factor = (blend or {}).get("correction")
     if n and factor:
         pct = round((float(factor) - 1.0) * 100.0, 1)
         correction = {"available": True, "factor": float(factor), "pct": pct, "n_races": int(n)}
@@ -208,13 +226,17 @@ def build_chain(est: dict[str, Any], basis: Optional[dict], blend: Optional[dict
             "goal": goal,
             "vs_goal": vs_goal,
         }
-    form_factor = est.get("form_factor")
-    corr_factor = (blend or {}).get("correction") if blend else None
+    form_factor = est.get("fitness_factor")
+    if form_factor is None:
+        form_factor = est.get("form_factor")
+    corr_factor = est.get("correction_factor")
+    if corr_factor is None and blend:
+        corr_factor = blend.get("correction")
     if corr_factor is None:
         corr_factor = est.get("correction")
     fitness = (
         {"available": True, "factor": float(form_factor), "formatted": _fmt_factor(form_factor),
-         "projected_ctl": est.get("projected_ctl")}
+         "projected_ctl": est.get("projected_ctl"), "ctl_now": est.get("ctl_now")}
         if form_factor is not None else _na()
     )
     if correction.get("available") and correction.get("factor") is not None:
@@ -289,16 +311,15 @@ def _fmt_hm(sec: Optional[int]) -> Optional[str]:
 
 
 def build_y_ticks(y_min: int, y_max: int) -> list[dict[str, Any]]:
-    """Left-axis labels at 5-minute (or 10-minute) marks covering the plot range."""
+    """Left-axis labels at 10-minute marks covering the plot range."""
     if y_max < y_min:
         y_min, y_max = y_max, y_min
-    span = max(1, int(y_max) - int(y_min))
-    step = 300 if span <= 900 else 600
+    step = 600
     lo = (int(y_min) // step) * step
     hi = ((int(y_max) + step - 1) // step) * step
     ticks: list[dict[str, Any]] = []
     sec = lo
-    while sec <= hi and len(ticks) < 8:
+    while sec <= hi and len(ticks) < 10:
         ticks.append({"sec": sec, "label": _fmt_hm(sec)})
         sec += step
     if not ticks:
@@ -306,19 +327,87 @@ def build_y_ticks(y_min: int, y_max: int) -> list[dict[str, Any]]:
     return ticks
 
 
-def _assign_tag_lanes(marks: list[dict[str, Any]], *, min_dx: float = 0.10) -> None:
-    """Offset overlapping race-name tags (two races ~6 days apart on an 84-day window)."""
+Y_PAD_SEC = 300  # 5 minutes
+
+
+def fit_y_range(values: list[int]) -> tuple[int, int]:
+    """Min/max of the estimate family, padded 5 min, rounded to 10 min."""
+    if not values:
+        return 0, 600
+    lo = min(int(v) for v in values) - Y_PAD_SEC
+    hi = max(int(v) for v in values) + Y_PAD_SEC
+    lo = (lo // 600) * 600
+    hi = ((hi + 599) // 600) * 600
+    if hi <= lo:
+        hi = lo + 600
+    return lo, hi
+
+
+def _dist_tag(km: Optional[float], role: Optional[str] = None) -> str:
+    if km is None:
+        return ""
+    n = float(km)
+    if abs(n - 42.195) < 0.3:
+        label = "42.2K"
+    elif abs(n - 21.0975) < 0.3:
+        label = "21.1K"
+    elif abs(n - round(n)) < 0.05:
+        label = f"{int(round(n))}K"
+    else:
+        label = f"{n:.1f}K"
+    return label
+
+
+def _date_tag(d: date) -> str:
+    return f"{d.day} {d.strftime('%b')}"
+
+
+def _est_on_day(hist_by_date: dict[str, int], iso: str) -> Optional[int]:
+    """That day's stored estimate, or the nearest earlier row within 3 days.
+
+    Never falls back to today's live estimate — a missing row means no circle
+    and no gap vs Now.
+    """
+    if iso in hist_by_date:
+        return hist_by_date[iso]
+    try:
+        d = date.fromisoformat(iso)
+    except ValueError:
+        return None
+    best_sec = None
+    best_delta = None
+    for h_iso, sec in hist_by_date.items():
+        try:
+            hd = date.fromisoformat(h_iso)
+        except ValueError:
+            continue
+        delta = (d - hd).days
+        if 0 < delta <= 3 and (best_delta is None or delta < best_delta):
+            best_sec, best_delta = sec, delta
+    return best_sec
+
+
+def _assign_tag_lanes(marks: list[dict[str, Any]], *, min_dx: float = 0.08) -> None:
+    """One-lane tags: nudge overlapping marks apart horizontally."""
     ordered = sorted(marks, key=lambda m: float(m.get("x") or 0.0))
-    prev_x: Optional[float] = None
-    lane = 0
     for m in ordered:
-        x = float(m.get("x") or 0.0)
-        if prev_x is not None and abs(x - prev_x) < min_dx:
-            lane = 1 - lane
-        else:
-            lane = 0
-        m["tag_lane"] = lane
-        prev_x = x
+        m["tag_lane"] = 0
+        m["tag_dx"] = 0.0
+    for i in range(1, len(ordered)):
+        prev, cur = ordered[i - 1], ordered[i]
+        px = float(prev.get("x") or 0.0) + float(prev.get("tag_dx") or 0.0)
+        cx = float(cur.get("x") or 0.0) + float(cur.get("tag_dx") or 0.0)
+        gap = cx - px
+        if gap < min_dx:
+            shift = (min_dx - gap) / 2.0
+            prev["tag_dx"] = float(prev.get("tag_dx") or 0.0) - shift
+            cur["tag_dx"] = float(cur.get("tag_dx") or 0.0) + shift
+    for m in ordered:
+        x = float(m.get("x") or 0.0) + float(m.get("tag_dx") or 0.0)
+        if x < 0.02:
+            m["tag_dx"] = float(m.get("tag_dx") or 0.0) + (0.02 - x)
+        elif x > 0.98:
+            m["tag_dx"] = float(m.get("tag_dx") or 0.0) - (x - 0.98)
 
 
 def _x_frac(d: date, start: date, end: date) -> float:
@@ -359,10 +448,15 @@ def build_chart_history_window(
     ys = [h["est_sec"] for h in hist]
     if goal_sec is not None:
         ys.append(goal_sec)
+    y_min, y_max = fit_y_range(ys)
 
     def _mark(m: dict) -> dict:
         d = m["date"]
-        return {**m, "date": d.isoformat() if hasattr(d, "isoformat") else d, "x": _x_frac(d, start, end)}
+        iso = d.isoformat() if hasattr(d, "isoformat") else d
+        out = {**m, "date": iso, "x": _x_frac(d, start, end)}
+        if not out.get("date_label") and hasattr(d, "day"):
+            out["date_label"] = _date_tag(d)
+        return out
 
     recal_m = [_mark(m) for m in recalibrations]
     tick_m = [_mark(m) for m in ticks]
@@ -379,9 +473,9 @@ def build_chart_history_window(
         "recalibrations": recal_m,
         "ticks": tick_m,
         "pending": pend_m,
-        "y_min_sec": min(ys),
-        "y_max_sec": max(ys),
-        "y_ticks": build_y_ticks(min(ys), max(ys)),
+        "y_min_sec": y_min,
+        "y_max_sec": y_max,
+        "y_ticks": build_y_ticks(y_min, y_max),
     }
 
 
@@ -407,18 +501,41 @@ def build_chart(*, start: date, today: date, race, est: dict[str, Any], goal_sec
         {"date": d.isoformat(), "x": _x_frac(d, start, end), "est_sec": s}
         for d, s in history if start <= d <= today
     ]
-    if not any(h["date"] == today.isoformat() for h in hist):
-        hist.append({"date": today.isoformat(), "x": _x_frac(today, start, end), "est_sec": est_sec})
+    hist_by_date = {h["date"]: h["est_sec"] for h in hist}
     ys = [est_sec] + [h["est_sec"] for h in hist]
     for v in (low, high, goal_sec):
         if v is not None:
             ys.append(v)
-    def _mark(m: dict) -> dict:
+    y_min, y_max = fit_y_range(ys)
+
+    def _decorate(m: dict) -> dict:
         d = m["date"]
-        return {**m, "date": d.isoformat(), "x": _x_frac(d, start, end)}
-    recal_m = [_mark(m) for m in recalibrations]
-    tick_m = [_mark(m) for m in ticks]
-    pend_m = [_mark(m) for m in pending]
+        iso = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        out = {**m, "date": iso, "x": _x_frac(d, start, end)}
+        if not out.get("date_label") and hasattr(d, "day"):
+            out["date_label"] = _date_tag(d)
+        converted = out.get("converted_sec")
+        est_on = _est_on_day(hist_by_date, iso)
+        out["est_on_day_sec"] = est_on
+        if converted is not None:
+            if converted < y_min:
+                out["clipped"] = True
+                out["clip_side"] = "fast"
+                out["plot_sec"] = y_min
+            elif converted > y_max:
+                out["clipped"] = True
+                out["clip_side"] = "slow"
+                out["plot_sec"] = y_max
+            else:
+                out["clipped"] = False
+                out["clip_side"] = None
+                out["plot_sec"] = int(converted)
+            out["gap_sec"] = int(converted) - int(est_on) if est_on is not None else None
+        return out
+
+    recal_m = [_decorate(m) for m in recalibrations]
+    tick_m = [_decorate(m) for m in ticks]
+    pend_m = [_decorate(m) for m in pending]
     _assign_tag_lanes(recal_m + tick_m + pend_m)
     return {
         **base,
@@ -439,9 +556,10 @@ def build_chart(*, start: date, today: date, race, est: dict[str, Any], goal_sec
         "recalibrations": recal_m,
         "ticks": tick_m,
         "pending": pend_m,
-        "y_min_sec": min(ys),
-        "y_max_sec": max(ys),
-        "y_ticks": build_y_ticks(min(ys), max(ys)),
+        "results": [m for m in (recal_m + tick_m) if m.get("converted_sec") is not None],
+        "y_min_sec": y_min,
+        "y_max_sec": y_max,
+        "y_ticks": build_y_ticks(y_min, y_max),
     }
 
 
@@ -452,12 +570,35 @@ def check_invariants(payload: dict[str, Any], hero_est_sec: Optional[int] = None
 
     1. chain final est == estimate shown on the hero (and the race list).
     2. chart band labels == estimate -/+ band, and the chart tip == the estimate.
+    3. blend_pace × distance × fitness_factor × correction_factor == final ± 1s.
     """
     problems: list[str] = []
-    final = (payload.get("chain") or {}).get("final") or {}
+    chain = payload.get("chain") or {}
+    final = chain.get("final") or {}
     est_sec = final.get("est_sec") if final.get("available") else None
     if hero_est_sec is not None and est_sec != hero_est_sec:
         problems.append(f"chain final {est_sec} != hero estimate {hero_est_sec}")
+    blended = chain.get("blended") or {}
+    fitness = chain.get("fitness") or {}
+    correction = chain.get("correction") or {}
+    race = payload.get("race") or {}
+    distance = race.get("distance_km")
+    blend_pace = blended.get("pace_seconds_per_km")
+    fit_f = fitness.get("factor")
+    corr_f = correction.get("factor")
+    if (
+        est_sec is not None
+        and blend_pace is not None
+        and distance
+        and fit_f is not None
+        and corr_f is not None
+    ):
+        product = float(blend_pace) * float(distance) * float(fit_f) * float(corr_f)
+        if abs(product - float(est_sec)) > 1.0:
+            problems.append(
+                f"chain product {round(product)} != final {est_sec} "
+                f"(blend_pace×distance×fitness×correction)"
+            )
     chart = payload.get("chart") or {}
     if chart.get("available") and est_sec is not None:
         if chart["projection"]["est_sec"] != est_sec:
@@ -592,10 +733,27 @@ def _markers(session, user_id: uuid.UUID, race, start: date, today: date):
         .order_by(Race.race_date.asc())
         .all()
     )
+    from backend.services.riegel import riegel_project
+
+    target_km = float(race.distance_km) if getattr(race, "distance_km", None) else None
     recal, ticks, pending = [], [], []
     for r in races:
         role = race_role(r)
-        m = {"date": r.race_date, "race_id": str(r.id), "name": r.name, "role": role}
+        km = float(r.distance_km) if r.distance_km is not None else None
+        converted = None
+        if r.actual_time_seconds is not None and km and target_km:
+            converted = riegel_project(r.actual_time_seconds, km, target_km)
+        m = {
+            "date": r.race_date,
+            "race_id": str(r.id),
+            "name": r.name,
+            "role": role,
+            "distance_km": km,
+            "distance_label": _dist_tag(km, role),
+            "date_label": _date_tag(r.race_date) if r.race_date else "",
+            "actual_sec": int(r.actual_time_seconds) if r.actual_time_seconds is not None else None,
+            "converted_sec": int(converted) if converted is not None else None,
+        }
         if r.status == "done" and r.actual_time_seconds is not None:
             if role in RECALIBRATING_ROLES and r.id in cal_race_ids:
                 recal.append(m)

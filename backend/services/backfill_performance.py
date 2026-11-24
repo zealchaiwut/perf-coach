@@ -115,10 +115,22 @@ def backfill_performance_for_athlete(user_id, db) -> dict:
             "backfill: curve rebuild failed for user %s: %s", user_id, exc, exc_info=True
         )
 
+    predictions_backfilled = 0
+    try:
+        from backend.services.race_calibration import backfill_race_prediction_history
+
+        predictions_backfilled = backfill_race_prediction_history(db, user_id)
+    except Exception as exc:
+        _log.warning(
+            "backfill: race prediction history failed for user %s: %s",
+            user_id, exc, exc_info=True,
+        )
+
     return {
         "thresholds_found": True,
         "runs_processed": runs_processed,
         "tss_recomputed": tss_recomputed,
         "curve_rebuilt": curve_rebuilt,
+        "predictions_backfilled": predictions_backfilled,
         "reason": tss_reason or curve_reason,
     }

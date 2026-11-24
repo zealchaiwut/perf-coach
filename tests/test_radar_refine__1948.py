@@ -82,7 +82,7 @@ def test_action_copy_lives_in_payload():
     by = {a["axis"]: a for a in axes}
     assert by["mobility"]["action_label"] == "Log a test"
     assert by["mobility"]["action_href"] == "#v2-mobility-log"
-    assert by["durability"]["action_label"].startswith("Needs a 90-min")
+    assert by["durability"]["action_label"] == "See the plan"
     assert by["speed"]["action_label"] == "Not measured yet"
     assert by["speed"]["action_href"] is None
     assert by["endurance"]["action_label"] is None

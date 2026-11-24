@@ -95,7 +95,9 @@ def _polygon_past(axes: list[dict[str, Any]], key: str) -> list[tuple[float, flo
     return pts
 
 
-def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
+def render_radar_svg(
+    payload: dict[str, Any], size: str = "large", selected_axis: Optional[str] = None,
+) -> str:
     if size not in ("large", "small"):
         size = "large"
     axes: list[dict[str, Any]] = payload["axes"]
@@ -137,6 +139,17 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
             out.append(
                 f'<line class="perf-radar-spoke" data-axis="{a["axis"]}" '
                 f'x1="{_fmt(CX)}" y1="{_fmt(CY)}" x2="{_fmt(x)}" y2="{_fmt(y)}" stroke="#e6ebf5"/>'
+            )
+
+    if selected_axis:
+        for i, a in enumerate(axes):
+            if a["axis"] != selected_axis or a.get("never_measured"):
+                continue
+            x, y = _pt(i, n, R)
+            out.append(
+                f'<line class="perf-radar-spoke perf-radar-spoke--selected" data-axis="{a["axis"]}" '
+                f'x1="{_fmt(CX)}" y1="{_fmt(CY)}" x2="{_fmt(x)}" y2="{_fmt(y)}" '
+                f'stroke="{COLOR_INK}" stroke-width="1.5"/>'
             )
 
     past_n = sum(1 for a in axes if a.get("score_28d_ago") is not None)
@@ -182,8 +195,15 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
             )
 
     for i, a in enumerate(axes):
+        selected = selected_axis == a["axis"]
         if a.get("never_measured"):
             x, y = _pt(i, n, R)
+            if selected:
+                out.append(
+                    f'<circle class="perf-radar-halo" data-axis="{a["axis"]}" '
+                    f'cx="{_fmt(x)}" cy="{_fmt(y)}" r="16" fill="rgba(228,255,82,0.55)" '
+                    f'stroke="{COLOR_INK}" stroke-width="2"/>'
+                )
             out.append(
                 f'<circle class="perf-radar-point perf-radar-point--missing" data-axis="{a["axis"]}" '
                 f'cx="{_fmt(x)}" cy="{_fmt(y)}" r="{_fmt(PLUS_R)}" fill="#ffffff" '
@@ -204,6 +224,12 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
         x, y = _score_pt(axes, i, "score")
         if x is None:
             continue
+        if selected:
+            out.append(
+                f'<circle class="perf-radar-halo" data-axis="{a["axis"]}" '
+                f'cx="{_fmt(x)}" cy="{_fmt(y)}" r="14" fill="rgba(228,255,82,0.55)" '
+                f'stroke="{COLOR_INK}" stroke-width="2"/>'
+            )
         if a["focus"]:
             out.append(
                 f'<circle class="perf-radar-point perf-radar-point--focus" data-axis="{a["axis"]}" '
@@ -232,6 +258,39 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
         label = escape(a["label"])
         focus = a["focus"]
         never = bool(a.get("never_measured"))
+        if selected_axis == a["axis"]:
+            if never:
+                sub = "not measured"
+            elif a.get("stale"):
+                sub = f"{fmt_score(a['score'])} · stale"
+            else:
+                bits = [fmt_score(a["score"])]
+                if a.get("delta_28d") is not None:
+                    from backend.services.radar_payload import fmt_delta
+                    dlt = fmt_delta(a.get("delta_28d"))
+                    if dlt:
+                        bits.append(dlt)
+                sub = " · ".join(bits)
+            tw = max(len(a["label"]) * 11.2, len(sub) * 9.6) + 20
+            th = 44.0
+            if anchor == "middle":
+                rx = lx - tw / 2
+            elif anchor == "end":
+                rx = lx - tw + 10
+            else:
+                rx = lx - 10
+            ry = ly - 18
+            out.append(
+                f'<g class="perf-radar-label-tag" data-axis="{a["axis"]}">'
+                f'<rect x="{_fmt(rx)}" y="{_fmt(ry)}" width="{_fmt(tw)}" height="{_fmt(th)}" '
+                f'rx="8" fill="{COLOR_INK}"/>'
+                f'<text x="{_fmt(lx)}" y="{_fmt(ly)}" fill="#ffffff" font-size="21" font-weight="700" '
+                f'text-anchor="{anchor}">{label}</text>'
+                f'<text x="{_fmt(lx)}" y="{_fmt(ly + 18)}" fill="#e4ff52" font-size="16" '
+                f'font-family="JetBrains Mono, monospace" font-weight="600" '
+                f'text-anchor="{anchor}">{escape(sub)}</text></g>'
+            )
+            continue
         color = COLOR_MUTED if never else (COLOR_AMBER_INK if focus else COLOR_INK)
         weight = "800" if focus and not never else "700"
         out.append(
@@ -239,20 +298,11 @@ def render_radar_svg(payload: dict[str, Any], size: str = "large") -> str:
             f'font-size="21" font-weight="{weight}" fill="{color}" text-anchor="{anchor}">{label}</text>'
         )
         if never:
-            action = escape(str(a.get("action_label") or "Not measured yet"))
-            href = a.get("action_href") or ""
             y2 = ly + 18
-            if href:
-                out.append(
-                    f'<a class="perf-radar-action" data-axis="{a["axis"]}" href="{escape(str(href))}">'
-                    f'<text x="{_fmt(lx)}" y="{_fmt(y2)}" font-size="13" font-weight="700" '
-                    f'fill="{COLOR_BLUE}" text-anchor="{anchor}">{action}</text></a>'
-                )
-            else:
-                out.append(
-                    f'<text class="perf-radar-action" data-axis="{a["axis"]}" x="{_fmt(lx)}" y="{_fmt(y2)}" '
-                    f'font-size="13" font-weight="600" fill="{COLOR_BLUE}" text-anchor="{anchor}">{action}</text>'
-                )
+            out.append(
+                f'<text class="perf-radar-status" data-axis="{a["axis"]}" x="{_fmt(lx)}" y="{_fmt(y2)}" '
+                f'font-size="13" font-weight="600" fill="{COLOR_MUTED}" text-anchor="{anchor}">not measured</text>'
+            )
         else:
             bits = [fmt_score(a["score"])]
             if a.get("status"):

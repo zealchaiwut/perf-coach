@@ -123,6 +123,17 @@
       .catch(function () { return ''; });
   }
 
+  function raceBadgeKind(r) {
+    if (r && r.race_type === "checkpoint" && !r.priority) return "CP";
+    return (r && r.priority) || "?";
+  }
+
+  function racePriorityBadge(r) {
+    var kind = raceBadgeKind(r);
+    var mod = kind === "CP" ? "cp" : String(kind).toLowerCase();
+    return '<span class="rv-race-pr rv-race-pr--' + escapeHtml(mod) + '">' + escapeHtml(kind) + "</span>";
+  }
+
   function fetchWithCsrf(url, options) {
     options = options || {};
     var method = (options.method || 'GET').toUpperCase();
@@ -145,6 +156,8 @@
     nowBangkok: nowBangkok,
     toISODate: toISODate,
     addDaysISO: addDaysISO,
+    raceBadgeKind: raceBadgeKind,
+    racePriorityBadge: racePriorityBadge,
     csrfToken: csrfToken,
     fetchWithCsrf: fetchWithCsrf,
     TIMEZONE: BANGKOK

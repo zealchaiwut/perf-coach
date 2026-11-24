@@ -26,15 +26,18 @@ def _fn(src: str, name: str) -> str:
 
 
 def test_feel_tap_issues_exactly_one_request():
-    patch = _fn(FEEL_JS, "patchFeeling")
+    patch = _fn(FEEL_JS, "patchFields")
     assert patch.count("fetch(") == 1
     assert "/api/workouts/" in patch
     assert "r.json()" in patch
-    assert "body.feeling" in patch
     row = _fn(LOG_JS, "renderSessionRow")
     assert "rv-list-feel" in row
     assert "data-feel-id" in row
-    assert "V2FeelButtons.mount" in LOG_JS
+    assert "data-run-subtype" in row
+    assert "data-rpe" in row
+    assert "V2SessionTags" in LOG_JS
+    assert "applyRpeInPlace" in LOG_JS
+    assert "applySubtypeInPlace" in LOG_JS
 
 
 def test_skip_refetches_only_that_week_rollup():

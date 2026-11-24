@@ -739,6 +739,7 @@ def build_session_consult(
                 "",
                 "## What I logged",
                 f"feeling: {_na(workout.feeling)}",
+                f"RPE: {workout.session_effort}/10" if getattr(workout, "session_effort", None) is not None else f"RPE: {_na(None)}",
                 f"fuel: {_na(workout.fuelled)}",
                 f"fuel_detail (gels/fluid/stomach): {_fuel_detail_line(workout)}",
                 f"shoe: {_shoe_line(session, workout)}",

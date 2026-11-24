@@ -75,13 +75,19 @@ def test_long_runs_item_counts_in_window():
     assert "workouts.duration_seconds" in item["source"]
 
 
-def test_toilet_plan_manual_only():
-    done = arc.item_toilet_plan(a_race(notes="Portaloo by village", toilet_plan_done=True))
-    assert done["state"] == "done" and done["manual"]
-    assert done["detail"] == "Write your race-morning plan"
-    assert done["note"] == "Portaloo by village"
-    todo = arc.item_toilet_plan(a_race())
-    assert todo["state"] == "not_started"
+def test_toilet_plan_not_in_checklist():
+    session = MagicMock()
+    race = a_race()
+    with patch.object(arc, "next_a_race", return_value=race), \
+            patch.object(arc, "item_long_runs", return_value={"key": "long_runs", "state": "not_started"}), \
+            patch.object(arc, "item_race_shoe", return_value={"key": "race_shoe", "state": "not_started"}), \
+            patch.object(arc, "item_fuel_rehearsal", return_value={"key": "fuel", "state": "not_started"}), \
+            patch.object(arc, "item_pb_block", return_value={"key": "pb", "state": "not_started"}), \
+            patch.object(arc, "item_cp_fresh", return_value={"key": "cp_fresh", "state": "not_started"}):
+        out = arc.build_checklist(session, UID, TODAY, race=race)
+    assert out["summary"]["total"] == 5
+    assert all(it["key"] != "toilet_plan" for it in out["items"])
+    assert "data-toilet" not in V2_JS
 
 
 def test_build_checklist_no_a_race():
@@ -89,7 +95,7 @@ def test_build_checklist_no_a_race():
     with patch.object(arc, "next_a_race", return_value=None):
         out = arc.build_checklist(session, UID, TODAY)
     assert out["available"] is False
-    assert out["summary"]["count_label"] == "0 / 6"
+    assert out["summary"]["count_label"] == "0 / 5"
 
 
 def test_hero_includes_readiness_summary():

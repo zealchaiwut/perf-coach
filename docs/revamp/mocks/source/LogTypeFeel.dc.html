@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Log list · run type + feel</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.card{background:#ffffff;border-radius:14px;box-shadow:0 2px 12px rgba(13,30,67,0.10),0 1px 3px rgba(13,30,67,0.06);padding:22px;display:flex;flex-direction:column;gap:10px;box-sizing:border-box;min-width:0}
+.lbl{font-size:12px;font-weight:700;letter-spacing:0.1em;color:#5f6b84;text-transform:uppercase}
+.sub{font-size:13px;color:#56627f;line-height:1.5}
+.mono{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em}
+.chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.it{display:grid;grid-template-columns:56px minmax(0,1fr) 372px 170px;gap:18px;align-items:center;padding:14px 16px;border-bottom:1px solid #eef1f7}
+.nm{font-size:16px;font-weight:700}
+.met{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em;font-size:13.5px;color:#7a869f}
+.met b{color:#0b1530;font-weight:700}
+.seg{display:flex;align-items:center;gap:4px}
+.rl{width:34px;font-size:10.5px;font-weight:700;letter-spacing:0.08em;color:#8792a8;text-transform:uppercase;flex-shrink:0}
+.tg,.fl{appearance:none;font:inherit;font-size:12.5px;font-weight:700;border:1px solid #dfe5f1;background:#ffffff;color:#56627f;border-radius:8px;padding:0 10px;height:30px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+.tg:hover,.fl:hover{border-color:#9fb0d0;color:#0b1530}
+.tg.auto{border-style:dashed;border-color:#9fc79a;background:#fbfef9}
+.ad{width:6px;height:6px;border-radius:50%;background:#22c55e}
+.fl{min-width:52px;justify-content:center}
+.tsscell{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.tssn{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em;font-size:24px;font-weight:700;line-height:1;color:#1f3b8a}
+.share{display:flex;align-items:center;gap:8px}
+.sbar{width:110px;height:6px;border-radius:999px;background:#eef2fb;position:relative;overflow:hidden}
+.sbar span{position:absolute;left:0;top:0;bottom:0;background:#1f3b8a;border-radius:999px}
+.pct{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em;font-size:11.5px;color:#56627f;width:34px;text-align:right}
+.tp{appearance:none;font:inherit;font-size:12.5px;font-weight:700;border:1px solid #dfe5f1;border-radius:999px;padding:0 12px;height:30px;cursor:pointer}
+.fd{appearance:none;font:inherit;width:30px;height:30px;border-radius:50%;border:1px solid #dfe5f1;background:#ffffff;color:#56627f;font-size:12px;font-weight:800;cursor:pointer}
+.wkbar{display:flex;justify-content:space-between;align-items:center;gap:24px;background:#0b1530;color:#ffffff;border-radius:12px;padding:14px 20px}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 32px 48px 56px; background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%); font-family: 'Inter Tight', system-ui, sans-serif; color: #0b1530; letter-spacing: -0.01em">
+<div style="max-width: 1344px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+  <div style="color: #ffffff; display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 34px; font-weight: 700; letter-spacing: -0.025em">Log list · type and feel on each row</span>
+    <span style="font-size: 15px; color: #e3ecff">Two quick rows replace the Hard / OK / Easy trio: what kind of run it was, and how it felt.</span>
+  </div>
+
+  <div class="card" style="padding: 18px 0 6px">
+    <div style="padding: 0 18px 10px"><span class="lbl">A · two segmented rows (recommended)</span></div>
+    <div class="wkbar" style="margin: 0 18px 6px"><span style="font-size: 19px; font-weight: 700">16 – 22 Nov</span><span class="mono" style="color: #e4ff52; font-size: 24px; font-weight: 700">37.6 <span style="font-size: 11px; color: #a8b6d6">KM</span></span></div>
+      <div class="it">
+        <span style="display:flex;flex-direction:column;align-items:center"><span class="mono" style="font-size:22px;font-weight:700">22</span><span style="font-size:11px;font-weight:700;color:#7a869f;letter-spacing:0.08em">SUN</span></span>
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="nm">Bangkok Morning Long Run</span><span class="met"><b>24.1</b> km · <b>2:31:40</b> · 6:17 /km · 142 bpm</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="seg" role="group" aria-label="Run type"><span class="rl">Type</span><button type="button" class="tg">Easy</button><button type="button" class="tg on" aria-pressed="true" style="background:#dbe7ff;color:#1f3b8a;border-color:#dbe7ff">Long</button><button type="button" class="tg">Tempo</button><button type="button" class="tg">Intervals</button><button type="button" class="tg">Race</button></div><div class="seg" role="group" aria-label="How it felt"><span class="rl">Felt</span><button type="button" class="fl on" aria-pressed="true" style="background:#fde8e8;color:#7a1a1a;border-color:#fde8e8">Hard</button><button type="button" class="fl">OK</button><button type="button" class="fl">Easy</button></div></div>
+        <div class="tsscell"><span class="tssn">148</span><span class="share"><span class="sbar"><span style="width:38%;"></span></span><span class="pct">38%</span></span></div>
+      </div>
+      <div class="it">
+        <span style="display:flex;flex-direction:column;align-items:center"><span class="mono" style="font-size:22px;font-weight:700">21</span><span style="font-size:11px;font-weight:700;color:#7a869f;letter-spacing:0.08em">SAT</span></span>
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="nm">Lunch Run</span><span class="met"><b>8.2</b> km · <b>48:10</b> · 5:52 /km · 139 bpm</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="seg" role="group" aria-label="Run type"><span class="rl">Type</span><button type="button" class="tg auto" title="Detected from the run · click to confirm" style="color:#2d5e10">Easy<span class="ad"></span></button><button type="button" class="tg">Long</button><button type="button" class="tg">Tempo</button><button type="button" class="tg">Intervals</button><button type="button" class="tg">Race</button></div><div class="seg" role="group" aria-label="How it felt"><span class="rl">Felt</span><button type="button" class="fl">Hard</button><button type="button" class="fl">OK</button><button type="button" class="fl">Easy</button></div></div>
+        <div class="tsscell"><span class="tssn">46</span><span class="share"><span class="sbar"><span style="width:12%;"></span></span><span class="pct">12%</span></span></div>
+      </div>
+      <div class="it">
+        <span style="display:flex;flex-direction:column;align-items:center"><span class="mono" style="font-size:22px;font-weight:700">20</span><span style="font-size:11px;font-weight:700;color:#7a869f;letter-spacing:0.08em">FRI</span></span>
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="nm">Track 6 × 800</span><span class="met"><b>9.6</b> km · <b>52:30</b> · 4:41 /km avg · 158 bpm</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="seg" role="group" aria-label="Run type"><span class="rl">Type</span><button type="button" class="tg">Easy</button><button type="button" class="tg">Long</button><button type="button" class="tg">Tempo</button><button type="button" class="tg on" aria-pressed="true" style="background:#fde8e8;color:#7a1a1a;border-color:#fde8e8">Intervals</button><button type="button" class="tg">Race</button></div><div class="seg" role="group" aria-label="How it felt"><span class="rl">Felt</span><button type="button" class="fl">Hard</button><button type="button" class="fl on" aria-pressed="true" style="background:#eef1f7;color:#0b1530;border-color:#eef1f7">OK</button><button type="button" class="fl">Easy</button></div></div>
+        <div class="tsscell"><span class="tssn">78</span><span class="share"><span class="sbar"><span style="width:20%;"></span></span><span class="pct">20%</span></span></div>
+      </div>
+      <div class="it">
+        <span style="display:flex;flex-direction:column;align-items:center"><span class="mono" style="font-size:22px;font-weight:700">19</span><span style="font-size:11px;font-weight:700;color:#7a869f;letter-spacing:0.08em">THU</span></span>
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="nm">Strength · lower body</span><span class="met"><b>6</b> exercises · <b>45:00</b></span></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="seg"><span class="rl">Type</span><span class="chip" style="background:#eef1f7;color:#33405e;font-size:12px;padding:5px 10px">Strength</span></div><div class="seg" role="group" aria-label="How it felt"><span class="rl">Felt</span><button type="button" class="fl">Hard</button><button type="button" class="fl on" aria-pressed="true" style="background:#eef1f7;color:#0b1530;border-color:#eef1f7">OK</button><button type="button" class="fl">Easy</button></div></div>
+        <div class="tsscell"><span class="tssn">32</span><span class="share"><span class="sbar"><span style="width:8%;"></span></span><span class="pct">8%</span></span></div>
+      </div>
+      <div class="it">
+        <span style="display:flex;flex-direction:column;align-items:center"><span class="mono" style="font-size:22px;font-weight:700">15</span><span style="font-size:11px;font-weight:700;color:#7a869f;letter-spacing:0.08em">SUN</span></span>
+        <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="nm">Bangsaen42</span><span class="met"><b>42.2</b> km · <b>5:29:32</b> · 7:48 /km · 151 bpm</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px"><div class="seg" role="group" aria-label="Run type"><span class="rl">Type</span><button type="button" class="tg">Easy</button><button type="button" class="tg">Long</button><button type="button" class="tg">Tempo</button><button type="button" class="tg">Intervals</button><button type="button" class="tg on" aria-pressed="true" style="background:#0b1530;color:#e4ff52;border-color:#0b1530">Race</button></div><div class="seg" role="group" aria-label="How it felt"><span class="rl">Felt</span><button type="button" class="fl on" aria-pressed="true" style="background:#fde8e8;color:#7a1a1a;border-color:#fde8e8">Hard</button><button type="button" class="fl">OK</button><button type="button" class="fl">Easy</button></div></div>
+        <div class="tsscell"><span class="tssn">312</span><span class="share"><span class="sbar"><span style="width:61%;background:#e4ff52"></span></span><span class="pct">61%</span></span></div>
+      </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start">
+    <div class="card">
+      <span class="lbl">How it works</span>
+      <ul style="margin: 0; padding-left: 18px; font-size: 14px; line-height: 1.6; color: #33405e">
+        <li><b>Type</b> sets the run's <span class="mono">run_subtype</span>: Easy, Long, Tempo, Intervals, Race. One click saves; click the selected one again to clear.</li>
+        <li><b>Dashed with a green dot</b> = the type the app guessed from the run. It stays a guess until you click it.</li>
+        <li><b>Felt</b> keeps today's Hard / OK / Easy. The row label stops "Easy" (type) and "Easy" (felt) from reading as the same thing.</li>
+        <li><b>Strength and other sessions</b> show a fixed type tag and only the Felt row.</li>
+        <li>Selected colours match the calendar and the volume chart: Race is the dark lime chip, same as the RACE bar.</li>
+        <li>At 390 px both rows sit under the title, full width, and the buttons stay 30 px tall.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <span class="lbl">B · chosen · type + RPE dropdowns</span>
+      <span class="sub">Two pills. RPE 1–10 replaces Hard / OK / Easy. Strength rows show RPE only.</span>
+      <div style="padding-bottom: 300px"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #eef1f7"><span style="font-size:15px;font-weight:700">Bangkok Morning Long Run</span><span style="display:flex;gap:8px;align-items:center;position:relative"><button type="button" class="tp" style="background:#dbe7ff;color:#1f3b8a">Long <span style="opacity:0.7">▾</span></button><button type="button" class="tp" style="background:#fde8e8;color:#7a1a1a">RPE 7 <span style="opacity:0.7">▾</span></button><div style="position:absolute;right:0;top:36px;z-index:2;width:170px;background:#fff;border:1px solid #dfe5f1;border-radius:10px;box-shadow:0 8px 24px rgba(13,30,67,0.16);padding:6px"><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#dff5d6;color:#2d5e10;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">1</span><span style="font-size:12.5px;color:#56627f">very easy</span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#dff5d6;color:#2d5e10;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">2</span><span style="font-size:12.5px;color:#56627f"></span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#dff5d6;color:#2d5e10;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">3</span><span style="font-size:12.5px;color:#56627f">easy</span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#fff1dc;color:#7a3a10;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">4</span><span style="font-size:12.5px;color:#56627f"></span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#fff1dc;color:#7a3a10;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">5</span><span style="font-size:12.5px;color:#56627f">steady</span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#fff1dc;color:#7a3a10;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">6</span><span style="font-size:12.5px;color:#56627f"></span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;background:#eef3fd;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#fde8e8;color:#7a1a1a;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">7</span><span style="font-size:12.5px;color:#56627f">hard</span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#fde8e8;color:#7a1a1a;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">8</span><span style="font-size:12.5px;color:#56627f"></span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#fde8e8;color:#7a1a1a;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">9</span><span style="font-size:12.5px;color:#56627f">very hard</span></div><div style="display:flex;align-items:center;gap:10px;padding:5px 10px;border-radius:7px;"><span class="mono" style="width:22px;height:22px;border-radius:6px;background:#fde8e8;color:#7a1a1a;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700">10</span><span style="font-size:12.5px;color:#56627f">max</span></div><div style="border-top:1px solid #eef1f7;margin-top:4px;padding:7px 10px 3px;font-size:12.5px;font-weight:700;color:#7a1a1a">Clear RPE</div></div></span></div><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #eef1f7"><span style="font-size:15px;font-weight:700">Lunch Run</span><span style="display:flex;gap:8px;align-items:center;position:relative"><button type="button" class="tp" style="background:#ffffff;color:#56627f">Type <span style="opacity:0.7">▾</span></button><button type="button" class="tp" style="background:#ffffff;color:#56627f">RPE <span style="opacity:0.7">▾</span></button></span></div><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #eef1f7"><span style="font-size:15px;font-weight:700">Track 6 × 800</span><span style="display:flex;gap:8px;align-items:center;position:relative"><button type="button" class="tp" style="background:#fde8e8;color:#7a1a1a">Intervals <span style="opacity:0.7">▾</span></button><button type="button" class="tp" style="background:#fde8e8;color:#7a1a1a">RPE 8 <span style="opacity:0.7">▾</span></button></span></div><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #eef1f7"><span style="font-size:15px;font-weight:700">Strength · lower body</span><span style="display:flex;gap:8px;align-items:center;position:relative"><button type="button" class="tp" style="background:#fff1dc;color:#7a3a10">RPE 6 <span style="opacity:0.7">▾</span></button></span></div></div>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1250}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

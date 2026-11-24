@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from backend.services.derived_cache import get_or_compute
 
-DERIVED_RADAR_KEY = "derived:radar"
+DERIVED_RADAR_KEY = "derived:radar:v3"
 
 
 def get_radar_payload(

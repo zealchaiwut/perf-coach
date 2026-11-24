@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <title>Performance (revamp) – perf-coach</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/revamp.css?v=20261124j">
+  <link rel="stylesheet" href="/css/revamp.css?v=20261124w">
 </head>
 <body class="rv-page" data-perf-radar-boot="page">
   <div class="rv-shell rv-shell--wide">
@@ -21,29 +21,36 @@
     </header>
 
     <div id="v2-perf-shell" class="rv-stack rv-perf-page">
-      <div class="rv-perf-hero-grid">
-        <section class="rv-card rv-stack rv-perf-hero-card" id="v2-perf-hero" aria-label="A race"></section>
-        <section class="rv-card rv-card--soft rv-stack rv-perf-after-card" id="v2-perf-after-race" aria-label="After the race"></section>
-      </div>
-      <section class="rv-card rv-stack" id="v2-perf-readiness" aria-label="A-race readiness" hidden></section>
+      <section class="rv-card rv-perf-a-strip" id="v2-perf-hero" aria-label="A race"></section>
 
-      <div class="rv-perf-mid-grid">
-        <section class="rv-card rv-stack" id="v2-perf-radar" aria-label="Performance radar">
-          <div class="rv-row">
-            <span class="rv-label">Status</span>
-            <span class="rv-subtitle">0–100 against your marathon profile</span>
+      <div class="rv-perf-status-row">
+        <section class="rv-card rv-perf-status-card" id="v2-perf-status" aria-label="Status">
+          <div class="rv-perf-status-grid">
+            <div class="rv-perf-status-radar-col">
+              <div>
+                <span class="rv-label">Status</span>
+                <p class="rv-subtitle">0–100 against your marathon profile. Click a point to see its details and history.</p>
+              </div>
+              <div data-perf-radar data-size="large" id="v2-perf-radar-chart"></div>
+            </div>
+            <div id="v2-perf-axis-details" class="rv-perf-axis-details"></div>
           </div>
-          <div data-perf-radar data-size="large" id="v2-perf-radar-chart"></div>
         </section>
-        <div id="v2-perf-focus" class="rv-perf-focus-col" aria-label="Focus"></div>
+        <div id="v2-perf-states" class="rv-perf-states" aria-label="What to work on"></div>
       </div>
 
-      <section class="rv-perf-score-grid" id="v2-perf-score-cards" aria-label="Endurance and Speed"></section>
+      <div class="rv-perf-races-row" id="v2-perf-races-row">
+        <section class="rv-card rv-stack rv-perf-proj-card" id="v2-perf-projection-wrap" aria-label="Races and projections">
+          <div id="v2-perf-projection"></div>
+          <div id="v2-perf-races" class="rv-perf-races-block" aria-label="Races"></div>
+        </section>
+        <section class="rv-card rv-stack" id="v2-perf-readiness" aria-label="A-race readiness" hidden></section>
+      </div>
 
-      <section class="rv-card rv-stack rv-perf-proj-card" id="v2-perf-projection-wrap" aria-label="Races and projections">
-        <div id="v2-perf-projection"></div>
-        <div id="v2-perf-races" class="rv-perf-races-block" aria-label="Races"></div>
-      </section>
+      <section id="v2-perf-after-race" hidden></section>
+      <section id="v2-perf-score-cards" hidden></section>
+      <section id="v2-perf-radar" hidden></section>
+      <section id="v2-perf-focus" hidden></section>
 
       <section class="rv-card rv-stack" id="v2-perf-coach" aria-label="Coach"></section>
       <section class="rv-card rv-stack" id="v2-perf-mobility" aria-label="Mobility self-test"></section>
@@ -63,7 +70,7 @@
   <script src="/js/lib/copy-for-claude.js"></script>
   <script src="/js/revamp-ui.js"></script>
   <script src="/js/v2-nav.js?v=20261124g"></script>
-  <script src="/js/lib/perf-radar.js"></script>
-  <script src="/js/v2-performance.js?v=20261124n"></script>
+  <script src="/js/lib/perf-radar.js?v=20261124s"></script>
+  <script src="/js/v2-performance.js?v=20261124x"></script>
 </body>
 </html>

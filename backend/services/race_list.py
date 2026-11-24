@@ -125,8 +125,14 @@ def canonical_race_km(km: Optional[float]) -> Optional[float]:
     return k
 
 
+def format_race_date(d: Optional[date]) -> str:
+    """Day + short month, no year: 15 Nov."""
+    if d is None:
+        return ""
+    return f"{d.day} {d.strftime('%b')}"
+
+
 def format_distance_km(km: Optional[float]) -> Optional[str]:
-    """Half/full show one decimal (21.1, 42.2); shorter races stay whole."""
     if km is None:
         return None
     canon = canonical_race_km(km)
@@ -159,6 +165,7 @@ def _base(race) -> dict[str, Any]:
         "id": str(race.id),
         "name": race.name,
         "race_date": race.race_date.isoformat(),
+        "race_date_label": format_race_date(race.race_date),
         "distance_km": stored,
         "distance_label": format_distance_km(stored),
         "priority": race.priority,

@@ -29,7 +29,7 @@ _radar_cache: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
 )
 
 _WRITE_VERBS = frozenset({"INSERT", "UPDATE", "DELETE"})
-_DERIVED_RADAR_KEY = "derived:radar"
+_DERIVED_RADAR_KEY = "derived:radar:v3"
 
 
 def _rss_kb() -> int:

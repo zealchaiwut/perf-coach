@@ -60,7 +60,7 @@ def test_race_role_uses_db_column_over_priority():
 
 def test_missing_role_does_not_derive_from_priority():
     assert rr.race_role(race(priority="A", role=None)) == "fun"
-    assert rr.ROLE_TARGETS["fun"].startswith("Target: enjoy")
+    assert rr.ROLE_TARGETS["fun"].startswith("enjoy")
     assert "recalibrates" in rr.ROLE_TARGETS["a_race"]
 
 
