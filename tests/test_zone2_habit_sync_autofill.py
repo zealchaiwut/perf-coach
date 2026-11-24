@@ -54,6 +54,7 @@ def _session_with_runs(runs):
 def test_in_band_run_triggers_autofill_for_its_week():
     run = _run(date(2026, 6, 25), avg_hr=140, duration_seconds=3600)  # Thu; band default 130-155
     with patch.object(reconcile, "_Session", return_value=_session_with_runs([run])), \
+         patch("backend.services.session_tss.refresh_workout_tss_storage"), \
          patch("backend.services.habit_autofill.recompute_autofill_for_week") as mock_af:
         reconcile.compute_run_metrics(_USER_ID)
 
@@ -66,6 +67,7 @@ def test_in_band_run_triggers_autofill_for_its_week():
 
 def test_no_runs_means_no_autofill():
     with patch.object(reconcile, "_Session", return_value=_session_with_runs([])), \
+         patch("backend.services.session_tss.refresh_workout_tss_storage"), \
          patch("backend.services.habit_autofill.recompute_autofill_for_week") as mock_af:
         reconcile.compute_run_metrics(_USER_ID)
     mock_af.assert_not_called()
@@ -75,8 +77,33 @@ def test_runs_in_two_weeks_trigger_autofill_per_week():
     r1 = _run(date(2026, 6, 25), avg_hr=140, duration_seconds=1800)  # week of Jun 22
     r2 = _run(date(2026, 6, 17), avg_hr=145, duration_seconds=1800)  # week of Jun 15
     with patch.object(reconcile, "_Session", return_value=_session_with_runs([r1, r2])), \
+         patch("backend.services.session_tss.refresh_workout_tss_storage"), \
          patch("backend.services.habit_autofill.recompute_autofill_for_week") as mock_af:
         reconcile.compute_run_metrics(_USER_ID)
 
     weeks = {c.args[1] for c in mock_af.call_args_list}
     assert weeks == {date(2026, 6, 22), date(2026, 6, 15)}
+
+
+def test_null_tss_run_persists_pace_or_hr_tss():
+    """Strava treadmill runs (no power/Stryd) must get TSS via tss.py after sync."""
+    run = _run(date(2026, 11, 24), avg_hr=77, duration_seconds=3659, tss=None)
+    with patch.object(reconcile, "_Session", return_value=_session_with_runs([run])), \
+         patch("backend.services.habit_autofill.recompute_autofill_for_week"), \
+         patch("backend.services.tss.persist_running_tss") as persist, \
+         patch("backend.services.session_tss.refresh_workout_tss_storage") as refresh:
+        reconcile.compute_run_metrics(_USER_ID)
+    persist.assert_called_once()
+    assert persist.call_args.args[0] == run.id
+    refresh.assert_not_called()
+
+
+def test_existing_tss_does_not_recompute_via_persist():
+    run = _run(date(2026, 11, 24), avg_hr=140, duration_seconds=3600, tss=50.0)
+    with patch.object(reconcile, "_Session", return_value=_session_with_runs([run])), \
+         patch("backend.services.habit_autofill.recompute_autofill_for_week"), \
+         patch("backend.services.tss.persist_running_tss") as persist, \
+         patch("backend.services.session_tss.refresh_workout_tss_storage") as refresh:
+        reconcile.compute_run_metrics(_USER_ID)
+    persist.assert_not_called()
+    refresh.assert_called_once()
