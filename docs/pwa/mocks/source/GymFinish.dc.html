@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gym mode · finish and sync</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#e4ff52}a:hover{color:#ffffff}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0b1530; font-family: 'Inter Tight', system-ui, sans-serif; color: #ffffff; letter-spacing: -0.01em; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="padding: 22px 18px 12px; display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: #e4ff52">SESSION DONE</span>
+    <span style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em">Strength A · economy</span>
+  </div>
+
+  <div style="padding: 0 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+    <span style="background: rgba(255,255,255,0.07); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; color: #a8b6d6">Time</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 700">46:12</span></span>
+    <span style="background: rgba(255,255,255,0.07); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; color: #a8b6d6">Sets</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 700">17/16</span></span>
+    <span style="background: rgba(255,255,255,0.07); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 11px; color: #a8b6d6">TSS est.</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 700; color: #e4ff52">41</span></span>
+  </div>
+
+  <div style="flex: 1; overflow: hidden; padding: 14px 14px 0; display: flex; flex-direction: column; gap: 12px">
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-size: 12px; font-weight: 700; color: #a8b6d6" id="srpe">Whole session (RPE)</span>
+      <div role="radiogroup" aria-labelledby="srpe" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px">
+        <button type="button" role="radio" aria-checked="false" style="appearance: none; font: inherit; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; min-height: 44px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: transparent; color: #ffffff">6</button>
+        <button type="button" role="radio" aria-checked="true" style="appearance: none; font: inherit; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; min-height: 44px; border-radius: 10px; border: 0; background: #e4ff52; color: #0b1530">7</button>
+        <button type="button" role="radio" aria-checked="false" style="appearance: none; font: inherit; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; min-height: 44px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: transparent; color: #ffffff">8</button>
+        <button type="button" role="radio" aria-checked="false" style="appearance: none; font: inherit; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; min-height: 44px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: transparent; color: #ffffff">9</button>
+        <button type="button" role="radio" aria-checked="false" style="appearance: none; font: inherit; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; min-height: 44px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: transparent; color: #ffffff">10</button>
+      </div>
+    </div>
+
+    <div style="background: #ffffff; color: #0b1530; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: #5f6b84">STRENGTH ANCHORS</span>
+      <div style="display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: baseline; font-size: 13.5px">
+        <span style="font-weight: 700">SL deadlift · 12 kg × 8</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #2d5e10">32% → 38%</span>
+        <span style="font-weight: 700">Calf raise · 20 kg × 12</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #2d5e10">18% → 34%</span>
+      </div>
+      <span style="font-size: 12px; color: #56627f">Share of your target set. Strength updates after sync.</span>
+    </div>
+
+    <div style="background: rgba(255,255,255,0.07); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 7px">
+      <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: #a8b6d6">CHANGED FROM THE PLAN</span>
+      <span style="font-size: 13.5px">Bulgarian split squat → <b>Step-up</b></span>
+      <span style="font-size: 13.5px">SL deadlift <b>10 → 12 kg</b></span>
+      <span style="font-size: 13.5px">Calf raise <b>+1 set</b></span>
+      <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: #c9d5ef; padding-top: 4px"><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #e4ff52">Use these in future Strength A sessions</label>
+    </div>
+  </div>
+
+  <div style="padding: 12px 14px 18px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: center; gap: 10px; background: rgba(251,191,36,0.14); border: 1px solid rgba(251,191,36,0.4); border-radius: 12px; padding: 10px 12px">
+      <span style="width: 8px; height: 8px; border-radius: 50%; background: #fbbf24"></span>
+      <span style="font-size: 13px; flex: 1">Saved on this phone · syncs when the server is up</span>
+      <button type="button" style="appearance: none; font: inherit; font-size: 13px; font-weight: 700; color: #fbbf24; background: transparent; border: 0; min-height: 40px">Sync now</button>
+    </div>
+    <a href="Main.dc.html" style="display: flex; align-items: center; justify-content: center; background: #e4ff52; color: #0b1530; text-decoration: none; font-size: 17px; font-weight: 800; border-radius: 14px; min-height: 56px">Done</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

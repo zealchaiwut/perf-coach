@@ -2615,3 +2615,41 @@ class APIToken(Base):
         Index("ix_api_tokens_user_id", "user_id"),
         CheckConstraint("scope IN ('read')", name="ck_api_tokens_scope_values"),
     )
+
+
+class ProcessedMutation(Base):
+    """Idempotency ledger for phone/offline writes (PWA P0-1)."""
+
+    __tablename__ = "processed_mutations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    client_mutation_id = Column(UUID(as_uuid=True), nullable=False)
+    op_type = Column(String(40), nullable=False)
+    received_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    result = Column(JSONB, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "client_mutation_id", name="uq_processed_mutations_user_client"),
+        Index("ix_processed_mutations_received_at", "received_at"),
+    )
+
+
+class DeviceSession(Base):
+    """Long-lived remember-this-device login for the phone PWA (PWA P0-5)."""
+
+    __tablename__ = "device_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True)
+    label = Column(String(100), nullable=True)
+    csrf_current = Column(String(64), nullable=True)
+    csrf_previous = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, server_default=text("now()"))
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_device_sessions_user_id", "user_id"),
+    )

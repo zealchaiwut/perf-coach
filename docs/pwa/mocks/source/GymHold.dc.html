@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gym mode · hold stopwatch</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#e4ff52}a:hover{color:#ffffff}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #0b1530; font-family: 'Inter Tight', system-ui, sans-serif; color: #ffffff; letter-spacing: -0.01em; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="padding: 16px 16px 8px; display: flex; align-items: center; gap: 10px">
+    <a href="GymOverview.dc.html" aria-label="Session overview" style="width: 44px; height: 44px; border-radius: 12px; background: rgba(255,255,255,0.08); display: inline-flex; align-items: center; justify-content: center; color: #ffffff; text-decoration: none; font-size: 20px">‹</a>
+    <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: #e4ff52">SECTION 5 OF 6 · CORE</span>
+      <span style="font-size: 18px; font-weight: 700">Plank · 2 × 45 s</span>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px 16px 0">
+    <span style="font-size: 12px; font-weight: 800; letter-spacing: 0.1em; color: #a8b6d6">HOLD 2 OF 2 · COUNTING UP</span>
+    <span style="font-family: 'JetBrains Mono', monospace; font-size: 92px; font-weight: 700; line-height: 1; letter-spacing: -0.05em">0:51</span>
+    <div style="width: 100%; display: flex; flex-direction: column; gap: 6px">
+      <div style="position: relative; height: 10px; border-radius: 999px; background: rgba(255,255,255,0.1)">
+        <span style="position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #4ade80; border-radius: 999px"></span>
+        <span style="position: absolute; left: 88%; top: -5px; width: 2px; height: 20px; background: #ffffff"></span>
+      </div>
+      <div style="display: flex; justify-content: space-between; font-size: 12.5px; color: #c9d5ef"><span>Target 0:45 ✓ passed</span><span style="color: #4ade80; font-weight: 700">+0:06</span></div>
+    </div>
+  </div>
+
+  <div style="padding: 20px 16px 0; display: flex; flex-direction: column; gap: 6px">
+    <span style="font-size: 12px; font-weight: 700; color: #a8b6d6">Holds</span>
+    <div style="display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; gap: 10px; align-items: center; background: rgba(74,222,128,0.12); border-radius: 12px; padding: 11px 12px; font-size: 14px"><span style="font-family: 'JetBrains Mono', monospace; color: #a8b6d6">Hold 1</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">0:47</span><span style="color: #4ade80; font-weight: 700">✓</span></div>
+    <div style="display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid #e4ff52; border-radius: 12px; padding: 10px 12px; font-size: 14px"><span style="font-family: 'JetBrains Mono', monospace; color: #e4ff52">Hold 2</span><span style="font-family: 'JetBrains Mono', monospace; font-weight: 700">running…</span><span></span></div>
+    <span style="font-size: 12px; color: #a8b6d6; padding-top: 4px">Stopping saves the time you actually held. Tap a saved time to fix it.</span>
+  </div>
+
+  <div style="flex: 1"></div>
+
+  <div style="padding: 12px 16px 18px; display: flex; flex-direction: column; gap: 10px">
+    <button type="button" style="appearance: none; font: inherit; min-height: 72px; border-radius: 16px; border: 0; background: #f87171; color: #0b1530; font-size: 20px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 10px"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>Stop · save 0:51</button>
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px">
+      <button type="button" style="appearance: none; font: inherit; min-height: 48px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #ffffff; font-size: 14px; font-weight: 700">Countdown mode</button>
+      <a href="GymFinish.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 48px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.2); color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700">Next: Stretch ›</a>
+    </div>
+    <span style="font-size: 11.5px; color: #a8b6d6; text-align: center">Starts with a 3-2-1 · beeps at target · screen stays awake</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

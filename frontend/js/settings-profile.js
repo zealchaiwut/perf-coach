@@ -207,7 +207,44 @@
       var saveBtn = document.getElementById('profile-save-btn');
       if (saveBtn) saveBtn.addEventListener('click', _handleSave);
 
+      function _loadDevices() {
+        var box = document.getElementById('profile-devices');
+        if (!box) return;
+        fetch('/api/mobile/devices')
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            var rows = (data && data.devices) || [];
+            if (!rows.length) {
+              box.textContent = 'No remembered devices.';
+              return;
+            }
+            box.innerHTML = '';
+            rows.forEach(function (d) {
+              var row = document.createElement('div');
+              row.className = 'profile-device-row';
+              var last = d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : 'unknown';
+              row.innerHTML = '<div><strong></strong><div class="rv-hint"></div></div>';
+              row.querySelector('strong').textContent = d.label || 'Phone';
+              row.querySelector('.rv-hint').textContent = 'Last seen ' + last;
+              var btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'rv-btn rv-btn--ghost';
+              btn.textContent = 'Sign out device';
+              btn.addEventListener('click', function () {
+                fetch('/api/mobile/devices/' + encodeURIComponent(d.id), { method: 'DELETE' })
+                  .then(function () { _loadDevices(); });
+              });
+              row.appendChild(btn);
+              box.appendChild(row);
+            });
+          })
+          .catch(function () {
+            box.textContent = '';
+          });
+      }
+
       window.addEventListener('userReady', function () {
         _loadPrefs();
+        _loadDevices();
       });
 }());

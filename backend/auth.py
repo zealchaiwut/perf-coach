@@ -374,6 +374,22 @@ async def resolve_user(
     token = request.cookies.get(COOKIE_NAME)
     if token:
         return await get_current_user(request)
+
+    from backend.services.device_sessions import DEVICE_COOKIE_NAME, lookup_device, touch_device, user_for_device
+
+    raw_device = request.cookies.get(DEVICE_COOKIE_NAME)
+    if raw_device:
+        with Session(engine) as db:
+            row = lookup_device(db, raw_device)
+            if row is None:
+                raise HTTPException(status_code=401, detail="Device session revoked or expired")
+            user = user_for_device(db, row)
+            if user is None or not getattr(user, "is_active", True):
+                raise HTTPException(status_code=401, detail="User not found")
+            touch_device(row)
+            db.commit()
+            request.state.device_session_row = row
+            return user
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 

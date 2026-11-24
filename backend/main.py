@@ -167,6 +167,7 @@ from backend.routers.decisions import router as _decisions_router
 from backend.routers.admin import router as _admin_router
 from backend.routers.performance_axes import router as _performance_axes_router
 from backend.routers.athlete_shoes import router as _athlete_shoes_router
+from backend.routers.mobile import router as _mobile_router
 from backend.services.guardrail import get_guardrail_result
 from backend.services.body_modifier import get_body_modifier_guardrail_for_user
 from backend.services.lap_classify import aggregate_intensity_zones as _agg_zones
@@ -207,6 +208,7 @@ app.include_router(_decisions_router)
 app.include_router(_admin_router)
 app.include_router(_performance_axes_router)
 app.include_router(_athlete_shoes_router)
+app.include_router(_mobile_router)
 
 
 def _today_bkk() -> _date:
@@ -340,13 +342,30 @@ async def _csrf_protect(request: Request, call_next):
     defense-in-depth on top of SameSite=Strict for admin-only endpoints.
     """
     if request.method not in _CSRF_SAFE_METHODS and request.url.path not in _CSRF_EXEMPT_PATHS:
+        from backend.services.device_sessions import DEVICE_COOKIE_NAME as _DEVICE_COOKIE
+
         has_auth_cookie = (
-            request.cookies.get(COOKIE_NAME) or request.cookies.get(ADMIN_COOKIE_NAME)
+            request.cookies.get(COOKIE_NAME)
+            or request.cookies.get(ADMIN_COOKIE_NAME)
+            or request.cookies.get(_DEVICE_COOKIE)
         )
         if has_auth_cookie:
             expected = request.cookies.get(CSRF_COOKIE_NAME)
             actual = request.headers.get("X-CSRF-Token")
-            if not expected or not actual or not _hmac.compare_digest(expected, actual):
+            ok = bool(expected and actual and _hmac.compare_digest(expected, actual))
+            if not ok and request.url.path.startswith("/api/mobile/"):
+                raw = request.cookies.get(_DEVICE_COOKIE)
+                if raw:
+                    from backend.db import engine as _eng
+                    from backend.services.device_sessions import csrf_header_ok, lookup_device
+                    from sqlalchemy.orm import Session as _Sess
+
+                    with _Sess(_eng) as _db:
+                        row = lookup_device(_db, raw)
+                        if row is not None and csrf_header_ok(row, actual, expected):
+                            ok = True
+                            request.state.device_session_row = row
+            if not ok:
                 return JSONResponse(
                     {"detail": "CSRF token missing or invalid"},
                     status_code=403,
