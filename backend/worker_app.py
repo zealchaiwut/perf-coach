@@ -1773,6 +1773,17 @@ def _scheduler_loop() -> None:
         # scheduled jobs run immediately instead of waiting out whatever idle
         # interval (fast- or slow-window) the poll loop happened to be sleeping.
         try:
+            from backend.services.processed_mutations import cleanup_old_mutations
+
+            with Session(engine) as _db:
+                n = cleanup_old_mutations(_db)
+                _db.commit()
+            if n:
+                logger.info("processed_mutations cleanup removed %s row(s)", n)
+        except Exception as exc:
+            logger.error("processed_mutations cleanup failed: %s", exc, exc_info=True)
+
+        try:
             wake_queue_poll()
         except Exception as exc:
             logger.error("post-schedule queue wake failed: %s", exc, exc_info=True)

@@ -26,6 +26,22 @@ _SET_REPS = frozenset({"reps"})
 _SET_HOLD = frozenset({"hold"})
 _SET_TIME = frozenset({"time"})
 
+SECTION_FORMATS = frozenset({"straight", "superset", "emom", "interval", "hold", "circuit"})
+MINUTE_RULES = frozenset({"every", "odd", "even"})
+HOLD_COUNT_MODES = frozenset({"up", "down"})
+SECTION_FIELD_KEYS = (
+    "section_id",
+    "section_title",
+    "section_format",
+    "section_rounds",
+    "rest_after_seconds",
+    "pair_label",
+    "emom",
+    "interval",
+    "hold",
+    "block",
+)
+
 
 def _levenshtein(a: str, b: str) -> int:
     if a == b:
@@ -211,6 +227,10 @@ def format_exercises(exercises: list[dict[str, Any]]) -> str:
     for ei, ex in enumerate(exercises):
         lines.append("  {")
         lines.append('    "name": ' + json.dumps(ex["name"]) + ",")
+        extra = _copy_section_fields(ex)
+        if extra:
+            for key, val in extra.items():
+                lines.append("    " + json.dumps(key) + ": " + json.dumps(val) + ",")
         lines.append('    "sets": [')
         sets_list = ex.get("sets") or []
         for si, st in enumerate(sets_list):
@@ -305,9 +325,155 @@ def normalize_exercises(
             break
         if exercise_failed:
             continue
-        canonical.append({"name": name.strip(), "sets": canon_sets})
+        item: dict[str, Any] = {"name": name.strip(), "sets": canon_sets}
+        extra = _copy_section_fields(raw_ex)
+        if extra:
+            item.update(extra)
+        canonical.append(item)
 
     return canonical, errors
+
+
+def _copy_section_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key in SECTION_FIELD_KEYS:
+        if key in raw and raw[key] is not None:
+            out[key] = raw[key]
+    return out
+
+
+def map_generator_format(group_key: str | None, fmt: str | None) -> str:
+    key = (group_key or "").strip().lower()
+    f = (fmt or "").strip().lower()
+    if f == "emom":
+        return "emom"
+    if f in ("40_20", "intervals_40_20"):
+        return "interval"
+    if key == "isometric" or f == "isometric":
+        return "hold"
+    if key == "superset" or f == "superset":
+        return "superset"
+    if f == "plyo":
+        return "circuit"
+    return "straight"
+
+
+def enrich_generated_exercises(exercises: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Assign section_id / pair labels / timer fields to generator rows."""
+    if not exercises:
+        return exercises
+    section_id = 0
+    prev_title = object()
+    pair_n = 0
+    emom_index = 0
+    emom_count = 0
+    for i, ex in enumerate(exercises):
+        title = str(ex.get("block") or ex.get("section_title") or "Main")
+        if title != prev_title:
+            section_id += 1
+            prev_title = title
+            pair_n = 0
+            emom_index = 0
+            same = [e for e in exercises[i:] if str(e.get("block") or e.get("section_title") or "Main") == title]
+            emom_count = len(same)
+        fmt = map_generator_format(ex.pop("_group_key", None), ex.pop("_fmt", None) or ex.get("format"))
+        ex["section_id"] = section_id
+        ex["section_title"] = title
+        ex["section_format"] = fmt
+        rest = ex.get("rest_after_seconds")
+        if rest is None:
+            ex["rest_after_seconds"] = 90 if fmt in ("straight", "superset") else 0
+        if fmt == "superset":
+            pair_n += 1
+            ex["pair_label"] = f"A{pair_n}"
+            ex["section_rounds"] = int(ex.get("section_rounds") or 3)
+        elif fmt == "emom":
+            minutes = int(ex.get("sets") or 8)
+            if emom_count <= 1:
+                rule = "every"
+            else:
+                rule = "odd" if emom_index % 2 == 0 else "even"
+            emom_index += 1
+            ex["emom"] = {"minutes": minutes, "minute_rule": rule}
+            ex["section_rounds"] = minutes
+        elif fmt == "interval":
+            n = int(ex.get("sets") or 6)
+            ex["interval"] = {"work_seconds": 40, "rest_seconds": 20, "intervals": n}
+        elif fmt == "hold":
+            target = 45
+            raw_hold = ex.get("hold") or ex.get("reps")
+            if isinstance(raw_hold, (int, float)):
+                target = int(raw_hold)
+            elif isinstance(raw_hold, str):
+                digits = "".join(ch for ch in raw_hold if ch.isdigit())
+                if digits:
+                    target = int(digits)
+            ex["hold"] = {"target_seconds": target, "count_mode": "up"}
+    return exercises
+
+
+def validate_sections(exercises: list[dict[str, Any]]) -> list[str]:
+    """Return human-readable errors for PWA section fields. Empty = valid.
+
+    Sessions with no section fields are valid (legacy rows).
+    """
+    if not any(ex.get("section_format") for ex in exercises or []):
+        return []
+    errors: list[str] = []
+    grouped: dict[Any, list[dict[str, Any]]] = {}
+    for ex in exercises:
+        sid = ex.get("section_id")
+        grouped.setdefault(sid, []).append(ex)
+    for sid, rows in grouped.items():
+        fmt = (rows[0].get("section_format") or "straight").lower()
+        if fmt not in SECTION_FORMATS:
+            errors.append(f"section {sid}: unknown section_format {fmt}")
+            continue
+        if fmt == "superset":
+            labels = [r.get("pair_label") for r in rows if r.get("pair_label")]
+            if len(rows) < 2 or len(labels) < 2:
+                errors.append(f"section {sid}: a superset needs at least 2 exercises with pair labels")
+        if fmt == "interval":
+            for r in rows:
+                iv = r.get("interval") or {}
+                if not all(k in iv for k in ("work_seconds", "rest_seconds", "intervals")):
+                    errors.append(f"{r.get('name')}: interval needs work_seconds, rest_seconds and intervals")
+        if fmt == "hold":
+            for r in rows:
+                hd = r.get("hold") or {}
+                if not hd.get("target_seconds"):
+                    errors.append(f"{r.get('name')}: hold needs target_seconds")
+                mode = hd.get("count_mode") or "up"
+                if mode not in HOLD_COUNT_MODES:
+                    errors.append(f"{r.get('name')}: hold count_mode must be up or down")
+        if fmt == "emom":
+            minutes = None
+            owned: dict[int, str] = {}
+            for r in rows:
+                em = r.get("emom") or {}
+                mins = int(em.get("minutes") or 0)
+                rule = (em.get("minute_rule") or "every").lower()
+                if mins < 1:
+                    errors.append(f"{r.get('name')}: emom needs minutes")
+                    continue
+                if rule not in MINUTE_RULES:
+                    errors.append(f"{r.get('name')}: emom minute_rule must be every, odd or even")
+                    continue
+                minutes = minutes or mins
+                minutes = max(minutes, mins)
+                for m in range(1, mins + 1):
+                    if rule == "every" or (rule == "odd" and m % 2 == 1) or (rule == "even" and m % 2 == 0):
+                        if m in owned:
+                            errors.append(f"section {sid}: minute {m} is owned by both {owned[m]} and {r.get('name')}")
+                        else:
+                            owned[m] = r.get("name") or "?"
+            if minutes:
+                missing = [m for m in range(1, minutes + 1) if m not in owned]
+                if missing:
+                    errors.append(
+                        f"section {sid}: emom minute rules must cover each minute exactly once (missing {missing})"
+                    )
+    return errors
 
 
 def resolve_exercise_names(
