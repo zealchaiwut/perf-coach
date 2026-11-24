@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3b8a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Weekly check-in – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css?v=20261124f">
+</head>
+<body class="rv-page">
+  <div class="rv-shell rv-shell--wide">
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Weekly check-in</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="wci-week-label">Loading…</p>
+      </div>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
+    </header>
+    <nav class="wci-steps" aria-label="Check-in steps">
+      <a class="wci-step is-on" href="#step-1" aria-current="step"><span class="wci-step-num">1</span><span class="wci-step-lbl">Last week's changes</span></a>
+      <a class="wci-step" href="#step-2"><span class="wci-step-num">2</span><span class="wci-step-lbl">Check the week</span></a>
+      <a class="wci-step" href="#step-3"><span class="wci-step-num">3</span><span class="wci-step-lbl">Three quick scores</span></a>
+      <a class="wci-step" href="#step-4"><span class="wci-step-num">4</span><span class="wci-step-lbl">Copy · talk · paste back</span></a>
+    </nav>
+    <p id="wci-live-status" class="sr-only" aria-live="polite"></p>
+    <div class="wci-layout" id="wci-root" aria-busy="true"><p class="rv-subtitle">Loading check-in…</p></div>
+  </div>
+  <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/v2-sync-status.js?v=20261124f"></script>
+  <script src="/js/lib/csrf-fetch.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js?v=20261124g"></script>
+  <script src="/js/v2-weekly-check-in.js"></script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-08T10:00:00Z"
+  },
+  "title": "perf-coach lean \u2014 desktop",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 1640,
+      "expand": "fill",
+      "title": "Home"
+    },
+    "Performance.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 3200,
+      "expand": "fill",
+      "title": "Performance (radar, races, Coach)"
+    },
+    "TrainingWeek.dc.html": {
+      "x": 0,
+      "y": 3620,
+      "w": 1440,
+      "h": 2320,
+      "expand": "fill",
+      "title": "Training \u00b7 Plan"
+    },
+    "TrainingPlanEdit.dc.html": {
+      "x": 1520,
+      "y": 3620,
+      "w": 1440,
+      "h": 2560,
+      "expand": "fill",
+      "title": "Training \u00b7 Plan \u00b7 edit a session (shared editor \u00b7 planned)"
+    },
+    "TrainingLog.dc.html": {
+      "x": 0,
+      "y": 6660,
+      "w": 1440,
+      "h": 3300,
+      "expand": "fill",
+      "title": "Training \u00b7 Log (calendar + list)"
+    },
+    "TrainingCalendar.dc.html": {
+      "x": 6080,
+      "y": 6660,
+      "w": 1440,
+      "h": 1400,
+      "expand": "fill",
+      "title": "Old \u00b7 calendar on its own \u2014 now merged into Log, safe to delete"
+    },
+    "TrainingSession.dc.html": {
+      "x": 1520,
+      "y": 6660,
+      "w": 1440,
+      "h": 2400,
+      "expand": "fill",
+      "title": "Training \u00b7 Log \u00b7 session detail"
+    },
+    "TrainingTrends.dc.html": {
+      "x": 0,
+      "y": 10500,
+      "w": 1440,
+      "h": 1700,
+      "expand": "fill",
+      "title": "Training \u00b7 Trends"
+    },
+    "TrainingAdmin.dc.html": {
+      "x": 1520,
+      "y": 10500,
+      "w": 1440,
+      "h": 1500,
+      "expand": "fill",
+      "title": "Admin \u00b7 training library (admins only)"
+    },
+    "TrainingLiftEdit.dc.html": {
+      "x": 4560,
+      "y": 6660,
+      "w": 1440,
+      "h": 2560,
+      "expand": "fill",
+      "title": "Training \u00b7 Log \u00b7 edit a session (shared editor \u00b7 logged)"
+    },
+    "TrainingLiftView.dc.html": {
+      "x": 3040,
+      "y": 6660,
+      "w": 1440,
+      "h": 1500,
+      "expand": "fill",
+      "title": "Training \u00b7 Log \u00b7 strength session (view)"
+    },
+    "LogListD.dc.html": {
+      "x": 7600,
+      "y": 6660,
+      "w": 1440,
+      "h": 1900,
+      "expand": "fill",
+      "title": "Log list \u00b7 D \u00b7 dark week bar + target progress"
+    },
+    "PerformanceRefine.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1440,
+      "h": 2900,
+      "expand": "fill",
+      "title": "Performance \u00b7 refined"
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Performance.dc.html",
+    "PerformanceRefine.dc.html",
+    "TrainingWeek.dc.html",
+    "TrainingPlanEdit.dc.html",
+    "TrainingLog.dc.html",
+    "LogListD.dc.html",
+    "TrainingCalendar.dc.html",
+    "TrainingSession.dc.html",
+    "TrainingLiftView.dc.html",
+    "TrainingLiftEdit.dc.html",
+    "TrainingTrends.dc.html",
+    "TrainingAdmin.dc.html"
+  ],
+  "notes": {
+    "rowTop": {
+      "x": 0,
+      "y": -270,
+      "text": "Home \u00b7 Performance",
+      "kind": "title1",
+      "maxW": 4480
+    },
+    "rowPlan": {
+      "x": 0,
+      "y": 3350,
+      "text": "Training \u00b7 Plan",
+      "kind": "title1",
+      "maxW": 2960
+    },
+    "rowLog": {
+      "x": 0,
+      "y": 6390,
+      "text": "Training \u00b7 Log",
+      "kind": "title1",
+      "maxW": 9040
+    },
+    "rowTrends": {
+      "x": 0,
+      "y": 10230,
+      "text": "Training \u00b7 Trends \u00b7 Admin",
+      "kind": "title1",
+      "maxW": 2960
+    }
+  },
+  "designSystems": []
+}

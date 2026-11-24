@@ -25,6 +25,7 @@ from backend.models import (
     WorkoutSplit,
     StrydActivity,
 )
+from backend.services.decision_lessons import parse_lessons
 from backend.services.lap_classify import aggregate_intensity_zones
 from backend.services.performance_scores import (
     _PERF_FORMULA_VERSION,
@@ -34,7 +35,7 @@ from backend.services.race_auto_complete import _distance_ok
 from backend.services.training_load import _FORMULA_VERSION as _LOAD_FORMULA_VERSION
 from backend.utils.time import today_bangkok
 
-PROMPT_VERSION_RACE = "race-debrief-v1"
+PROMPT_VERSION_RACE = "race-debrief-v2"
 PROMPT_VERSION_SESSION = "session-review-v1"
 NOT_AVAILABLE = "not available"
 MAX_PROMPT_CHARS = 20_000
@@ -108,28 +109,10 @@ ScoreReader = Callable[[Session, uuid.UUID, date], dict]
 
 
 def _default_score_reader(session: Session, user_id: uuid.UUID, as_of: date) -> dict:
-    """Read canonical endurance/speed from performance_score_history (no recompute)."""
-    row = (
-        session.query(PerformanceScoreHistory)
-        .filter(
-            PerformanceScoreHistory.user_id == user_id,
-            PerformanceScoreHistory.score_date <= as_of,
-            PerformanceScoreHistory.formula_version == _PERF_FORMULA_VERSION,
-        )
-        .order_by(
-            PerformanceScoreHistory.score_date.desc(),
-            PerformanceScoreHistory.created_at.desc(),
-        )
-        .first()
-    )
-    anchor = _latest_race_perf(session, user_id, as_of=as_of)
-    return {
-        "endurance": row.endurance if row else None,
-        "speed": row.speed if row else None,
-        "as_of_date": row.score_date.isoformat() if row and row.score_date else NOT_AVAILABLE,
-        "anchor_date": anchor.get("date") if anchor else NOT_AVAILABLE,
-        "anchor_effort": round(anchor["perf"], 1) if anchor and anchor.get("perf") is not None else NOT_AVAILABLE,
-    }
+    """Read scores through the canonical reader (revamp P0-5)."""
+    from backend.services.score_reader import consult_score_reader
+
+    return consult_score_reader(session, user_id, as_of)
 
 
 def _na(value, *, suffix: str = "") -> str:
@@ -453,6 +436,55 @@ def select_previous_races(
     return done[:limit]
 
 
+MAX_LESSONS_PER_RACE = 6
+
+
+def _linked_lessons(session: Session, race: Race) -> list[str]:
+    """Lessons from the decisions linked to this race, newest decision first."""
+    from backend.models import Decision
+
+    rows = (
+        session.query(Decision)
+        .filter(Decision.user_id == race.user_id, Decision.race_id == race.id)
+        .order_by(Decision.decided_on.desc(), Decision.created_at.desc())
+        .all()
+    )
+    out: list[str] = []
+    for d in rows:
+        for lesson in parse_lessons(d.raw_text):
+            if lesson not in out:
+                out.append(lesson)
+    return out[:MAX_LESSONS_PER_RACE]
+
+
+def _lessons_text(lessons: list[str]) -> str:
+    if not lessons:
+        return "none recorded"
+    return " ".join(f"({i}) {l.rstrip('.')}." for i, l in enumerate(lessons, 1))
+
+
+def _fuel_detail_line(workout: Workout) -> str:
+    gels = getattr(workout, "gel_count", None)
+    fluid = getattr(workout, "fluid_level", None)
+    stomach = getattr(workout, "stomach_ok", None)
+    if gels is None and fluid is None and stomach is None:
+        return NOT_AVAILABLE
+    stomach_s = "yes" if stomach is True else ("no" if stomach is False else NOT_AVAILABLE)
+    return f"gels={_na(gels)} fluid={_na(fluid)} stomach_ok={stomach_s}"
+
+
+def _shoe_line(session: Session, workout: Workout) -> str:
+    sid = getattr(workout, "shoe_id", None)
+    if sid is None:
+        return NOT_AVAILABLE
+    from backend.models import AthleteShoe
+
+    shoe = session.get(AthleteShoe, sid)
+    if shoe is None:
+        return NOT_AVAILABLE
+    return f"{shoe.name} · {_na(float(shoe.total_km), suffix=' km total')}"
+
+
 def _previous_race_lines(session: Session, races: Iterable[Race]) -> list[str]:
     lines = []
     for r in races:
@@ -475,14 +507,20 @@ def _previous_race_lines(session: Session, races: Iterable[Race]) -> list[str]:
         lines.append(
             f"  - {r.race_date.isoformat()} {_na(float(r.distance_km), suffix=' km')}: "
             f"time {_fmt_duration(r.actual_time_seconds)} pace {pace} "
-            f"HR {avg_hr} power {avg_pwr} lessons: none recorded"
+            f"HR {avg_hr} power {avg_pwr} lessons: {_lessons_text(_linked_lessons(session, r))}"
         )
     return lines
 
 
 def _tss_lines(workout: Workout, stryd: Optional[StrydActivity], missing: list[str]) -> str:
-    app_tss = workout.tss
-    app_method = workout.tss_method or workout.tss_source
+    from backend.services.session_tss import session_tss
+
+    counted = session_tss(
+        workout,
+        stryd_tss=stryd.tss if stryd else None,
+    )
+    app_tss = counted.get("tss")
+    app_method = counted.get("method") or workout.tss_method or workout.tss_source
     stryd_tss = stryd.tss if stryd else None
     canonical = _na(int(app_tss) if app_tss is not None else None)
     parts = [f"app counts: {canonical} ({_na(app_method)})"]
@@ -644,6 +682,9 @@ def build_session_consult(
                     f"goal_pace: {goal_pace}",
                     f"pre-race estimate ({est_label}): {est}",
                     f"estimate band: {band}",
+                    f"chip_time: {_fmt_duration(race.actual_time_seconds)}",
+                    f"elapsed_time: {_fmt_duration(getattr(workout, "elapsed_time_seconds", None))}",
+                    f"moving_time: {_fmt_duration(workout.duration_seconds)}",
                     f"actual_time: {_fmt_duration(actual)}",
                     f"gap_to_goal: {gap_goal}",
                     f"gap_to_estimate: {gap_est}",
@@ -699,7 +740,8 @@ def build_session_consult(
                 "## What I logged",
                 f"feeling: {_na(workout.feeling)}",
                 f"fuel: {_na(workout.fuelled)}",
-                f"fuel_detail (gels/first-at/stomach): {NOT_AVAILABLE}",
+                f"fuel_detail (gels/fluid/stomach): {_fuel_detail_line(workout)}",
+                f"shoe: {_shoe_line(session, workout)}",
                 f"feel_notes: {_na(feel.notes if feel else None)}",
                 f"remarks: {_na(workout.remarks)}",
             ]

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3b8a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Training plan (revamp) – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css?v=20261124g">
+</head>
+<body class="rv-page">
+  <div class="rv-shell rv-shell--wide rv-training-page">
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Training</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="rv-training-subtitle">Loading…</p>
+      </div>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
+    </header>
+
+    <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
+      <div class="rv-toolbar-left">
+        <nav class="rv-segnav" aria-label="Training views">
+          <a href="/v2/training/plan" aria-current="page">Plan</a>
+          <a href="/v2/training/log">Log</a>
+          <a href="/v2/training/trends">Trends</a>
+        </nav>
+        <div id="v2-sync-toolbar"></div>
+      </div>
+    </section>
+
+    <section class="rv-card rv-plan-warnings" id="v2-plan-warnings" hidden aria-label="Plan warnings"></section>
+    <section class="rv-card rv-stack rv-plan-road-card" id="v2-plan-road" aria-label="Road to race chart"></section>
+    <section class="rv-card rv-stack rv-plan-week-load-card" id="v2-plan-week-load" aria-label="This week load"></section>
+    <div id="v2-plan-week-head" class="rv-plan-week-head-host rv-stack"></div>
+    <div id="v2-plan-shell" class="rv-plan-layout">
+      <section class="rv-stack rv-plan-board-host" id="v2-plan-week-board" aria-label="Week plan board"></section>
+      <aside class="rv-plan-rail rv-stack" id="v2-plan-rail" aria-label="Plan sidebar"></aside>
+    </div>
+  </div>
+
+  <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <div id="v2-session-editor-backdrop" class="rv-drawer-backdrop" hidden></div>
+  <aside id="v2-session-editor" class="rv-drawer rv-drawer--wide" role="dialog" aria-modal="true" aria-labelledby="v2-session-editor-title" hidden>
+    <div class="rv-drawer-scroll" id="v2-session-editor-body"></div>
+  </aside>
+  <div class="rv-popover-backdrop" id="v2-coach-import-backdrop" hidden></div>
+  <div class="rv-card rv-stack" id="v2-coach-import" role="dialog" aria-labelledby="v2-coach-import-title" hidden
+    style="position:fixed;left:50%;top:12%;transform:translateX(-50%);z-index:50;max-width:640px;width:calc(100% - 32px);max-height:75vh;overflow:auto">
+    <h2 class="rv-label" id="v2-coach-import-title">Import coach week</h2>
+    <p class="rv-subtitle" id="v2-coach-import-photo-hint"></p>
+    <label class="rv-subtitle" id="v2-coach-import-photo-wrap" hidden>
+      Photo (jpg, png, heic, max 10 MB)
+      <input type="file" id="v2-coach-import-photo" accept="image/jpeg,image/png,image/heic,image/heif" disabled>
+    </label>
+    <textarea id="v2-coach-import-text" class="rv-input" rows="5" style="width:100%"
+      placeholder="Tue easy 60min&#10;Thu tempo 2km x 7&#10;Sat long 18km"></textarea>
+    <div id="v2-coach-import-preview"></div>
+    <div class="rv-row">
+      <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-cancel">Cancel</button>
+      <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-import-parse">Preview</button>
+      <button type="button" class="rv-btn" id="v2-coach-import-commit" disabled>Import</button>
+    </div>
+  </div>
+  <div class="rv-popover-backdrop" id="v2-coach-popover-backdrop" hidden></div>
+  <div class="rv-popover" id="v2-coach-popover" role="dialog" aria-labelledby="v2-coach-popover-title" hidden>
+    <h2 class="rv-label" id="v2-coach-popover-title">Coach session</h2>
+    <p id="v2-coach-popover-body"></p>
+    <button type="button" class="rv-btn rv-btn--secondary" id="v2-coach-popover-close">Close</button>
+  </div>
+
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/v2-sync-status.js?v=20261124f"></script>
+  <script src="/js/lib/v2-sync-toolbar.js"></script>
+  <script src="/js/lib/csrf-fetch.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js?v=20261124g"></script>
+  <script src="/js/v2-session-editor.js"></script>
+  <script src="/js/v2-plan-week-board.js"></script>
+  <script src="/js/v2-training-plan.js?v=20261124g"></script>
+  <script src="/js/v2-plan-wizard.js?v=20261124h"></script>
+</body>
+</html>

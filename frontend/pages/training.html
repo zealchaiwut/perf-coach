@@ -1216,6 +1216,13 @@
         </div>
 
         <div class="meta-field">
+          <label for="workout-first-gel">First gel (min)</label>
+          <input id="workout-first-gel" type="number" min="0" max="300" step="1"
+                 inputmode="numeric" placeholder="e.g. 30">
+          <small class="field-hint">Minutes into the run when the first gel went down. Used by the coach review chip.</small>
+        </div>
+
+        <div class="meta-field">
           <label for="workout-fuelled">Took on fuel</label>
           <!-- Tri-state, not a checkbox: null means "not recorded" and must
                never read as "no". The long-run-fuel habit only ticks on an

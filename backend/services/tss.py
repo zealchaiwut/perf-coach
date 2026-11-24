@@ -1231,16 +1231,40 @@ def persist_running_tss(workout_id, session) -> dict:
 
     result = compute_running_tss(workout, splits, prefs or UserPreferences())
 
-    # Always persist the computation method (enables comparison display in UI)
-    if result["method"] != "none":
-        workout.tss_method = result["method"]
-
-    # App-computed TSS is authoritative unless the athlete confirmed manual TSS.
-    if workout.tss_source != "manual" and result["tss"] is not None:
+    # Pace / HR methods are still stored only on workouts.tss (no dual column yet).
+    if (
+        workout.tss_source != "manual"
+        and result.get("tss") is not None
+        and result.get("method") not in ("none", "power")
+    ):
         workout.tss = result["tss"]
         workout.tss_source = "calculated"
+        workout.tss_method = result["method"]
 
-    return result
+    from backend.services.running_tss_power import calculate_running_tss_power
+    from backend.services.session_tss import refresh_workout_tss_storage
+
+    power_tss = None
+    if prefs is not None:
+        power_result = calculate_running_tss_power(
+            duration_seconds=workout.duration_seconds,
+            np=workout.np,
+            ftp_w=prefs.ftp_w,
+        )
+        if power_result.get("tss") is not None:
+            power_tss = power_result["tss"]
+        elif result.get("method") == "power" and result.get("tss") is not None:
+            power_tss = result["tss"]
+
+    refresh_workout_tss_storage(session, workout, power_tss=power_tss)
+
+    if result.get("method") and result["method"] != "none":
+        workout.tss_method = result["method"]
+
+    out = dict(result)
+    if result.get("tss") is not None:
+        out["tss"] = int(round(result["tss"]))
+    return out
 
 
 def compute_running_tss_pace_from_prefs(

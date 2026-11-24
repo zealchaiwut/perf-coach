@@ -7,7 +7,13 @@
   var TF = win.TrainingFormat || {};
 
   /** Run-subtype display labels for the header subtype tag (run_subtype column). */
-  var RD4_SUBTYPE_LABELS = { interval: "interval", longrun: "long run", easy: "easy", tempo: "tempo" };
+  var RD4_SUBTYPE_LABELS = {
+    interval: "interval",
+    longrun: "long run",
+    easy: "easy",
+    tempo: "tempo",
+    race: "race",
+  };
 
   // Zone-2 HR band defaults — read from window.Zone2 (zone2-constants.js)
   // so the same values and the same preference-fetch are shared with run-view
@@ -71,6 +77,21 @@
     var d = new Date(iso);
     if (isNaN(d.getTime())) return null;
     return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function fmtSyncAt(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    var opts = {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    };
+    if (window.AppCommon && window.AppCommon.TIMEZONE) opts.timeZone = window.AppCommon.TIMEZONE;
+    return d.toLocaleString("en-GB", opts);
   }
 
   function median(nums) {
@@ -587,27 +608,6 @@
     return [];
   }
 
-  function extractIntervalSet(lapMeta) {
-    if (lapMeta.length < 3) return null;
-    var firstRest = -1, lastRest = -1;
-    for (var i = 0; i < lapMeta.length; i++) {
-      if (lapMeta[i].anomaly) {
-        if (firstRest === -1) firstRest = i;
-        lastRest = i;
-      }
-    }
-    if (firstRest === -1 || lastRest === firstRest) return null;
-    // Include the non-anomaly lap immediately before firstRest if it exists
-    // (the first fast interval precedes the first rest lap).
-    var startIdx = (firstRest > 0 && !lapMeta[firstRest - 1].anomaly) ? firstRest - 1 : firstRest;
-    var workLaps = [];
-    for (var j = startIdx; j <= lastRest; j++) {
-      if (!lapMeta[j].anomaly) workLaps.push(lapMeta[j]);
-    }
-    if (workLaps.length < 2) return null;
-    return workLaps;
-  }
-
   function renderIntervalBlock(workLaps, repsPerSet) {
     if (!workLaps || !workLaps.length) return "";
     function avg(arr) {
@@ -848,12 +848,14 @@
       '<div class="rd4-header-top">' +
       // Type badge + optional run-subtype tag, grouped left: [RUN] [INTERVAL].
       '<span class="rd4-typebadges">' +
-      '<span class="rd4-typebadge">RUN</span>' +
-      (RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]
-        ? '<span class="rd4-typebadge rd4-subtypebadge">' +
-          esc(RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]) +
-          "</span>"
-        : "") +
+      ((w.run_subtype || "").toLowerCase() === "race"
+        ? '<span class="rd4-typebadge rd4-typebadge--race">RACE</span>'
+        : '<span class="rd4-typebadge">RUN</span>' +
+          (RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]
+            ? '<span class="rd4-typebadge rd4-subtypebadge">' +
+              esc(RD4_SUBTYPE_LABELS[(w.run_subtype || "").toLowerCase()]) +
+              "</span>"
+            : "")) +
       "</span>" +
       '<div class="rd4-srcbadges">' +
       srcBadges +
@@ -874,9 +876,14 @@
       esc(fmtDateShort(w.workout_date)) +
       (startTime ? " · started " + esc(startTime) : "") +
       "</div>" +
-      // Quick-tag effort feeling — host div; the Log tab mounts the interactive
-      // row (needs listeners + shared patchFeeling) after render.
-      (w.id ? '<div class="rd4-feeling" id="rd4-feeling"></div>' : "") +
+      // Quick-tag effort feeling + session type — hosts; the Log tab mounts
+      // the interactive rows after render.
+      (w.id
+        ? '<div class="rd4-tags">' +
+          '<div class="rd4-feeling" id="rd4-feeling"></div>' +
+          '<div class="rd4-runtype" id="rd4-runtype"></div>' +
+          "</div>"
+        : "") +
       buildHeroMetricsHtml(w, "rd4LiveDistGrad") +
       "</section>";
 
@@ -1203,13 +1210,23 @@
     var intervalHasRoles = intervalWorkLaps.some(function (m) {
       return m.role === "work";
     });
-    if ((!intervalWorkLaps || !intervalWorkLaps.length) && intervalLapMeta.length) {
+    // No auto-km fallback: aid-station walk km on a marathon look like
+    // interval rests to extractIntervalSet. Show the card only for real
+    // lap presses (2+ work laps) or a confident backend work-role profile.
+    if (
+      (!intervalWorkLaps || !intervalWorkLaps.length) &&
+      intervalLapMeta.length &&
+      detected &&
+      detected.confident
+    ) {
       intervalHasRoles = intervalLapMeta.some(function (m) {
         return m.role === "work";
       });
-      intervalWorkLaps = intervalHasRoles
-        ? intervalLapMeta.filter(function (m) { return m.role === "work"; })
-        : extractIntervalSet(intervalLapMeta) || [];
+      if (intervalHasRoles) {
+        intervalWorkLaps = intervalLapMeta.filter(function (m) {
+          return m.role === "work";
+        });
+      }
     }
     if (intervalWorkLaps && intervalWorkLaps.length) {
       var repsPerSet = detected && detected.confident ? detected.reps_per_set : null;
@@ -1365,16 +1382,29 @@
 
     // ── 9 Source & sync ──
     var syncParts = [];
-    if (syncMeta.stravaLatest && syncMeta.stravaLatest.synced_at)
-      syncParts.push("Strava " + syncMeta.stravaLatest.synced_at);
-    if (syncMeta.strydLatest && syncMeta.strydLatest.synced_at)
-      syncParts.push("Stryd " + syncMeta.strydLatest.synced_at);
+    if (syncMeta.stravaLatest && syncMeta.stravaLatest.synced_at) {
+      var stravaSyncAt = fmtSyncAt(syncMeta.stravaLatest.synced_at);
+      syncParts.push("Strava " + (stravaSyncAt || syncMeta.stravaLatest.synced_at));
+    }
+    if (syncMeta.strydLatest && syncMeta.strydLatest.synced_at) {
+      var strydLatestAt = fmtSyncAt(syncMeta.strydLatest.synced_at);
+      syncParts.push("Stryd " + (strydLatestAt || syncMeta.strydLatest.synced_at));
+    }
     var ids = [];
     if (strava && strava.strava_activity_id)
       ids.push("Strava " + strava.strava_activity_id);
     if (stryd && stryd.stryd_activity_id)
       ids.push("Stryd " + stryd.stryd_activity_id);
 
+    var strydMissing = srcStrava && !srcStryd;
+    var strydSyncAt = fmtSyncAt(
+      (syncMeta.strydLatest && syncMeta.strydLatest.synced_at) || ""
+    );
+    var missingNote = strydMissing
+      ? '<p class="rd4-src-missing">No Stryd data on this session' +
+        (strydSyncAt ? " · last Stryd sync " + esc(strydSyncAt) : "") +
+        '. <a href="/v2/settings#integrations">Sync from Settings → Integrations</a></p>'
+      : "";
     var srcBlock =
       '<section class="rd4-card rd4-src"><h2 class="rd4-sec-title">Source &amp; sync</h2>' +
       '<div class="rd4-src-row">' +
@@ -1387,8 +1417,11 @@
         ? '<span class="rd4-srcbtn rd4-srcbtn--stryd">Stryd · TSS ' +
           dash(stryd && stryd.tss != null ? Math.round(stryd.tss) : (w.tss != null ? Math.round(w.tss) : null)) +
           "</span>"
-        : "") +
+        : strydMissing
+          ? '<a class="rd4-srcbtn rd4-srcbtn--missing" href="/v2/settings#integrations">No Stryd on this session</a>'
+          : "") +
       "</div>" +
+      missingNote +
       '<p class="rd4-muted">Merged from ' +
       ids.join(" · ") +
       (syncParts.length ? " · last sync " + syncParts.join(", ") : "") +

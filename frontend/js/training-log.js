@@ -171,6 +171,7 @@
     longrun: "long run",
     easy: "easy",
     tempo: "tempo",
+    race: "race",
   };
 
   // Segment label → intensity key (timeline colors + segment dots), derived
@@ -2075,6 +2076,7 @@
     longrun: "Marked as long run",
     easy: "Marked as easy run",
     tempo: "Marked as tempo",
+    race: "Marked as race",
   };
 
   // issue: perf — the subtype tag is baked into the static HTML string that
@@ -3616,6 +3618,11 @@
           if (feelHost && w.id) {
             feelHost.innerHTML = "";
             feelHost.appendChild(buildFeelingRow(w.id, w.feeling, "dp-feel"));
+          }
+          var typeHost = document.getElementById("rd4-runtype");
+          if (typeHost && window.V2RunTypeButtons && w.id) {
+            typeHost.innerHTML = "";
+            window.V2RunTypeButtons.mount(typeHost, w.id, w.run_subtype);
           }
         }
       } catch (err) {
@@ -5772,7 +5779,8 @@
         }),
     ]).then(function (results) {
       var stravaConnected = results[0] && results[0].connected;
-      var strydConnected = results[1] && results[1].connected;
+      var strydSt = results[1];
+      var strydConnected = strydSt && strydSt.connected;
       var stravaBtn = document.getElementById("sync-btn-strava");
       var strydBtn = document.getElementById("sync-btn-stryd");
       var stravaTimeEl = document.getElementById("sync-time-strava");
@@ -5784,6 +5792,11 @@
       if (!strydConnected) {
         if (strydBtn) strydBtn.disabled = true;
         if (strydTimeEl) strydTimeEl.textContent = "Not connected";
+      } else if (strydSt.status === "reauth_required") {
+        if (strydBtn) strydBtn.disabled = true;
+        if (strydTimeEl) strydTimeEl.textContent = "Stryd needs your password again";
+      } else if (strydSt.status === "unreachable" && strydTimeEl) {
+        strydTimeEl.textContent = "Connected (Stryd unreachable)";
       }
     });
 

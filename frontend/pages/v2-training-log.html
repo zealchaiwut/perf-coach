@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3b8a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Training log (revamp) – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css?v=20261124f">
+  <link rel="stylesheet" href="/css/run-detail-v4.css?v=20261124a">
+</head>
+<body class="rv-page">
+  <div class="rv-shell rv-shell--wide rv-training-page">
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Training</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="rv-training-subtitle">Session log</p>
+      </div>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
+    </header>
+
+    <section class="rv-card rv-toolbar-card" aria-label="Training toolbar">
+      <div class="rv-toolbar-left">
+        <nav class="rv-segnav" aria-label="Training views">
+          <a href="/v2/training/plan">Plan</a>
+          <a href="/v2/training/log" aria-current="page">Log</a>
+          <a href="/v2/training/trends">Trends</a>
+        </nav>
+        <div id="v2-sync-toolbar"></div>
+      </div>
+    </section>
+
+    <section class="rv-card rv-stack rv-month-board" id="v2-month-section" aria-labelledby="v2-month-h">
+      <h2 id="v2-month-h" class="rv-label">Month</h2>
+      <div id="v2-month-nav"></div>
+      <div id="v2-month-body"></div>
+    </section>
+
+    <section class="rv-card rv-chart-card" id="v2-chart-section" aria-labelledby="v2-chart-h">
+      <div class="rv-chart-head">
+        <div>
+          <h2 id="v2-chart-h" class="rv-label">Weekly volume</h2>
+          <p class="rv-chart-sub">Click a week, here or in the calendar, to jump to it in the list</p>
+        </div>
+        <div class="rv-chart-legend" id="v2-chart-legend" aria-hidden="true"></div>
+      </div>
+      <div id="v2-chart-body" class="rv-chart-wrap"></div>
+    </section>
+
+    <section class="rv-card rv-list-card" id="v2-list-section" aria-labelledby="v2-list-h">
+      <h2 id="v2-list-h" class="sr-only">Sessions</h2>
+      <div id="v2-list-filters" class="rv-list-filters"></div>
+      <div id="v2-list-body"></div>
+    </section>
+  </div>
+
+  <div id="v2-drawer-backdrop" class="rv-drawer-backdrop" hidden></div>
+  <aside id="v2-drawer" class="rv-drawer rv-drawer--wide" role="dialog" aria-modal="true" aria-labelledby="v2-drawer-title" hidden>
+    <div class="rv-drawer-scroll" id="v2-drawer-body"></div>
+  </aside>
+  <div id="v2-toast" class="rv-toast" role="status" aria-live="polite"></div>
+
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/v2-sync-status.js?v=20261124f"></script>
+  <script src="/js/lib/sync-poller.js"></script>
+  <script src="/js/lib/v2-sync-toolbar.js"></script>
+  <script src="/js/lib/v2-feel-buttons.js?v=20261124a"></script>
+  <script src="/js/lib/run-detail-view.js?v=20261124a"></script>
+  <script src="/js/v2-run-drawer.js?v=20261124a"></script>
+  <script src="/js/v2-strength-drawer.js"></script>
+  <script src="/js/lib/csrf-fetch.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js?v=20261124g"></script>
+  <script src="/js/v2-training-log.js?v=20261124a"></script>
+</body>
+</html>

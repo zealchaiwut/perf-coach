@@ -200,6 +200,30 @@ row; this endpoint must never create a second one.
    weeks' ceiling before the rolling window is fully "real"), but not a
    precise reconstruction of actual history.
 
+## Week snapshots (revamp block)
+
+Started weeks freeze `target_tss` + `phase` in `load_plan_week_snapshots` so
+a later settings change cannot rewrite history.
+
+**When rows are written (and committed):**
+
+- Plan settings save (`PUT /api/plan/revamp-settings` → `apply_settings` →
+  `ensure_snapshots`). Changing `a_race_id` uses the same path.
+- Weekly worker job `load_plan_snapshots` (`ensure_snapshots_for_users`),
+  enqueued once per ISO week. Idempotent: existing past-week rows are left
+  alone; the current week is refreshed only when the settings fingerprint
+  changed.
+
+`ensure_snapshots` also drops current+future snapshot rows
+(`_invalidate_future_snapshots` from this week's Monday) so those weeks
+re-derive. Past started weeks keep their frozen row.
+
+**Read path never writes.** `week_target_and_phase` (and batched
+`weekly_rollups`) look up a snapshot for started weeks. If the row is
+missing they live-derive the same series math used for future weeks and do
+not call `ensure_snapshots`. Plan GET handlers open a session and never
+commit; they must not flush snapshot INSERT/DELETE either.
+
 ## ML-readiness
 
 - Same blocking gap as ACWR/Guardrail: no injury/illness labels, so there's

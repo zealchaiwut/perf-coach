@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Training · Trends</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1f3b8a}a:hover{color:#0b1530}
+.card{background:#ffffff;border-radius:14px;box-shadow:0 2px 12px rgba(13,30,67,0.10),0 1px 3px rgba(13,30,67,0.06);padding:18px;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;min-width:0}
+.lbl{font-size:12px;font-weight:700;letter-spacing:0.1em;color:#5f6b84;text-transform:uppercase}
+.mono{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em}
+.sub{font-size:13px;color:#56627f}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.tab{font-size:14px;font-weight:700;color:#e3ecff;text-decoration:none;padding:9px 16px;border-radius:10px}
+.tab.on{background:#ffffff;color:#0b1530}
+.sv{font-size:13.5px;font-weight:700;color:#3c4a6b;text-decoration:none;padding:9px 15px;border-radius:8px}
+.sv.on{background:#0b1530;color:#ffffff}
+.rg{font-size:13px;font-weight:700;padding:8px 13px;border-radius:8px;border:0;background:transparent;color:#3c4a6b;cursor:pointer;font-family:inherit}
+.rg.on{background:#ffffff;color:#0b1530;box-shadow:0 1px 2px rgba(13,30,67,0.12)}
+.spark{background:#f7f9fd;border-radius:11px;padding:13px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.key{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:#56627f}
+</style>
+</head>
+<body>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 32px 48px 56px; background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%); font-family: 'Inter Tight', system-ui, sans-serif; color: #0b1530; letter-spacing: -0.01em">
+<div style="max-width: 1344px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap">
+    <div style="color: #ffffff; display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 34px; font-weight: 700; letter-spacing: -0.025em">Training</span>
+      <span style="font-size: 15px; color: #e3ecff">What Stryd and Strava show over months</span>
+    </div>
+    <nav style="display: flex; gap: 4px; background: rgba(11,21,48,0.3); padding: 5px; border-radius: 13px">
+      <a href="Main.html" class="tab">Home</a>
+      <a href="TrainingWeek.html" class="tab on">Training</a>
+      <a href="Performance.html" class="tab">Performance</a>
+    </nav>
+  </div>
+
+  <div class="card" style="flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; padding: 12px 16px">
+    <nav style="display: inline-flex; background: #eef2fb; border-radius: 10px; padding: 3px; gap: 2px">
+      <a href="TrainingWeek.html" class="sv">Plan</a>
+      <a href="TrainingLog.html" class="sv">Log</a>
+      <a href="TrainingTrends.html" class="sv on">Trends</a>
+    </nav>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <span class="sub">Range</span>
+      <div style="display: inline-flex; background: #eef2fb; border-radius: 10px; padding: 3px; gap: 2px">
+        <button type="button" class="rg">4 wk</button>
+        <button type="button" class="rg on">3 mo</button>
+        <button type="button" class="rg">6 mo</button>
+        <button type="button" class="rg">12 mo</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="padding: 20px 24px">
+    <div class="row" style="align-items: flex-start; flex-wrap: wrap">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="lbl">Fitness and freshness</span>
+        <span class="sub">Chronic load climbed 33 → 55, now easing into the race on purpose</span>
+      </div>
+      <div style="display: flex; gap: 22px">
+        <div style="display: flex; flex-direction: column; align-items: flex-end"><span class="sub" style="font-size: 12px">CTL · fitness</span><span class="mono" style="font-size: 22px; font-weight: 600">50</span></div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end"><span class="sub" style="font-size: 12px">ATL · fatigue</span><span class="mono" style="font-size: 22px; font-weight: 600">24</span></div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end"><span class="sub" style="font-size: 12px">TSB · freshness</span><span class="mono" style="font-size: 22px; font-weight: 600; color: #15803d">+26</span></div>
+      </div>
+    </div>
+    <svg viewBox="0 0 1000 220" style="width: 100%; height: 230px; display: block" role="img" aria-label="Over thirteen weeks chronic load rises from 33 to a peak of 55 then eases to 50, while fatigue swings above and below it and drops sharply to 24 in race week">
+      <line x1="0" y1="200" x2="1000" y2="200" stroke="#e3e9f5"></line>
+      <line x1="0" y1="135.7" x2="1000" y2="135.7" stroke="#eef1f7" stroke-dasharray="4 5"></line>
+      <line x1="0" y1="71.4" x2="1000" y2="71.4" stroke="#eef1f7" stroke-dasharray="4 5"></line>
+      <rect x="860" y="0" width="140" height="200" fill="#fbffe0"></rect>
+      <text x="868" y="16" font-size="11" fill="#6b4408" font-weight="700">Taper</text>
+      <polyline points="20,102.3 100,92 180,84.3 260,107.4 340,79.2 420,71.5 500,97.2 580,68.9 660,61.2 740,86.9 820,56 900,112.6 980,138.3" fill="none" stroke="#b45309" stroke-width="2.5" stroke-linejoin="round" stroke-dasharray="6 4"></polyline>
+      <polyline points="20,115.2 100,110 180,102.3 260,102.3 340,94.6 420,86.9 500,84.3 580,76.6 660,68.9 740,66.3 820,58.6 900,63.7 980,71.5" fill="none" stroke="#1f3b8a" stroke-width="3.5" stroke-linejoin="round"></polyline>
+      <circle cx="980" cy="71.5" r="5" fill="#1f3b8a"></circle>
+      <text x="4" y="132" font-size="11" fill="#56627f" font-family="JetBrains Mono, monospace">25</text>
+      <text x="4" y="67" font-size="11" fill="#56627f" font-family="JetBrains Mono, monospace">50</text>
+      <text x="20" y="216" font-size="11" fill="#56627f">17 Aug</text>
+      <text x="500" y="216" font-size="11" fill="#56627f" text-anchor="middle">28 Sep</text>
+      <text x="980" y="216" font-size="11" fill="#56627f" text-anchor="end">9 Nov</text>
+    </svg>
+    <div style="display: flex; gap: 22px; flex-wrap: wrap">
+      <span class="key"><span style="width: 18px; height: 3px; background: #1f3b8a; border-radius: 2px"></span>CTL · fitness</span>
+      <span class="key"><span style="width: 18px; height: 0; border-top: 2.5px dashed #b45309"></span>ATL · fatigue</span>
+      <span class="key"><span style="width: 12px; height: 12px; background: #fbffe0; border: 1px solid #e7ef9c; border-radius: 3px"></span>Taper window</span>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px">
+
+    <div class="card" style="padding: 20px 24px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="lbl">Weekly load</span>
+        <span class="sub">TSS per week · lighter bars are planned down weeks</span>
+      </div>
+      <svg viewBox="0 0 1000 170" style="width: 100%; height: 180px; display: block" role="img" aria-label="Weekly training stress over thirteen weeks, building from 260 to a peak of 372 with four lighter down weeks, then dropping to 214 and 118 for the taper">
+        <line x1="0" y1="140" x2="1000" y2="140" stroke="#e3e9f5"></line>
+        <rect x="10" y="62" width="52" height="78" rx="4" fill="#1f3b8a"></rect>
+        <rect x="86" y="54.5" width="52" height="85.5" rx="4" fill="#1f3b8a"></rect>
+        <rect x="162" y="49.4" width="52" height="90.6" rx="4" fill="#1f3b8a"></rect>
+        <rect x="238" y="68.6" width="52" height="71.4" rx="4" fill="#9cb7ea"></rect>
+        <rect x="314" y="44.6" width="52" height="95.4" rx="4" fill="#1f3b8a"></rect>
+        <rect x="390" y="39.2" width="52" height="100.8" rx="4" fill="#1f3b8a"></rect>
+        <rect x="466" y="59" width="52" height="81" rx="4" fill="#9cb7ea"></rect>
+        <rect x="542" y="37.4" width="52" height="102.6" rx="4" fill="#1f3b8a"></rect>
+        <rect x="618" y="32" width="52" height="108" rx="4" fill="#1f3b8a"></rect>
+        <rect x="694" y="50" width="52" height="90" rx="4" fill="#9cb7ea"></rect>
+        <rect x="770" y="28.4" width="52" height="111.6" rx="4" fill="#1f3b8a"></rect>
+        <rect x="846" y="75.8" width="52" height="64.2" rx="4" fill="#9cb7ea"></rect>
+        <rect x="922" y="104.6" width="52" height="35.4" rx="4" fill="#ffffff" stroke="#1f3b8a" stroke-width="2" stroke-dasharray="5 4"></rect>
+        <text x="796" y="22" font-size="11" fill="#0b1530" text-anchor="middle" font-family="JetBrains Mono, monospace">372</text>
+        <text x="948" y="98" font-size="11" fill="#0b1530" text-anchor="middle" font-family="JetBrains Mono, monospace">118</text>
+        <text x="10" y="160" font-size="11" fill="#56627f">17 Aug</text>
+        <text x="974" y="160" font-size="11" fill="#56627f" text-anchor="end">this week</text>
+      </svg>
+      <div class="row" style="border-top: 1px solid #eef1f7; padding-top: 11px">
+        <span class="sub">Average across the block</span>
+        <span class="mono" style="font-size: 15px; font-weight: 600">302 TSS · 41 km · 5.6 h</span>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 20px 24px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="lbl">Decoupling per long run</span>
+        <span class="sub">Lower is better · this is what the durability score reads</span>
+      </div>
+      <svg viewBox="0 0 1000 170" style="width: 100%; height: 180px; display: block" role="img" aria-label="Heart-rate decoupling on the last ten long runs, falling from 24.6 percent to around 9 percent, with a median of 8.9 percent over the last four">
+        <line x1="0" y1="150" x2="1000" y2="150" stroke="#e3e9f5"></line>
+        <line x1="0" y1="125" x2="1000" y2="125" stroke="#15803d" stroke-width="1.5" stroke-dasharray="5 5"></line>
+        <text x="996" y="120" font-size="11" fill="#15803d" text-anchor="end" font-weight="700">5% · well-fuelled, well-paced</text>
+        <line x1="650" y1="105.5" x2="1000" y2="105.5" stroke="#0b1530" stroke-width="2"></line>
+        <text x="996" y="99" font-size="11" fill="#0b1530" text-anchor="end" font-weight="700">median of last 4 · 8.9%</text>
+        <circle cx="50" cy="27" r="7" fill="#b45309"></circle>
+        <circle cx="150" cy="97.5" r="7" fill="#6d93e8"></circle>
+        <circle cx="250" cy="91.5" r="7" fill="#6d93e8"></circle>
+        <circle cx="350" cy="109" r="7" fill="#6d93e8"></circle>
+        <circle cx="450" cy="89.5" r="7" fill="#6d93e8"></circle>
+        <circle cx="550" cy="105" r="7" fill="#6d93e8"></circle>
+        <circle cx="650" cy="112" r="7" fill="#1f3b8a"></circle>
+        <circle cx="750" cy="96" r="7" fill="#1f3b8a"></circle>
+        <circle cx="850" cy="108" r="7" fill="#1f3b8a"></circle>
+        <circle cx="950" cy="103" r="7" fill="#1f3b8a"></circle>
+        <text x="62" y="31" font-size="11" fill="#7a3a10" font-family="JetBrains Mono, monospace">24.6%</text>
+        <text x="50" y="166" font-size="11" fill="#56627f" text-anchor="middle">Aug</text>
+        <text x="950" y="166" font-size="11" fill="#56627f" text-anchor="middle">7 Nov</text>
+      </svg>
+      <p class="sub" style="margin: 0; line-height: 1.5">The August spike was an unfuelled run in the heat. Since you started gels at 40 min it has settled between 8 and 11%.</p>
+    </div>
+
+  </div>
+
+  <div class="card" style="padding: 20px 24px">
+    <div class="row">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <span class="lbl">Stryd form metrics</span>
+        <span class="sub">Easy runs only, so pace and terrain don't swamp the signal</span>
+      </div>
+      <span class="sub">Change over 3 months</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+
+      <div class="spark">
+        <div class="row"><span style="font-size: 14px; font-weight: 600">Easy-run power</span><span class="chip" style="background: #dff5d6; color: #2d5e10">+7 W</span></div>
+        <span class="mono" style="font-size: 22px; font-weight: 600">206 W</span>
+        <svg viewBox="0 0 200 40" style="width: 100%; height: 40px; display: block" aria-hidden="true"><polyline points="0,32 25,30 50,31 75,26 100,24 125,25 150,20 175,17 200,14" fill="none" stroke="#1f3b8a" stroke-width="2.5" stroke-linejoin="round"></polyline></svg>
+      </div>
+      <div class="spark">
+        <div class="row"><span style="font-size: 14px; font-weight: 600">Power to weight</span><span class="chip" style="background: #dff5d6; color: #2d5e10">+0.06</span></div>
+        <span class="mono" style="font-size: 22px; font-weight: 600">2.58 W/kg</span>
+        <svg viewBox="0 0 200 40" style="width: 100%; height: 40px; display: block" aria-hidden="true"><polyline points="0,30 25,29 50,30 75,27 100,25 125,24 150,22 175,20 200,18" fill="none" stroke="#1f3b8a" stroke-width="2.5" stroke-linejoin="round"></polyline></svg>
+      </div>
+      <div class="spark">
+        <div class="row"><span style="font-size: 14px; font-weight: 600">Cadence</span><span class="chip" style="background: #dff5d6; color: #2d5e10">+2 spm</span></div>
+        <span class="mono" style="font-size: 22px; font-weight: 600">168 spm</span>
+        <svg viewBox="0 0 200 40" style="width: 100%; height: 40px; display: block" aria-hidden="true"><polyline points="0,26 25,25 50,26 75,24 100,23 125,24 150,22 175,21 200,20" fill="none" stroke="#1f3b8a" stroke-width="2.5" stroke-linejoin="round"></polyline></svg>
+      </div>
+      <div class="spark" style="background: #fff7ed">
+        <div class="row"><span style="font-size: 14px; font-weight: 600">Leg spring stiffness</span><span class="chip" style="background: #ffedd5; color: #7a3a10">flat</span></div>
+        <span class="mono" style="font-size: 22px; font-weight: 600">9.4 kN/m</span>
+        <svg viewBox="0 0 200 40" style="width: 100%; height: 40px; display: block" aria-hidden="true"><polyline points="0,21 25,22 50,20 75,21 100,22 125,20 150,21 175,21 200,21" fill="none" stroke="#b45309" stroke-width="2.5" stroke-linejoin="round"></polyline></svg>
+      </div>
+      <div class="spark" style="background: #fff7ed">
+        <div class="row"><span style="font-size: 14px; font-weight: 600">Ground contact</span><span class="chip" style="background: #ffedd5; color: #7a3a10">−3 ms</span></div>
+        <span class="mono" style="font-size: 22px; font-weight: 600">248 ms</span>
+        <svg viewBox="0 0 200 40" style="width: 100%; height: 40px; display: block" aria-hidden="true"><polyline points="0,18 25,19 50,18 75,20 100,19 125,20 150,21 175,20 200,21" fill="none" stroke="#b45309" stroke-width="2.5" stroke-linejoin="round"></polyline></svg>
+      </div>
+      <div class="spark">
+        <div class="row"><span style="font-size: 14px; font-weight: 600">Form power ratio</span><span class="chip" style="background: #eef2fb; color: #3c4a6b">flat</span></div>
+        <span class="mono" style="font-size: 22px; font-weight: 600">23%</span>
+        <svg viewBox="0 0 200 40" style="width: 100%; height: 40px; display: block" aria-hidden="true"><polyline points="0,20 25,21 50,20 75,19 100,20 125,21 150,20 175,20 200,20" fill="none" stroke="#56627f" stroke-width="2.5" stroke-linejoin="round"></polyline></svg>
+      </div>
+
+    </div>
+    <p class="sub" style="margin: 0; line-height: 1.5">The two amber cards are what the economy score reads. Both have barely moved in three months — the case for adding plyo after the race.</p>
+  </div>
+
+  <div class="card" style="padding: 20px 24px">
+    <div class="row">
+      <span class="lbl">Time in zone by month</span>
+      <div style="display: flex; gap: 14px; flex-wrap: wrap">
+        <span class="key"><span style="width: 11px; height: 11px; border-radius: 3px; background: #dbeafe"></span>Z1</span>
+        <span class="key"><span style="width: 11px; height: 11px; border-radius: 3px; background: #6d93e8"></span>Z2</span>
+        <span class="key"><span style="width: 11px; height: 11px; border-radius: 3px; background: #1f3b8a"></span>Z3</span>
+        <span class="key"><span style="width: 11px; height: 11px; border-radius: 3px; background: #b45309"></span>Z4</span>
+        <span class="key"><span style="width: 11px; height: 11px; border-radius: 3px; background: #7a1a1a"></span>Z5</span>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: grid; grid-template-columns: 80px minmax(0, 1fr) 120px; gap: 14px; align-items: center">
+        <span style="font-size: 14px; font-weight: 600">September</span>
+        <div style="height: 22px; border-radius: 7px; overflow: hidden; display: flex"><span style="width: 10%; background: #dbeafe"></span><span style="width: 66%; background: #6d93e8"></span><span style="width: 13%; background: #1f3b8a"></span><span style="width: 9%; background: #b45309"></span><span style="width: 2%; background: #7a1a1a"></span></div>
+        <span class="mono sub" style="text-align: right">22.4 h total</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 80px minmax(0, 1fr) 120px; gap: 14px; align-items: center">
+        <span style="font-size: 14px; font-weight: 600">October</span>
+        <div style="height: 22px; border-radius: 7px; overflow: hidden; display: flex"><span style="width: 8%; background: #dbeafe"></span><span style="width: 61%; background: #6d93e8"></span><span style="width: 15%; background: #1f3b8a"></span><span style="width: 13%; background: #b45309"></span><span style="width: 3%; background: #7a1a1a"></span></div>
+        <span class="mono sub" style="text-align: right">26.8 h total</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 80px minmax(0, 1fr) 120px; gap: 14px; align-items: center">
+        <span style="font-size: 14px; font-weight: 600">November</span>
+        <div style="height: 22px; border-radius: 7px; overflow: hidden; display: flex"><span style="width: 12%; background: #dbeafe"></span><span style="width: 64%; background: #6d93e8"></span><span style="width: 12%; background: #1f3b8a"></span><span style="width: 11%; background: #b45309"></span><span style="width: 1%; background: #7a1a1a"></span></div>
+        <span class="mono sub" style="text-align: right">6.1 h so far</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+</body>
+</html>

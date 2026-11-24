@@ -1,0 +1,14 @@
+{
+  "_comment": "Live Stryd streams shape (UAT 2026-11-24). Calendar JSON has no average_form_power; form power is vertical_power_list.",
+  "id": "fixture-form-power",
+  "timestamp": 1700000000,
+  "name": "Easy run",
+  "distance": 10000,
+  "moving_time": 3600,
+  "average_power": 200,
+  "average_leg_spring": 9.4,
+  "average_ground_time": 248,
+  "average_oscillation": 5.6,
+  "average_cadence": 180,
+  "vertical_power_list": [0, 46, 46, 46, 46, 46, 46, 46, 46, 46]
+}

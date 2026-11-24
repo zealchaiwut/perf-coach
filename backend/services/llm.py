@@ -77,6 +77,37 @@ def llm_enabled() -> bool:
     return flag and bool(_api_key())
 
 
+def llm_vision_enabled() -> bool:
+    """True only when coach LLM is on, vision is explicitly enabled, and a model is set.
+
+  The stock client is text-only; vision import calls ``complete_structured_vision``
+    which remains a no-op until a vision-capable transport is wired.
+    """
+    if not llm_enabled():
+        return False
+    flag = os.getenv("LLM_COACH_VISION_ENABLED", "").lower() in ("1", "true", "yes")
+    return flag and bool(os.getenv("LLM_VISION_MODEL", "").strip())
+
+
+def complete_structured_vision(
+    system: str,
+    image_bytes: bytes,
+    image_mime: str,
+    schema_name: str,
+    json_schema: dict,
+    *,
+    model_tier: str = "fast",
+) -> dict | None:
+    """Vision structured output — not wired to a provider in this repo yet."""
+    if not llm_vision_enabled():
+        return None
+    _log.info(
+        "LLM vision call skipped (no vision transport)",
+        extra={"schema": schema_name, "mime": image_mime, "bytes": len(image_bytes)},
+    )
+    return None
+
+
 def _model(tier: str) -> str:
     p = _provider()
     if p == "glm":

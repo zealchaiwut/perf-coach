@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3b8a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Home – perf-coach</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css?v=20261124f">
+</head>
+<body class="rv-page">
+  <div class="rv-shell rv-shell--wide">
+    <header class="rv-shell-head rv-shell-head--home rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert" id="rv-home-greet">Welcome</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="rv-home-date">Loading…</p>
+      </div>
+      <div class="rv-home-top-actions">
+        <span class="rv-home-race-pill rv-mono" id="rv-home-race-pill" hidden></span>
+        <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
+      </div>
+    </header>
+
+    <div id="rv-home-alerts" class="rv-home-alerts" hidden></div>
+
+    <section class="rv-card rv-home-today" id="rv-home-today">
+      <p class="rv-subtitle">Loading today…</p>
+    </section>
+
+    <div class="rv-home-cols">
+      <div class="rv-home-col">
+        <section class="rv-card" id="rv-home-week" aria-labelledby="rv-week-h">
+          <p class="rv-subtitle">Loading week…</p>
+        </section>
+        <section class="rv-card" id="rv-home-ladder" aria-labelledby="rv-ladder-h" hidden></section>
+        <section class="rv-card rv-home-weight" id="rv-home-weight" aria-labelledby="rv-weight-h" hidden></section>
+        <section class="rv-card rv-card--soft" id="rv-home-recent" aria-labelledby="rv-recent-h"></section>
+      </div>
+      <div class="rv-home-col">
+        <section class="rv-card" id="rv-home-next-race"></section>
+        <section class="rv-card" id="rv-home-status" aria-labelledby="rv-status-h"></section>
+        <section class="rv-card rv-card--soft rv-road-osaka" id="rv-home-road" aria-labelledby="rv-road-h" hidden>
+          <h2 id="rv-road-h" class="rv-label">Road to race</h2>
+        </section>
+      </div>
+    </div>
+
+    <p class="rv-row rv-home-dev-footer" hidden aria-hidden="true">
+      <a class="rv-btn rv-btn--secondary" href="/home">Classic home</a>
+      <a class="rv-btn rv-btn--secondary" href="/v2/components">Component gallery</a>
+    </p>
+  </div>
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/v2-sync-status.js?v=20261124f"></script>
+  <script src="/js/lib/csrf-fetch.js"></script>
+  <script src="/js/lib/copy-for-claude.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js?v=20261124g"></script>
+  <script src="/js/lib/perf-radar.js"></script>
+  <script src="/js/v2-home.js"></script>
+</body>
+</html>

@@ -486,6 +486,9 @@ _PERMANENT_EXEMPT_API: dict[str, str] = {
         "composed in-process by get_plan_week_bundle. Direct FE callers "
         "removed on purpose — endpoint kept as the week-load SoT handler."
     ),
+    "/api/plan/rule-evaluate": (
+        "Called from v2-plan-week-board.js on drag/drop and keyboard move."
+    ),
     "/api/projection": (
         "FE unused; still called in-process by _compute_plan_bundle "
         "(plan/computed SoT). Gate does not see main.py callers — permanent "
@@ -592,10 +595,10 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
 
     "/api/intensity-distribution/rolling": "No frontend caller. Formerly explained as 'trends.js calls the real one instead' but both trends.js and that sibling (/api/workouts/intensity-distribution) were deleted with the Trends page (feature/remove-trends-tab) — this route was always the unused one of the two.",
     "/api/sessions/{session_id}/intensity-distribution": "No frontend caller (see cluster note above) — same history as /api/intensity-distribution/rolling.",
-
     "/api/performance/backfill": "No frontend caller; training-performance.js reads /api/athletes/{id}/performance instead.",
     "/api/performance/score-breakdown": "No frontend caller (see cluster note above).",
     "/api/performance/score-history": "No frontend caller (see cluster note above).",
+    "/api/performance/bundle": "Orphan since the Performance revamp; tracked as #1602. No frontend caller.",
 
     "/api/personal-records/bulk": "home.js's own comment names the replacement directly: 'via /api/athletes/{id}/run-personal-records — NOT the old /api/personal-records'. This bulk sibling of that retired route is unused too.",
 
@@ -630,7 +633,6 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     # (see the PERMANENT_EXEMPT entry note and the checkpoints cluster
     # above). No frontend reference to the flat form survives. Phase E:
     # migrate tests then delete.
-    "/api/races/{race_id}/calibrate/accept": "No frontend caller (see above).",
     "/api/races/{race_id}/checkpoints": "Same flat-races family as /api/races above — no caller.",
     "/api/races/{race_id}/checkpoints/{checkpoint_id}": "Same flat-races family as /api/races above — no caller.",
     "/api/races/{race_id}/readiness": "training-performance.js's own comment (line 1374): 'the tab needs no separate /api/races/{id}/readiness call' — deliberately unused.",
@@ -688,6 +690,20 @@ _BASELINE_ORPHANS_API: dict[str, str] = {
     "/api/athletes/{athlete_id}/duration-curve": "No frontend caller (see cluster note above).",
     "/api/athletes/{athlete_id}/races": "No frontend caller (see cluster note above).",
 }
+
+_PAGE_SUPERSEDED = (
+    "Superseded by GET /api/performance/page (#1940). Kept registered until "
+    "Home stops using /radar and a follow-up deletes the per-region GETs (#1939)."
+)
+
+_PERMANENT_EXEMPT_API.update({
+    "/api/performance/hero": _PAGE_SUPERSEDED,
+    "/api/performance/score-cards": _PAGE_SUPERSEDED,
+    "/api/performance/a-race-readiness": _PAGE_SUPERSEDED,
+    "/api/performance/projection": _PAGE_SUPERSEDED,
+    "/api/performance/races": _PAGE_SUPERSEDED,
+    "/api/performance/coach-block": _PAGE_SUPERSEDED,
+})
 
 _PERMANENT_EXEMPT: dict[str, str] = {**_PERMANENT_EXEMPT_PAGES, **_PERMANENT_EXEMPT_API}
 _BASELINE_ORPHANS: dict[str, str] = {**_BASELINE_ORPHANS_PAGES, **_BASELINE_ORPHANS_API}

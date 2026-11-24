@@ -36,6 +36,7 @@ from backend.auth import (
     MIN_PASSWORD_LENGTH,
     read_admin_cookie,
     require_admin,
+    require_user_admin,
     set_admin_cookie,
     set_csrf_cookie,
 )
@@ -644,7 +645,7 @@ def _exercise_dict(r) -> dict:
     }
 
 
-@router.get("/api/admin/plan-patterns", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/plan-patterns", dependencies=[Depends(require_user_admin)])
 def admin_list_plan_patterns(kind: Optional[str] = None, subtype: Optional[str] = None):
     from backend.models import PlanPattern
 
@@ -658,7 +659,7 @@ def admin_list_plan_patterns(kind: Optional[str] = None, subtype: Optional[str] 
         return JSONResponse({"patterns": [_pattern_dict(r) for r in rows]})
 
 
-@router.post("/api/admin/plan-patterns", status_code=201, dependencies=[Depends(require_admin)])
+@router.post("/api/admin/plan-patterns", status_code=201, dependencies=[Depends(require_user_admin)])
 def admin_create_plan_pattern(body: AdminPlanPatternIn):
     from backend.models import PlanPattern
     from datetime import datetime, timezone
@@ -683,7 +684,7 @@ def admin_create_plan_pattern(body: AdminPlanPatternIn):
         return JSONResponse(status_code=201, content=_pattern_dict(row))
 
 
-@router.patch("/api/admin/plan-patterns/{pattern_id}", dependencies=[Depends(require_admin)])
+@router.patch("/api/admin/plan-patterns/{pattern_id}", dependencies=[Depends(require_user_admin)])
 def admin_patch_plan_pattern(pattern_id: str, body: AdminPlanPatternIn):
     from backend.models import PlanPattern
     from datetime import datetime, timezone
@@ -709,7 +710,7 @@ def admin_patch_plan_pattern(pattern_id: str, body: AdminPlanPatternIn):
         return JSONResponse(_pattern_dict(row))
 
 
-@router.delete("/api/admin/plan-patterns/{pattern_id}", status_code=204, dependencies=[Depends(require_admin)])
+@router.delete("/api/admin/plan-patterns/{pattern_id}", status_code=204, dependencies=[Depends(require_user_admin)])
 def admin_delete_plan_pattern(pattern_id: str):
     from backend.models import PlanPattern
     from uuid import UUID
@@ -723,7 +724,7 @@ def admin_delete_plan_pattern(pattern_id: str):
     return Response(status_code=204)
 
 
-@router.get("/api/admin/plan-exercises", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/plan-exercises", dependencies=[Depends(require_user_admin)])
 def admin_list_plan_exercises():
     from backend.models import PlanExercise
 
@@ -732,7 +733,7 @@ def admin_list_plan_exercises():
         return JSONResponse({"exercises": [_exercise_dict(r) for r in rows]})
 
 
-@router.post("/api/admin/plan-exercises", status_code=201, dependencies=[Depends(require_admin)])
+@router.post("/api/admin/plan-exercises", status_code=201, dependencies=[Depends(require_user_admin)])
 def admin_create_plan_exercise(body: AdminPlanExerciseIn):
     from backend.models import PlanExercise
     from backend.services.plan_body_parts import normalize_body_parts_list
@@ -766,7 +767,7 @@ def admin_create_plan_exercise(body: AdminPlanExerciseIn):
         return JSONResponse(status_code=201, content=_exercise_dict(row))
 
 
-@router.patch("/api/admin/plan-exercises/{exercise_id}", dependencies=[Depends(require_admin)])
+@router.patch("/api/admin/plan-exercises/{exercise_id}", dependencies=[Depends(require_user_admin)])
 def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
     from backend.models import PlanExercise
     from backend.services.plan_body_parts import normalize_body_parts_list
@@ -796,7 +797,7 @@ def admin_patch_plan_exercise(exercise_id: str, body: AdminPlanExerciseIn):
         return JSONResponse(_exercise_dict(row))
 
 
-@router.delete("/api/admin/plan-exercises/{exercise_id}", status_code=204, dependencies=[Depends(require_admin)])
+@router.delete("/api/admin/plan-exercises/{exercise_id}", status_code=204, dependencies=[Depends(require_user_admin)])
 def admin_delete_plan_exercise(exercise_id: str):
     from backend.models import PlanExercise
     from uuid import UUID
@@ -823,7 +824,7 @@ _RUN_PREVIEW_SUBTYPES = frozenset({
 })
 
 
-@router.post("/api/admin/plan-exercises/preview", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/plan-exercises/preview", dependencies=[Depends(require_user_admin)])
 def admin_preview_plan_exercise_fill(body: AdminPlanExercisePreviewIn):
     """Dry-run pattern fill for one strength or run subtype."""
     import random
@@ -904,7 +905,7 @@ def admin_preview_plan_exercise_fill(body: AdminPlanExercisePreviewIn):
     })
 
 
-@router.get("/api/admin/plan-patterns/{pattern_id}/pool-counts", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/plan-patterns/{pattern_id}/pool-counts", dependencies=[Depends(require_user_admin)])
 def admin_plan_pattern_pool_counts(pattern_id: str, duration_min: int = 60):
     """Matched exercise counts per recipe group (same tag matcher as fill)."""
     from uuid import UUID
@@ -936,7 +937,7 @@ def admin_plan_pattern_pool_counts(pattern_id: str, duration_min: int = 60):
         return JSONResponse(counts)
 
 
-@router.get("/api/admin/plan-library/pool-counts", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/plan-library/pool-counts", dependencies=[Depends(require_user_admin)])
 def admin_plan_library_pool_counts(subtype: str, duration_min: int = 60):
     """Resolve pattern by subtype + duration, then return pool counts (Preview strip)."""
     from backend.services.plan_pattern_fill import (
@@ -980,7 +981,7 @@ def admin_plan_library_pool_counts(subtype: str, duration_min: int = 60):
         counts["pattern_id"] = pattern.get("id")
         return JSONResponse(counts)
 
-@router.post("/api/admin/plan-patterns/seed", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/plan-patterns/seed", dependencies=[Depends(require_user_admin)])
 def admin_seed_plan_patterns(reset: bool = False):
     """Idempotent upsert of ship-default patterns and exercises."""
     from backend.services.plan_pattern_fill import seed_defaults
@@ -1171,7 +1172,7 @@ def _export_pattern_row(r) -> dict:
     }
 
 
-@router.get("/api/admin/plan-library/export", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/plan-library/export", dependencies=[Depends(require_user_admin)])
 def admin_export_plan_library():
     """Downloadable catalog (no ids) for Claude edit → bulk import."""
     from backend.models import PlanExercise, PlanPattern
@@ -1196,14 +1197,14 @@ def admin_export_plan_library():
     })
 
 
-@router.get("/api/admin/plan-library/body-parts", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/plan-library/body-parts", dependencies=[Depends(require_user_admin)])
 def admin_plan_library_body_parts():
     """Known body-part keys, colors, and accepted aliases (plural/singular)."""
     from backend.services.plan_body_parts import catalog_payload
     return JSONResponse(catalog_payload())
 
 
-@router.post("/api/admin/plan-library/normalize-body-parts", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/plan-library/normalize-body-parts", dependencies=[Depends(require_user_admin)])
 def admin_normalize_plan_body_parts():
     """Rewrite stored exercise body_parts through the alias map (glutes→glute, …)."""
     from backend.models import PlanExercise
@@ -1232,7 +1233,7 @@ def admin_normalize_plan_body_parts():
     return JSONResponse({"updated": updated, "skipped": skipped, "errors": errors[:20]})
 
 
-@router.post("/api/admin/plan-library/import", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/plan-library/import", dependencies=[Depends(require_user_admin)])
 def admin_import_plan_library(body: AdminPlanLibraryImportIn):
     """Bulk create / upsert exercises and patterns from catalog JSON."""
     from backend.models import PlanExercise, PlanPattern

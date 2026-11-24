@@ -52,8 +52,15 @@ auto-matches on date + type alone).
 |---|---|
 | `done_auto` | exactly ONE candidate, SAME day, and (if planned duration known) within ±20% |
 | `needs_review` | 2+ same-day candidates, OR a single day±1 (not same-day) candidate, OR a same-day candidate outside ±20% but within ±40% |
-| `missed` | `planned_date < today` and no candidate at all |
-| `planned` | future/today with no candidate yet (left unchanged) |
+| `missed` | `planned_date < today` (Asia/Bangkok calendar date) and no candidate at all |
+| `planned` | future/**today** with no candidate yet (left unchanged) |
+
+Same-day planned sessions are **never** missed. `today` is the Bangkok
+calendar date (`Asia/Bangkok`). Example: a session planned for 2026-11-22 stays
+`planned` through 23:59 BKK that day; at 00:00 BKK on 2026-11-23
+(`planned_date < today`) it becomes missed if still unmatched. The Log tab
+CTA is **Log it late**, which opens the logged-session editor prefilled from
+the plan.
 
 ## Ghosts (unplanned activities)
 

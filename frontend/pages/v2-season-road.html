@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f3b8a">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Season road – perf-coach</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/revamp.css?v=20261124f">
+</head>
+<body class="rv-page">
+  <div class="rv-shell rv-shell--wide">
+    <header class="rv-shell-head rv-home-top">
+      <div class="rv-shell-head-text">
+        <h1 class="rv-title rv-title--invert">Season road</h1>
+        <p class="rv-subtitle rv-subtitle--invert" id="sr-subtitle">PB attempts, long runs, and the projection to your A race.</p>
+      </div>
+      <nav aria-label="Primary" id="rv-primary-nav" data-rv-nav-invert></nav>
+    </header>
+
+    <p class="rv-row" style="margin:0">
+      <a class="rv-btn rv-btn--secondary rv-btn--sm" href="/v2/performance" style="background:rgba(255,255,255,0.92)">← Performance overview</a>
+    </p>
+
+    <div id="sr-root" class="rv-stack rv-sr-page" aria-live="polite">
+      <p class="rv-subtitle rv-subtitle--invert">Loading season road…</p>
+    </div>
+  </div>
+  <div class="rv-toast" id="rv-toast" role="status" aria-live="polite"></div>
+  <script src="/js/lib/app-common.js"></script>
+  <script src="/js/v2-sync-status.js?v=20261124f"></script>
+  <script src="/js/lib/csrf-fetch.js"></script>
+  <script src="/js/revamp-ui.js"></script>
+  <script src="/js/v2-nav.js?v=20261124g"></script>
+  <script src="/js/v2-season-road.js"></script>
+</body>
+</html>

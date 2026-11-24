@@ -314,6 +314,78 @@ def _run_banister_refit_batch() -> None:
         logger.error("job finish: banister_refit status=error: %s", exc, exc_info=True)
 
 
+def _run_axis_snapshot_batch() -> None:
+    """Daily Phase 4 axis snapshot for all active users (radar history, P4-2)."""
+    from backend.services.axis_snapshot import run_daily_snapshot
+
+    recorder = DbRecorder(job_type="axis_snapshot", user_id=None, triggered_by="schedule")
+    try:
+        results = run_daily_snapshot()
+        ok_count = sum(1 for v in results.values() if v == "ok")
+        recorder.mark_success(None, stats={"ok": ok_count, "total": len(results)})
+        logger.info("job finish: axis_snapshot status=success ok=%d/%d", ok_count, len(results))
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: axis_snapshot status=error: %s", exc, exc_info=True)
+
+
+def _run_precompute_nightly_batch() -> None:
+    """Nightly derived-cache warm for every active user (#1938)."""
+    from backend.services.precompute import run_nightly_precompute
+
+    recorder = DbRecorder(job_type="precompute_nightly", user_id=None, triggered_by="schedule")
+    try:
+        results = run_nightly_precompute()
+        ok_count = sum(1 for v in results.values() if v == "ok")
+        recorder.mark_success(None, stats={"ok": ok_count, "total": len(results)})
+        logger.info(
+            "job finish: precompute_nightly status=success ok=%d/%d",
+            ok_count,
+            len(results),
+        )
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: precompute_nightly status=error: %s", exc, exc_info=True)
+
+
+def _run_race_predictions_batch() -> None:
+    """Daily race_predictions upsert for every active user (#1937)."""
+    from backend.services.race_calibration import run_daily_predictions
+
+    recorder = DbRecorder(job_type="race_predictions", user_id=None, triggered_by="schedule")
+    try:
+        results = run_daily_predictions()
+        ok_count = sum(1 for v in results.values() if v == "ok")
+        recorder.mark_success(None, stats={"ok": ok_count, "total": len(results)})
+        logger.info(
+            "job finish: race_predictions status=success ok=%d/%d",
+            ok_count,
+            len(results),
+        )
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: race_predictions status=error: %s", exc, exc_info=True)
+
+
+def _run_load_plan_snapshots_batch() -> None:
+    """Once-per-week freeze of started-week load-plan targets (#1924)."""
+    from backend.services.revamp_load_plan import ensure_snapshots_for_users
+
+    recorder = DbRecorder(job_type="load_plan_snapshots", user_id=None, triggered_by="schedule")
+    try:
+        results = ensure_snapshots_for_users()
+        ok_count = sum(1 for v in results.values() if v == "ok")
+        recorder.mark_success(None, stats={"ok": ok_count, "total": len(results)})
+        logger.info(
+            "job finish: load_plan_snapshots status=success ok=%d/%d",
+            ok_count,
+            len(results),
+        )
+    except Exception as exc:
+        recorder.mark_error(None, str(exc))
+        logger.error("job finish: load_plan_snapshots status=error: %s", exc, exc_info=True)
+
+
 def _daily_coach_message_exists(db, user_id, today) -> bool:
     """Return True if a WeeklyCoachMessage row already exists for (user_id, today).
 
@@ -466,6 +538,22 @@ def _h_banister_refit(p: dict) -> None:
     _run_banister_refit_batch()
 
 
+def _h_axis_snapshot(p: dict) -> None:
+    _run_axis_snapshot_batch()
+
+
+def _h_load_plan_snapshots(p: dict) -> None:
+    _run_load_plan_snapshots_batch()
+
+
+def _h_race_predictions(p: dict) -> None:
+    _run_race_predictions_batch()
+
+
+def _h_precompute_nightly(p: dict) -> None:
+    _run_precompute_nightly_batch()
+
+
 def _h_daily_coach(p: dict) -> None:
     today = None
     raw = p.get("today") or p.get("as_of")
@@ -484,7 +572,7 @@ _h_weekly_coach = _h_daily_coach
 
 def _h_precompute(p: dict) -> None:
     from backend.services import precompute
-    precompute.precompute_user(p["user_id"], dates=p.get("dates"))
+    precompute.precompute_user(p["user_id"], dates=p.get("dates"), v2=True)
 
 
 def _h_garmin_sync(p: dict) -> None:
@@ -552,18 +640,46 @@ def _h_plan_draft(p: dict) -> None:
     run_plan_draft_job(p)
 
 
+def _h_training_load_replay(p: dict) -> None:
+    """Replay CTL/ATL/TSB after strength session edits."""
+    from backend.models import Workout
+    from backend.services.training_load import recompute_user_snapshots
+
+    uid = p.get("user_id")
+    if not uid:
+        return
+    recompute_user_snapshots(str(uid))
+    wids = p.get("workout_ids") or []
+    if not wids:
+        return
+    with Session(engine) as session:
+        for wid in wids:
+            try:
+                row = session.get(Workout, uuid.UUID(str(wid)))
+            except ValueError:
+                continue
+            if row is not None:
+                row.recompute_pending = None
+        session.commit()
+
+
 _DISPATCH = {
     "strava_sync": _h_strava_sync,
     "stryd_sync": _h_stryd_sync,
     "backfill": _h_backfill,
     "form_metrics_backfill": _h_form_metrics_backfill,
     "banister_refit": _h_banister_refit,
+    "axis_snapshot": _h_axis_snapshot,
+    "load_plan_snapshots": _h_load_plan_snapshots,
+    "race_predictions": _h_race_predictions,
+    "precompute_nightly": _h_precompute_nightly,
     "daily_coach": _h_daily_coach,
     "weekly_coach": _h_weekly_coach,  # compat alias
     "precompute": _h_precompute,
     "garmin_sync": _h_garmin_sync,
     "coach_export": _h_coach_export,
     "plan_draft": _h_plan_draft,
+    "training_load_replay": _h_training_load_replay,
 }
 
 
@@ -730,6 +846,27 @@ def form_metrics_backfill(body: dict):
 
     _executor.submit(_run_form_metrics_backfill, user_id)
     return {"started": True}
+
+
+@app.post("/internal/race-predictions/run", dependencies=[Depends(require_worker_secret)])
+def race_predictions_run(body: dict | None = None):
+    """Enqueue (or run) the daily race_predictions upsert (#1937).
+
+    Body (optional):
+      sync — if true, run inline on the thread pool instead of enqueueing
+    """
+    body = body or {}
+    day_key = datetime.now(BANGKOK_TZ).date().isoformat()
+    if body.get("sync"):
+        _executor.submit(_run_race_predictions_batch)
+        return {"started": True, "mode": "inline"}
+    job_queue.enqueue(
+        "race_predictions",
+        {"triggered_by": "manual"},
+        enqueued_by="manual",
+        dedupe_key=f"race_predictions:manual:{day_key}",
+    )
+    return {"queued": True}
 
 
 @app.post("/internal/daily-coach/run", dependencies=[Depends(require_worker_secret)])
@@ -1537,6 +1674,53 @@ def _scheduler_loop() -> None:
             except Exception as exc:
                 logger.error("scheduled banister refit failed to enqueue: %s", exc, exc_info=True)
 
+        # Daily Phase 4 axis snapshot (radar history). Dedupe key is the Bangkok date so
+        # multiple wake times enqueue it once; the upsert is idempotent anyway.
+        try:
+            job_queue.enqueue(
+                "axis_snapshot",
+                {},
+                enqueued_by="schedule",
+                dedupe_key=f"axis_snapshot:{datetime.now(BANGKOK_TZ).date().isoformat()}",
+            )
+        except Exception as exc:
+            logger.error("scheduled axis_snapshot failed to enqueue: %s", exc, exc_info=True)
+
+        # Weekly load-plan snapshots: freeze started-week targets. Dedupe by
+        # ISO week so twice-daily wakes enqueue it once (#1924).
+        try:
+            iso = datetime.now(BANGKOK_TZ).isocalendar()
+            job_queue.enqueue(
+                "load_plan_snapshots",
+                {},
+                enqueued_by="schedule",
+                dedupe_key=f"load_plan_snapshots:{iso[0]}-W{iso[1]:02d}",
+            )
+        except Exception as exc:
+            logger.error("scheduled load_plan_snapshots failed to enqueue: %s", exc, exc_info=True)
+
+        # Daily race_predictions: one shown estimate per planned race (#1937).
+        try:
+            job_queue.enqueue(
+                "race_predictions",
+                {},
+                enqueued_by="schedule",
+                dedupe_key=f"race_predictions:{datetime.now(BANGKOK_TZ).date().isoformat()}",
+            )
+        except Exception as exc:
+            logger.error("scheduled race_predictions failed to enqueue: %s", exc, exc_info=True)
+
+        # Nightly v2 derived warm (radar, score cards, hero, projection) (#1938).
+        try:
+            job_queue.enqueue(
+                "precompute_nightly",
+                {},
+                enqueued_by="schedule",
+                dedupe_key=f"precompute_nightly:{datetime.now(BANGKOK_TZ).date().isoformat()}",
+            )
+        except Exception as exc:
+            logger.error("scheduled precompute_nightly failed to enqueue: %s", exc, exc_info=True)
+
         # Daily Home Coach — once per calendar day (Asia/Bangkok), enqueued at
         # the same wake times as the sync sweep. Dedupe key is the date so
         # 06:00 + 18:00 only run once. Also skip when a done row already exists
@@ -1588,6 +1772,17 @@ def _scheduler_loop() -> None:
         # reaches the poll loop — no NAT/network involved. Lets the 06:00/18:00
         # scheduled jobs run immediately instead of waiting out whatever idle
         # interval (fast- or slow-window) the poll loop happened to be sleeping.
+        try:
+            from backend.services.processed_mutations import cleanup_old_mutations
+
+            with Session(engine) as _db:
+                n = cleanup_old_mutations(_db)
+                _db.commit()
+            if n:
+                logger.info("processed_mutations cleanup removed %s row(s)", n)
+        except Exception as exc:
+            logger.error("processed_mutations cleanup failed: %s", exc, exc_info=True)
+
         try:
             wake_queue_poll()
         except Exception as exc:
