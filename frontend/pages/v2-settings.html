@@ -113,6 +113,16 @@
           <div class="profile-field-error" id="profile-athlete-context-error" aria-live="polite"></div>
         </div>
 
+        <div class="profile-form-group">
+          <label class="profile-label" for="profile-zone2-target">Weekly Zone 2 target</label>
+          <div class="thresholds-input-row">
+            <input type="number" id="profile-zone2-target" class="profile-input" min="0" max="2000" step="5" placeholder="150">
+            <span class="thresholds-unit-label">min</span>
+          </div>
+          <p class="profile-hint">Minutes of easy aerobic running per Bangkok week. Default 150. The phone Body card uses this.</p>
+          <div class="profile-field-error" id="profile-weekly-zone2-target-min-error" aria-live="polite"></div>
+        </div>
+
         <div class="profile-form-group" id="profile-devices-wrap">
           <label class="profile-label">Signed-in devices</label>
           <p class="rv-hint" style="margin:0 0 8px">Phones that stay signed in for 90 days. Sign out a device to revoke it.</p>
@@ -449,7 +459,7 @@
   <script src="/js/user.js"></script>
   <script src="/js/lib/sync-poller.js"></script>
   <script src="/js/settings-field-errors.js"></script>
-  <script src="/js/settings-profile.js"></script>
+  <script src="/js/settings-profile.js?v=20261124i"></script>
   <script src="/js/settings-thresholds.js"></script>
   <script src="/js/v2-settings-rules.js"></script>
   <script src="/js/settings-integrations.js"></script>

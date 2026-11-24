@@ -15079,6 +15079,10 @@ async def patch_user_preferences(request: Request, user: User = Depends(resolve_
                 )
 
         prefs.updated_at = _datetime.now(_timezone.utc)
+        if weekly_zone2_target is not _PREFS_SENTINEL:
+            from backend.services.data_version import bump_data_version
+
+            bump_data_version(session, uid)
         _threshold_fields_changed = any(
             f is not _PREFS_SENTINEL for f in (ftp_w, threshold_hr, threshold_pace)
         )

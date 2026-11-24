@@ -128,17 +128,21 @@
 
     var body = bundle.body;
     var bodyHtml = "";
-    if (body) {
-      var z = body.zone2_week;
+    var z = body && body.zone2_week;
+    var hasWeight = !!(body && (body.trend_kg != null || (body.last_weigh_in && body.last_weigh_in.kg != null)));
+    var hasRuns = (bundle.recent_runs || []).length > 0 || !!(z && z.total);
+    if (body && (hasWeight || hasRuns)) {
       var ch = body.change_28d_kg;
       var chHtml = ch == null ? "" : '<span class="' + (ch < 0 ? "m-down" : "") + '">' +
         (ch < 0 ? "↓" : "↑") + Math.abs(ch).toFixed(1) + "</span>";
+      var pct = z && z.target ? Math.min(100, Math.round((z.total || 0) / z.target * 100)) : 0;
       bodyHtml = '<div class="m-card" id="m-body-card"><div class="m-row"><span class="m-kicker m-kicker--grey">BODY</span>' +
         '<a href="/m/body/weigh-in">Weigh in ›</a></div>' +
         '<div class="m-body-grid"><div><span class="m-muted">Trend weight</span><div class="m-mono m-lg">' +
         (body.trend_kg != null ? Number(body.trend_kg).toFixed(1) : "—") + " " + chHtml + "</div></div>" +
         (z ? '<div><span class="m-muted">Zone 2 this week</span><div class="m-mono m-lg">' + (z.total || 0) +
-          ' <span class="m-muted">/ ' + (z.target || 150) + " min</span></div></div>" : "") +
+          ' <span class="m-muted">/ ' + (z.target || 150) + " min</span></div>" +
+          '<div class="m-z2-progress"><span style="width:' + pct + '%"></span></div></div>' : "") +
         "</div></div>";
     }
 
