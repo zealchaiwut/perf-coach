@@ -324,7 +324,7 @@
     function swatch(color, label) {
       return '<span class="rv-key"><i class="rv-swatch" style="background:' + color + '"></i>' + label + '</span>';
     }
-    var keys = [swatch('#1f3b8a', 'Run TSS'), swatch('#b45309', 'Over target')];
+    var keys = [swatch('#1f3b8a', 'Run TSS')];
     if (hasLift) keys.push(swatch('#8b6fe0', 'Lift TSS'));
     if (hasRace) keys.push(swatch('#d4e400', 'Race'));
     var tLabel = uniformTarget != null ? ('Target ' + Math.round(uniformTarget)) : 'Target';
@@ -413,7 +413,6 @@
       var planned = Number(wk.planned_tss) || 0;
       var target = Number(wk.target_tss);
       var hasTarget = wk.target_tss != null && isFinite(target) && target > 0;
-      var over = hasTarget && total > target;
       var race = chartRace(wk);
       var raceTss = Math.min(race.tss, run);
       var runOnly = Math.max(0, run - raceTss);
@@ -432,10 +431,10 @@
         parts.push('<rect x="' + r1(x) + '" y="' + (BASE - 4) + '" width="' + BAR_W + '" height="4" rx="2" fill="#eef1f7"/>');
       } else {
         var stack = [];
-        if (runOnly > 0) stack.push({ tss: runOnly, fill: over ? '#b45309' : '#1f3b8a', race: false });
+        if (runOnly > 0) stack.push({ tss: runOnly, fill: '#1f3b8a', race: false });
         if (raceTss > 0) stack.push({ tss: raceTss, fill: '#d4e400', race: true, name: race.name });
         if (lift > 0) stack.push({ tss: lift, fill: '#8b6fe0', race: false });
-        if (!stack.length) stack.push({ tss: total, fill: over ? '#b45309' : '#1f3b8a', race: false });
+        if (!stack.length) stack.push({ tss: total, fill: '#1f3b8a', race: false });
         var cursor = BASE;
         stack.forEach(function (seg, si) {
           var h = (seg.tss / maxTss) * PLOT;
@@ -462,7 +461,7 @@
         labelY = BASE - 7;
       } else {
         labelVal = Math.round(total);
-        labelFill = over ? '#7a3a10' : '#0b1530';
+        labelFill = '#0b1530';
         labelY = yTss(total) - 7;
       }
       parts.push('<text class="rv-vol-vallabel" x="' + r1(cx(i)) + '" y="' + r1(labelY) + '" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600" text-anchor="middle" fill="' + labelFill + '">' + labelVal + '</text>');

@@ -40,7 +40,7 @@ def test_chart_has_no_distance_scale_or_orange():
 def test_chart_palette_and_target_line():
     chart = _fn(LOG_JS, "drawChart")
     assert "#1f3b8a" in chart
-    assert "#b45309" in chart
+    assert "#b45309" not in chart
     assert "#8b6fe0" in chart
     assert "#d4e400" in chart
     assert "#0b1530" in chart
@@ -49,7 +49,7 @@ def test_chart_palette_and_target_line():
     assert 'viewBox="0 0 1160 240"' in chart
     assert "maxTss * 1.12" in chart
     assert ">RACE</text>" in chart
-    assert "#7a3a10" in chart
+    assert "#7a3a10" not in chart
     assert "#8792a8" in chart
     assert "#f3f6fd" in chart
     assert "rv-vol-vallabel" in chart
@@ -62,7 +62,7 @@ def test_legend_is_painted_from_js_and_conditional():
     assert "Run TSS" not in html_legend.split('id="v2-chart-legend"')[1][:200]
     assert "paintChartLegend" in _fn(LOG_JS, "drawChart")
     assert "Lift TSS" in legend
-    assert "Over target" in legend
+    assert "Over target" not in legend
     assert "chartRace" in legend
     assert "Target " in legend
     assert "rv-swatch--target" in legend
