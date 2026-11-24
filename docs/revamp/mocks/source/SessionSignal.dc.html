@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session drawer · fitness signal, 7 axes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1f3b8a}a:hover{color:#0b1530}
+.card{background:#ffffff;border-radius:14px;box-shadow:0 2px 12px rgba(13,30,67,0.10),0 1px 3px rgba(13,30,67,0.06);padding:20px 22px;display:flex;flex-direction:column;gap:12px;box-sizing:border-box;min-width:0}
+.lbl{font-size:12px;font-weight:700;letter-spacing:0.1em;color:#5f6b84;text-transform:uppercase}
+.sub{font-size:13px;color:#56627f}
+.mono{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em}
+.chip{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.rows{display:flex;flex-direction:column}
+.r{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 56px 72px 22px;gap:10px;align-items:center;padding:9px 10px;border-radius:9px;border-bottom:1px solid #eef1f7;outline:none}
+.r:last-child{border-bottom:0}
+.r:hover,.r:focus-visible{background:#f3f6fd}
+.ax{font-size:14px;font-weight:600;color:#0b1530}
+.sc{font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em;font-size:16px;font-weight:700;text-align:right;color:#0b1530}
+.d{justify-self:end;font-family:'JetBrains Mono',monospace;letter-spacing:-0.04em;font-size:13px;font-weight:700;padding:3px 8px;border-radius:7px;min-width:44px;text-align:center;box-sizing:border-box}
+.up{background:#dff5d6;color:#2d5e10}
+.down{background:#fde8e8;color:#7a1a1a}
+.flat{background:#eef1f7;color:#56627f}
+.none{color:#a3acbf;background:transparent;font-weight:600}
+.off .ax{color:#56627f;font-weight:500}
+.off .sc{color:#8792a8;font-weight:600}
+.on{background:#fbfdf6}
+.i{width:18px;height:18px;border-radius:50%;border:1.5px solid #c3cbdb;color:#8792a8;font-size:11px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;font-family:'Inter Tight',sans-serif}
+.bub{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:5;width:280px;background:#0b1530;color:#ffffff;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.45;box-shadow:0 8px 24px rgba(11,21,48,0.3)}
+.bub b{color:#e4ff52}
+.bub:before{content:'';position:absolute;right:14px;top:-5px;width:10px;height:10px;background:#0b1530;transform:rotate(45deg)}
+.r:hover .bub,.r:focus-visible .bub,.bub.show{display:block}
+.vt{font-size:15px;font-weight:700;color:#ffffff}
+.i{cursor:pointer;background:#ffffff}
+.r.pin .i{background:#0b1530;border-color:#0b1530;color:#e4ff52}
+.drawer{background:#f5f7fc;border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.ctx{display:flex;flex-direction:column;gap:4px;background:#ffffff;border-radius:12px;padding:12px 14px}
+.ctxn{font-size:16px;font-weight:700}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 32px 48px 56px; background: radial-gradient(ellipse at top left, #5a8dee 0%, #1f3b8a 70%); font-family: 'Inter Tight', system-ui, sans-serif; color: #0b1530; letter-spacing: -0.01em">
+<div style="max-width: 1344px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px">
+  <div style="color: #ffffff; display: flex; flex-direction: column; gap: 4px">
+    <span style="font-size: 34px; font-weight: 700; letter-spacing: -0.025em">Session drawer · Fitness signal, 7 axes</span>
+    <span style="font-size: 15px; color: #e3ecff">Rows are just axis, score and what this session added. The reason sits behind the i: hover on desktop, tap on phone (tap again or outside to close).</span>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; padding-bottom: 120px">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span class="vt">Tempo run · Speed counted (tapped)</span>
+      <div class="drawer">
+        <div class="ctx"><span class="ctxn">Tempo 6 mins x 3</span><span class="sub">Sun 22 Nov · 9 km · 1:02:43 · RPE 8</span></div>
+        <section class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+            <span style="display: flex; gap: 8px; align-items: center"><span class="lbl">Fitness signal</span><span class="chip" style="background: #dff5d6; color: #2d5e10">Moved 1 of 7</span></span>
+            <a href="PerformanceRaces.dc.html" style="font-size: 13px; font-weight: 700; text-decoration: none">Performance ›</a>
+          </div>
+          <span class="sub">Score today · what this session added</span>
+          <div class="rows" role="list">
+            <div class="r off" role="listitem"><span class="ax">Endurance</span><span class="sc">47</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Endurance" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Didn't count.</b> Endurance uses steady runs; this one had 3 × 6 min at tempo.</span></div>
+            <div class="r on pin" role="listitem"><span class="ax">Speed</span><span class="sc">52</span><span class="d up">+3.5</span><button type="button" class="i" aria-label="Why: Speed" aria-expanded="true">i</button><span class="bub show" role="tooltip"><b>Counted.</b> 6 min at 4:58 /km (3rd rep) is a new Speed anchor and raised the score by 3.5.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Economy</span><span class="sc">42</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Economy" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Didn't count.</b> Economy uses easy runs with Stryd form data.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Strength</span><span class="sc">25</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Strength" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not from runs.</b> Strength moves with logged lifts and anchor tests.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Mobility</span><span class="sc">—</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Mobility" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not measured yet.</b> Mobility comes from tests, not sessions.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Power/wt</span><span class="sc">91</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Power/wt" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Didn't count.</b> Power-to-weight uses CP and the weight trend, not single runs.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Durability</span><span class="sc">—</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Durability" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Didn't count.</b> Needs an easy run of 90 min or more.</span></div>
+          </div>
+          <span class="sub" style="font-size: 12px; border-top: 1px solid #eef1f7; padding-top: 10px"><b style="color: #2d5e10">+N</b> raised it · <b>0</b> counted, no change · <b style="color: #8792a8">—</b> didn't count. Hover or tap <b>i</b> for why.</span>
+        </section>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span class="vt">Easy run · Economy counted</span>
+      <div class="drawer">
+        <div class="ctx"><span class="ctxn">Lunch Run</span><span class="sub">Sat 21 Nov · 7.15 km · 1:00:59 · RPE 3</span></div>
+        <section class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+            <span style="display: flex; gap: 8px; align-items: center"><span class="lbl">Fitness signal</span><span class="chip" style="background: #dff5d6; color: #2d5e10">Moved 1 of 7</span></span>
+            <a href="PerformanceRaces.dc.html" style="font-size: 13px; font-weight: 700; text-decoration: none">Performance ›</a>
+          </div>
+          <span class="sub">Score today · what this session added</span>
+          <div class="rows" role="list">
+            <div class="r off" role="listitem"><span class="ax">Endurance</span><span class="sc">47</span><span class="d flat">0</span><button type="button" class="i" aria-label="Why: Endurance" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>In the pool, no change.</b> Steady 61 min, but below your 3 best anchors.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Speed</span><span class="sc">52</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Speed" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Didn't count.</b> No hard effort in this run.</span></div>
+            <div class="r on" role="listitem"><span class="ax">Economy</span><span class="sc">42</span><span class="d up">+0.8</span><button type="button" class="i" aria-label="Why: Economy" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Counted.</b> Power ÷ pace 2% better than your 28-day median at easy effort.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Strength</span><span class="sc">25</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Strength" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not from runs.</b> Strength moves with logged lifts and anchor tests.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Mobility</span><span class="sc">—</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Mobility" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not measured yet.</b> Mobility comes from tests, not sessions.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Power/wt</span><span class="sc">91</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Power/wt" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Didn't count.</b> Uses CP and the weight trend.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Durability</span><span class="sc">—</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Durability" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Didn't count.</b> 61 min; needs 90 min or more.</span></div>
+          </div>
+          <span class="sub" style="font-size: 12px; border-top: 1px solid #eef1f7; padding-top: 10px"><b style="color: #2d5e10">+N</b> raised it · <b>0</b> counted, no change · <b style="color: #8792a8">—</b> didn't count. Hover or tap <b>i</b> for why.</span>
+        </section>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span class="vt">Strength · Strength counted (tapped)</span>
+      <div class="drawer">
+        <div class="ctx"><span class="ctxn">Strength · lower body</span><span class="sub">Thu 19 Nov · 6 exercises · 45 min · RPE 7</span></div>
+        <section class="card">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px">
+            <span style="display: flex; gap: 8px; align-items: center"><span class="lbl">Fitness signal</span><span class="chip" style="background: #dff5d6; color: #2d5e10">Moved 1 of 7</span></span>
+            <a href="PerformanceRaces.dc.html" style="font-size: 13px; font-weight: 700; text-decoration: none">Performance ›</a>
+          </div>
+          <span class="sub">Score today · what this session added</span>
+          <div class="rows" role="list">
+            <div class="r off" role="listitem"><span class="ax">Endurance</span><span class="sc">47</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Endurance" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not from lifts.</b> Endurance moves with runs.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Speed</span><span class="sc">52</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Speed" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not from lifts.</b> Speed moves with hard run efforts.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Economy</span><span class="sc">42</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Economy" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not from lifts.</b> Plyo and calf work help it over weeks, not in one session.</span></div>
+            <div class="r on pin" role="listitem"><span class="ax">Strength</span><span class="sc">27</span><span class="d up">+2.1</span><button type="button" class="i" aria-label="Why: Strength" aria-expanded="true">i</button><span class="bub show" role="tooltip"><b>Counted.</b> Back squat 3 × 5 at 80 kg beat your anchor (75 kg) and raised the score by 2.1.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Mobility</span><span class="sc">—</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Mobility" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not measured yet.</b> Log a mobility test on Performance.</span></div>
+            <div class="r off" role="listitem"><span class="ax">Power/wt</span><span class="sc">91</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Power/wt" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not from lifts.</b></span></div>
+            <div class="r off" role="listitem"><span class="ax">Durability</span><span class="sc">—</span><span class="d none">—</span><button type="button" class="i" aria-label="Why: Durability" aria-expanded="false">i</button><span class="bub" role="tooltip"><b>Not from lifts.</b></span></div>
+          </div>
+          <span class="sub" style="font-size: 12px; border-top: 1px solid #eef1f7; padding-top: 10px"><b style="color: #2d5e10">+N</b> raised it · <b>0</b> counted, no change · <b style="color: #8792a8">—</b> didn't count. Hover or tap <b>i</b> for why.</span>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

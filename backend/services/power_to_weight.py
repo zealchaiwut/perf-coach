@@ -105,3 +105,11 @@ def compute_power_to_weight_series(
         "series": series,
         "current": current,
     }
+
+
+def session_contribution(workout, as_of, *, session=None):
+    """Power/wt is a CP × weight-trend axis; never invent a per-session delta."""
+    wt = (getattr(workout, "workout_type", None) or "").lower()
+    if "run" not in wt:
+        return "not_this_kind", None, "Uses CP and the weight trend."
+    return "not_counted", None, "Uses CP and the weight trend."

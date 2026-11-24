@@ -329,6 +329,8 @@ def fetch_lift_rows(session, user_id: uuid.UUID, as_of: date, anchors: list[dict
         {
             "workout_date": d, "name": e.name, "sets_json": e.sets_json,
             "weight_kg": float(e.weight_kg) if e.weight_kg is not None else None, "reps": e.reps,
+            "workout_id": str(getattr(e, "workout_id", "") or ""),
+            "sets": getattr(e, "sets", None),
         }
         for d, e in q.all()
     ]
@@ -358,6 +360,151 @@ def get_power_to_weight(session, user_id: uuid.UUID, as_of: date) -> dict[str, A
     pool = axis_economy.easy_pool(axis_economy.fetch_rows(session, user_id, as_of), as_of)
     target = profile_target_w_per_kg(session, user_id, as_of)
     return compute_power_to_weight(pool, mass, days, target)
+
+
+def _ex_name(ex: Any) -> str:
+    if isinstance(ex, Mapping):
+        return str(ex.get("name") or "")
+    return str(getattr(ex, "name", "") or "")
+
+
+def _ex_row(ex: Any, workout_date: date, workout_id: str) -> dict[str, Any]:
+    get = ex.get if isinstance(ex, Mapping) else (lambda k: getattr(ex, k, None))
+    return {
+        "workout_date": workout_date,
+        "name": _ex_name(ex),
+        "sets_json": get("sets_json"),
+        "weight_kg": get("weight_kg") if get("weight_kg") is not None else get("weight"),
+        "reps": get("reps"),
+        "sets": get("sets"),
+        "workout_id": workout_id,
+    }
+
+
+def _lift_set_phrase(ex: Any) -> str:
+    """e.g. '3 × 5 at 80 kg' from sets or summary columns."""
+    sets = exercise_sets(ex)
+    working = [s for s in sets if (s.get("type") or "working") != "warmup"]
+    n = len(working) or (parse_reps(ex.get("sets") if isinstance(ex, Mapping) else getattr(ex, "sets", None)) or 0)
+    if not working:
+        get = ex.get if isinstance(ex, Mapping) else (lambda k: getattr(ex, k, None))
+        kg = get("weight_kg") if get("weight_kg") is not None else get("weight")
+        reps = parse_reps(get("reps"))
+        sets_n = parse_reps(get("sets"))
+        if kg and reps:
+            prefix = f"{int(sets_n)} × " if sets_n else ""
+            return f"{prefix}{int(reps)} at {int(round(float(kg)))} kg".strip()
+        return ""
+    best = max(working, key=lambda s: e1rm(s.get("weight", s.get("weight_kg")), s.get("reps")) or 0)
+    kg = best.get("weight", best.get("weight_kg"))
+    reps = parse_reps(best.get("reps"))
+    try:
+        kg_i = int(round(float(kg)))
+    except (TypeError, ValueError):
+        return ""
+    n_sets = len(working)
+    if reps:
+        return f"{n_sets} × {int(reps)} at {kg_i} kg"
+    return f"{n_sets} sets at {kg_i} kg"
+
+
+def session_contribution(
+    workout,
+    as_of: date,
+    *,
+    session=None,
+    exercises: Optional[list] = None,
+    prior_rows: Optional[list] = None,
+    anchors: Optional[list[dict[str, Any]]] = None,
+    trend_mass_kg: Optional[float] = None,
+) -> tuple[str, Optional[float], str]:
+    """(status, delta, reason) for this session vs the strength axis."""
+    wt = (getattr(workout, "workout_type", None) or "").lower()
+    if "run" in wt:
+        return "not_this_kind", None, "Strength moves with logged lifts and anchor tests."
+
+    workout_id = str(getattr(workout, "id", "") or "")
+    wdate = getattr(workout, "workout_date", None) or as_of
+    this_ex = list(exercises or getattr(workout, "exercises", None) or [])
+
+    if anchors is None and session is not None and getattr(workout, "user_id", None) is not None:
+        try:
+            anchors = get_anchor_lifts(session, workout.user_id)
+        except Exception:
+            anchors = None
+    if not anchors:
+        anchors = [dict(a) for a in DEFAULT_ANCHOR_LIFTS]
+
+    matched = [ex for ex in this_ex if any(matches_anchor(_ex_name(ex), a) for a in anchors)]
+    if this_ex and not matched:
+        return "not_counted", None, "No logged lifts matching your anchors."
+    if not this_ex and session is None and prior_rows is None:
+        # Strength session with no exercises attached — still this kind of work.
+        return "not_counted", None, "No logged lifts matching your anchors."
+
+    rows: list[dict[str, Any]] = []
+    if prior_rows is not None:
+        rows.extend(prior_rows)
+    elif session is not None and getattr(workout, "user_id", None) is not None:
+        try:
+            rows.extend(fetch_lift_rows(session, workout.user_id, as_of, anchors))
+        except Exception:
+            pass
+    this_rows = [_ex_row(ex, wdate, workout_id) for ex in this_ex]
+    # Prefer freshly passed exercises over a duplicate fetch of this workout.
+    others = [r for r in rows if str(r.get("workout_id") or "") != workout_id]
+    all_rows = others + this_rows
+
+    if trend_mass_kg is None and session is not None and getattr(workout, "user_id", None) is not None:
+        try:
+            trend_mass_kg, _ = fetch_trend_mass(session, workout.user_id, as_of)
+        except Exception:
+            trend_mass_kg = None
+
+    if not this_rows and not any(str(r.get("workout_id") or "") == workout_id for r in rows):
+        return "not_counted", None, "No logged lifts matching your anchors."
+
+    with_block = compute_strength(all_rows, anchors, trend_mass_kg, as_of)
+    without_block = compute_strength(others, anchors, trend_mass_kg, as_of)
+    with_score = with_block.get("score")
+    without_score = without_block.get("score")
+    if with_score is None:
+        return "first", None, "First logged lifts toward Strength; more sessions are needed before it scores."
+
+    best_ex = None
+    best_e = None
+    for ex in this_ex:
+        v = best_set_e1rm(exercise_sets(ex))
+        if v is not None and (best_e is None or v > best_e):
+            best_e, best_ex = v, ex
+    phrase = _lift_set_phrase(best_ex) if best_ex is not None else ""
+    label = _ex_name(best_ex) if best_ex is not None else "This session"
+    prev_kg = None
+    if best_ex is not None:
+        prev_working: list[float] = []
+        for r in others:
+            if any(matches_anchor(str(r.get("name") or ""), a) for a in anchors if matches_anchor(label, a)):
+                for s in exercise_sets(r):
+                    kg = s.get("weight", s.get("weight_kg"))
+                    try:
+                        prev_working.append(float(kg))
+                    except (TypeError, ValueError):
+                        pass
+        if prev_working:
+            prev_kg = int(round(max(prev_working)))
+
+    if without_score is None:
+        bit = f"{label} {phrase}".strip()
+        return "first", None, f"{bit or 'This session'} is the first Strength input."
+
+    delta = round(float(with_score) - float(without_score), 1)
+    beat = f" beat your anchor ({prev_kg} kg)" if prev_kg else ""
+    core = f"{label} {phrase}".strip() if phrase else label
+    if delta > 0.05:
+        return "raised", delta, f"{core}{beat} and raised the score by {delta}."
+    if delta < -0.05:
+        return "lowered", delta, f"{core} lowered the score by {abs(delta)}."
+    return "counted", 0.0, f"{core} counted but did not move the Strength score."
 
 
 AXIS_FUNCS = {"strength": get_strength, "power_to_weight": get_power_to_weight}

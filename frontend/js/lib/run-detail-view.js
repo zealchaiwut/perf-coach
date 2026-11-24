@@ -745,6 +745,187 @@
     );
   }
 
+  var FITNESS_STATUS_WORD = {
+    raised: "Counted.",
+    lowered: "Counted.",
+    counted: "Counted.",
+    first: "First.",
+    not_counted: "Didn't count.",
+    not_measured: "Not measured yet.",
+  };
+
+  function isLiftType(t) {
+    t = (t || "").toLowerCase();
+    return (
+      t.indexOf("strength") >= 0 ||
+      t.indexOf("lift") >= 0 ||
+      t.indexOf("plyo") >= 0 ||
+      t.indexOf("mobility") >= 0
+    );
+  }
+
+  function fitnessStatusWord(status, workoutType) {
+    if (status === "not_this_kind") {
+      return isLiftType(workoutType) ? "Not from lifts." : "Not from runs.";
+    }
+    return FITNESS_STATUS_WORD[status] || "Didn't count.";
+  }
+
+  function fmtSignalDelta(status, delta) {
+    if (status === "first") return { cls: "up", text: "first" };
+    if (status === "raised" || status === "lowered" || status === "counted") {
+      var n = delta == null ? 0 : Number(delta);
+      if (status === "counted" || Math.abs(n) <= 0.05) {
+        return { cls: "flat", text: "0" };
+      }
+      if (n > 0) return { cls: "up", text: "+" + n.toFixed(1) };
+      return { cls: "down", text: "\u2212" + Math.abs(n).toFixed(1) };
+    }
+    return { cls: "none", text: "\u2014" };
+  }
+
+  function renderFitnessSignal(w) {
+    var rows = (w && w.axis_signal) || [];
+    if (!rows.length) return "";
+    var summary = (w && w.axis_signal_summary) || {};
+    var moved = summary.moved != null ? summary.moved : 0;
+    var chipCls = moved > 0 ? "on" : "off";
+    var wt = (w && w.workout_type) || "";
+    var body = rows.map(function (row, i) {
+      var status = row.status || "not_counted";
+      var tint =
+        status === "raised" || status === "lowered" || status === "first"
+          ? " is-on"
+          : status === "not_counted" ||
+            status === "not_this_kind" ||
+            status === "not_measured"
+            ? " is-off"
+            : "";
+      var d = fmtSignalDelta(status, row.delta);
+      var score = row.score == null ? "\u2014" : String(row.score);
+      var word = fitnessStatusWord(status, wt);
+      var bubId = "rd4-sig-bub-" + i;
+      var reason = row.reason || "";
+      return (
+        '<div class="rd4-signal-row' +
+        tint +
+        '" role="listitem" tabindex="0">' +
+        '<span class="rd4-signal-ax">' +
+        esc(row.label || row.axis) +
+        "</span>" +
+        '<span class="rd4-signal-sc">' +
+        esc(score) +
+        "</span>" +
+        '<span class="rd4-signal-d rd4-signal-d--' +
+        d.cls +
+        '">' +
+        esc(d.text) +
+        "</span>" +
+        '<button type="button" class="rd4-signal-i" aria-label="Why: ' +
+        esc(row.label || row.axis) +
+        '" aria-expanded="false" aria-describedby="' +
+        bubId +
+        '">i</button>' +
+        '<span class="rd4-signal-bub" id="' +
+        bubId +
+        '" role="tooltip"><b>' +
+        esc(word) +
+        "</b> " +
+        esc(reason) +
+        "</span>" +
+        "</div>"
+      );
+    }).join("");
+    return (
+      '<section class="rd4-card rd4-signal">' +
+      '<div class="rd4-signal-head">' +
+      '<span class="rd4-signal-head-left">' +
+      '<span class="rd4-signal-lbl">Fitness signal</span>' +
+      '<span class="rd4-signal-moved rd4-signal-moved--' +
+      chipCls +
+      '">Moved ' +
+      moved +
+      " of 7</span></span>" +
+      '<a class="rd4-signal-go" href="/v2/performance">Performance \u203a</a>' +
+      "</div>" +
+      '<p class="rd4-signal-sub">Score today · what this session added</p>' +
+      '<div class="rd4-signal-rows" role="list">' +
+      body +
+      "</div>" +
+      '<p class="rd4-signal-foot"><b class="up">+N</b> raised it · <b>0</b> counted, no change · <b class="dash">\u2014</b> didn\'t count. Hover or tap <b>i</b> for why.</p>' +
+      "</section>"
+    );
+  }
+
+  function placeSignalBubble(row, bub) {
+    if (!row || !bub) return;
+    bub.classList.remove("is-above");
+    var host =
+      row.closest("#v2-drawer-body") ||
+      row.closest(".rv-drawer-scroll") ||
+      row.closest(".rd4-stack");
+    if (!host || !host.getBoundingClientRect) return;
+    var hostRect = host.getBoundingClientRect();
+    var rowRect = row.getBoundingClientRect();
+    if (hostRect.bottom - rowRect.bottom < 88) bub.classList.add("is-above");
+  }
+
+  function wireFitnessSignal(container) {
+    var card = container && container.querySelector
+      ? container.querySelector(".rd4-signal")
+      : null;
+    if (!card) return;
+    function closeAll() {
+      card.querySelectorAll(".rd4-signal-row.is-pin").forEach(function (r) {
+        r.classList.remove("is-pin");
+      });
+      card.querySelectorAll(".rd4-signal-bub.is-open").forEach(function (b) {
+        b.classList.remove("is-open");
+      });
+      card.querySelectorAll(".rd4-signal-i").forEach(function (btn) {
+        btn.setAttribute("aria-expanded", "false");
+      });
+    }
+    card.addEventListener("click", function (e) {
+      var btn = e.target.closest(".rd4-signal-i");
+      if (!btn || !card.contains(btn)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var row = btn.closest(".rd4-signal-row");
+      var bub = row && row.querySelector(".rd4-signal-bub");
+      var open = row && row.classList.contains("is-pin");
+      closeAll();
+      if (!open && row && bub) {
+        row.classList.add("is-pin");
+        bub.classList.add("is-open");
+        btn.setAttribute("aria-expanded", "true");
+        placeSignalBubble(row, bub);
+      }
+    });
+    card.querySelectorAll(".rd4-signal-row").forEach(function (row) {
+      row.addEventListener("mouseenter", function () {
+        var bub = row.querySelector(".rd4-signal-bub");
+        placeSignalBubble(row, bub);
+      });
+      row.addEventListener("focusin", function () {
+        var bub = row.querySelector(".rd4-signal-bub");
+        placeSignalBubble(row, bub);
+      });
+    });
+    function onDocClick(e) {
+      if (!card.contains(e.target)) closeAll();
+    }
+    function onKey(e) {
+      if (e.key === "Escape") closeAll();
+    }
+    if (win._rd4SigOutside) document.removeEventListener("click", win._rd4SigOutside);
+    if (win._rd4SigKey) document.removeEventListener("keydown", win._rd4SigKey);
+    win._rd4SigOutside = onDocClick;
+    win._rd4SigKey = onKey;
+    document.addEventListener("click", onDocClick);
+    document.addEventListener("keydown", onKey);
+  }
+
   function render(full, prefs, syncMeta) {
     syncMeta = syncMeta || {};
     var w = full.workout || {};
@@ -1295,66 +1476,7 @@
     effSnap += "</section>";
 
     // ── 7b Session signal ──
-    var signalBlock = "";
-    var es = w.endurance_signal;
-    var ss = w.speed_signal;
-    var esNote = w.endurance_signal_note;
-    var ssNote = w.speed_signal_note;
-    var hint = w.contributes_to;
-    var hasES = es != null;
-    var hasSS = ss != null;
-    // "One score everywhere": the CURRENT athlete score (today's, matching the
-    // Performance tab) is the shared reference number; this session's own effect
-    // is the signed CONTRIBUTION (Δ). Rendered as "score · contribution", e.g.
-    // "90  +0.3". Δ is "—" when the session moved the score by nothing / the
-    // backend hasn't supplied it; the score is omitted only when null.
-    function sigCur(current) {
-      return current == null ? "" : '<span class="rd4-signal-cur">' + Math.round(current) + "</span>";
-    }
-    function sigDelta(delta) {
-      if (delta == null) return '<span class="rd4-signal-contrib rd4-signal-contrib--flat">—</span>';
-      var n = parseFloat(delta.toFixed(1));
-      var cls = n > 0 ? "up" : (n < 0 ? "down" : "flat");
-      var txt = (n > 0 ? "+" : "") + n;
-      return '<span class="rd4-signal-contrib rd4-signal-contrib--' + cls + '" title="this session\'s contribution">' + txt + "</span>";
-    }
-    function sigRow(lbl, delta, current, note) {
-      return (
-        '<div class="rd4-signal-row">' +
-        '<span class="rd4-signal-lbl">' + lbl + "</span>" +
-        '<span class="rd4-signal-vwrap">' +
-        '<span class="rd4-signal-val">' + sigCur(current) + " " + sigDelta(delta) + "</span>" +
-        (note ? '<span class="rd4-signal-note">· ' + esc(note) + "</span>" : "") +
-        "</span>" +
-        "</div>"
-      );
-    }
-    var eDelta = w.endurance_score_delta;
-    var eCur = w.endurance_score_current;
-    var sDelta = w.speed_score_delta;
-    var sCur = w.speed_score_current;
-    var signalTitle =
-      '<h2 class="rd4-sec-title">Fitness signal' +
-      '<span class="rd4-new-badge">NEW</span>' +
-      '<span class="rd4-signal-go">View in Performance →</span></h2>' +
-      '<p class="rd4-signal-sub">Current athlete score · this session’s contribution</p>';
-    if (!hasES && !hasSS && !esNote && !ssNote) {
-      signalBlock =
-        '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
-        signalTitle +
-        '<p class="rd4-signal-none">' + esc(hint || "No signal recorded for this session.") + "</p>" +
-        "</section>";
-    } else {
-      signalBlock =
-        '<section class="rd4-card rd4-signal rd4-signal--link" role="button" tabindex="0" aria-label="Open Performance tab">' +
-        signalTitle +
-        '<div class="rd4-signal-rows">' +
-        sigRow("Endurance", eDelta, eCur, esNote) +
-        sigRow("Speed", sDelta, sCur, ssNote) +
-        "</div>" +
-        (hint ? '<p class="rd4-signal-hint">' + esc(hint) + "</p>" : "") +
-        "</section>";
-    }
+    var signalBlock = renderFitnessSignal(w);
 
     // ── 8 Route ──
     var routeBlock = "";
@@ -1836,17 +1958,7 @@
       });
     }
 
-    // Session-signal card → jump to the Projection tab's score cards (page listens for this).
-    var sigCard = container.querySelector(".rd4-signal--link");
-    if (sigCard) {
-      var goPerf = function () {
-        document.dispatchEvent(new CustomEvent("rd4:open-performance-signal"));
-      };
-      sigCard.addEventListener("click", goPerf);
-      sigCard.addEventListener("keydown", function (e) {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goPerf(); }
-      });
-    }
+    wireFitnessSignal(container);
 
     var toggle = container.querySelector("#rd4-metric-toggle");
     if (toggle) {
@@ -2820,6 +2932,8 @@
   win.RunDetailView = {
     buildShareCard: buildShareCard,
     buildSimpleShareCard: buildSimpleShareCard,
+    renderFitnessSignal: renderFitnessSignal,
+    wireFitnessSignal: wireFitnessSignal,
     _lastLapSets: null,
     render: function (contentEl, full, prefs, syncMeta) {
       if (!contentEl) return false;

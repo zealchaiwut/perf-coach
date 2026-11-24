@@ -133,4 +133,51 @@ def get_durability(session, user_id: uuid.UUID, as_of: date) -> dict[str, Any]:
     return compute_durability(fetch_runs(session, user_id, as_of), as_of)
 
 
+def session_contribution(workout, as_of: date, *, session=None) -> tuple[str, Optional[float], str]:
+    """(status, delta, reason) for this workout vs the durability long-run pool."""
+    wt = (getattr(workout, "workout_type", None) or "").lower()
+    if "run" not in wt:
+        return "not_this_kind", None, "Durability needs long easy runs."
+    dur = _get(workout, "duration_seconds")
+    mins = int(round(float(dur) / 60.0)) if dur else 0
+    if dur is None or int(dur) < MIN_DURATION_SECONDS:
+        return (
+            "not_counted",
+            None,
+            f"Needs an easy run of 90 min or more; this one was {mins} min.",
+        )
+    if not is_qualifying_run(workout):
+        return (
+            "not_counted",
+            None,
+            f"Needs an easy run of 90 min or more with decoupling data; this one was {mins} min.",
+        )
+    runs = []
+    if session is not None and getattr(workout, "user_id", None) is not None:
+        try:
+            runs = list(fetch_runs(session, workout.user_id, as_of))
+        except Exception:
+            runs = []
+    wid = str(getattr(workout, "id", "") or "")
+
+    def _id(r):
+        return str(_get(r, "id") or _get(r, "workout_id") or "")
+
+    if not any(_id(r) == wid for r in runs):
+        runs = [workout] + runs
+    with_block = compute_durability(runs, as_of)
+    without = [r for r in runs if _id(r) != wid]
+    without_block = compute_durability(without, as_of)
+    if with_block.get("score") is None:
+        return "first", None, "First qualifying long run; Durability needs one more before it scores."
+    if without_block.get("score") is None:
+        return "first", None, "First qualifying long run; Durability needs one more before it scores."
+    delta = round(float(with_block["score"]) - float(without_block["score"]), 1)
+    if delta > 0.05:
+        return "raised", delta, f"This long run raised Durability by {delta}."
+    if delta < -0.05:
+        return "lowered", delta, f"This long run lowered Durability by {abs(delta)}."
+    return "counted", 0.0, "Qualifying long run; in the Durability pool."
+
+
 AXIS_FUNCS = {"durability": get_durability}

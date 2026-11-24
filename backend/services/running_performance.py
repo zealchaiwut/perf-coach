@@ -92,6 +92,9 @@ MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS: int = 2400  # 40 minutes
 # doesn't here, but a 4-hour plan cut to 2½ hours would).
 PLAN_SHORT_CUT_RATIO: float = 0.75  # must complete ≥75 % of planned duration
 
+# Laps that mean "this was not an easy/steady endurance session".
+HARD_HINT_BANDS: frozenset[str] = frozenset({"tempo", "threshold", "hard", "interval"})
+
 PERFORMANCE_CONFIG: dict = {
     "trailing_window_days": 90,
     "threshold_effort_minutes": 30.0,
@@ -166,7 +169,13 @@ def compute_endurance_score(
 
     threshold_hr = preferences.get("threshold_hr")
     if not isinstance(threshold_hr, (int, float)) or isinstance(threshold_hr, bool) or threshold_hr <= 0:
-        return {"state": "needs_thresholds", "reason": "Endurance score needs threshold_hr."}
+        return {
+            "state": "needs_thresholds",
+            "reason": "Endurance score needs threshold_hr.",
+            "run_skip_reasons": {},
+            "run_skip_detail": {},
+            "run_contributions": {},
+        }
 
     runs = runs or []
     bands = zc["endurance_bands"]
@@ -174,6 +183,8 @@ def compute_endurance_score(
 
     qualifying_meta: list[dict] = []
     per_run_perf: dict[str, float] = {}
+    skip_reasons: dict[str, str] = {}
+    skip_detail: dict[str, dict] = {}
 
     for run in runs:
         run_id = run.get("run_id", "")
@@ -190,6 +201,8 @@ def compute_endurance_score(
             or isinstance(session_dur, bool)
             or session_dur <= MIN_ENDURANCE_QUALIFYING_SESSION_SECONDS
         ):
+            skip_reasons[run_id] = "too_short"
+            skip_detail[run_id] = {"duration_seconds": session_dur}
             continue
 
         # Plan-relative guard (issue #1433): if planned_duration_seconds is
@@ -204,12 +217,20 @@ def compute_endurance_score(
             and planned_dur > 0
             and session_dur < planned_dur * PLAN_SHORT_CUT_RATIO
         ):
+            skip_reasons[run_id] = "planned_cut_short"
+            skip_detail[run_id] = {"duration_seconds": session_dur}
             continue
 
         laps = _qualifying_laps(run.get("laps") or [], bands)
         lap_pace, _dur = _lap_pace_and_duration(laps)
         avg_hr = _weighted_lap_hr(laps)
         if lap_pace is None or avg_hr is None or avg_hr <= 0:
+            all_laps = run.get("laps") or []
+            if any(lap.get("band") in HARD_HINT_BANDS for lap in all_laps):
+                skip_reasons[run_id] = "has_hard_efforts"
+                skip_detail[run_id] = {"hard_desc": _hard_effort_desc(all_laps)}
+            else:
+                skip_reasons[run_id] = "insufficient_data"
             continue
 
         # HR-extrapolate the aerobic lap to threshold intensity. Pace–HR is
@@ -245,7 +266,7 @@ def compute_endurance_score(
             "workout_date": run.get("workout_date") or "",
         })
 
-    return _aggregate_and_shape(
+    out = _aggregate_and_shape(
         qualifying_meta, per_run_perf, zc, body_modifier, race_perf,
         include_confidence_band=False,
         baseline_reason_noun="easy/steady",
@@ -253,6 +274,9 @@ def compute_endurance_score(
         # effort — the improve hint speaks the same reference duration.
         improve_ref_minutes=PERFORMANCE_CONFIG["threshold_effort_minutes"],
     )
+    out["run_skip_reasons"] = skip_reasons
+    out["run_skip_detail"] = skip_detail
+    return out
 
 
 def compute_speed_score(
@@ -299,11 +323,14 @@ def compute_speed_score(
 
     qualifying_meta: list[dict] = []
     per_run_perf: dict[str, float] = {}
+    skip_reasons: dict[str, str] = {}
+    run_effort: dict[str, dict] = {}
 
     for run in runs:
         run_id = run.get("run_id", "")
         effort_pace, effort_dur_s = _speed_effort_pace_duration(run, bands, threshold_pace)
         if effort_pace is None or not effort_dur_s or effort_dur_s <= 0:
+            skip_reasons[run_id] = "no_hard_effort"
             continue
 
         velocity = 1000.0 / (effort_pace / 60.0)  # m/min
@@ -311,18 +338,25 @@ def compute_speed_score(
         vdot = vdot_from_pace_duration(velocity, effort_min)
         perf = rescale_to_score(vdot)
         per_run_perf[run_id] = round(perf, 4)
+        run_effort[run_id] = {
+            "pace_s_per_km": float(effort_pace),
+            "duration_seconds": float(effort_dur_s),
+        }
         qualifying_meta.append({
             "run_id": run_id,
             "perf": perf,
             "workout_date": run.get("workout_date") or "",
         })
 
-    return _aggregate_and_shape(
+    out = _aggregate_and_shape(
         qualifying_meta, per_run_perf, zc, body_modifier, race_perf,
         include_confidence_band=True,
         baseline_reason_noun="hard/interval",
         improve_ref_minutes=IMPROVE_SPEED_REF_MINUTES,
     )
+    out["run_skip_reasons"] = skip_reasons
+    out["run_effort"] = run_effort
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +736,28 @@ def _lap_pace_plausible(lap: dict) -> bool:
             and isinstance(dist, (int, float)) and not isinstance(dist, bool) and dist > 0):
         return (float(dur) / float(dist)) >= _MIN_PLAUSIBLE_PACE_S_PER_KM
     return True  # no pace derivable — other validators handle it
+
+
+def _hard_effort_desc(laps: list[dict]) -> str:
+    """Plain-English summary of tempo/hard/interval work, e.g. '3 × 6 min at tempo'."""
+    hard = [lap for lap in laps if lap.get("band") in HARD_HINT_BANDS]
+    if not hard:
+        return "hard efforts"
+    from collections import Counter
+    counts = Counter(str(lap.get("band") or "hard") for lap in hard)
+    band, n = counts.most_common(1)[0]
+    durs = [
+        float(lap["duration_seconds"])
+        for lap in hard
+        if lap.get("band") == band
+        and isinstance(lap.get("duration_seconds"), (int, float))
+        and not isinstance(lap.get("duration_seconds"), bool)
+        and lap["duration_seconds"] > 0
+    ]
+    if durs:
+        avg_min = max(1, int(round(sum(durs) / len(durs) / 60.0)))
+        return f"{n} × {avg_min} min at {band}"
+    return f"{n} {band} effort" + ("s" if n != 1 else "")
 
 
 def _qualifying_laps(laps: list[dict], bands: list[str]) -> list[dict]:
