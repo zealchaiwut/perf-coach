@@ -48,6 +48,15 @@ def test_log_list_drops_visible_sessions_title():
     assert "Log it late" in LOG_JS
 
 
+def test_log_search_and_range_share_one_row():
+    tools = CSS.split("body.rv-page .rv-list-filter-tools {")[1].split("}")[0]
+    assert "flex-wrap: nowrap" in tools
+    rng = CSS.split("body.rv-page .rv-list-filter-tools .rv-list-range {")[1].split("}")[0]
+    assert "width: max-content" in rng
+    search = CSS.split("body.rv-page .rv-list-filter-tools .rv-list-search {")[1].split("}")[0]
+    assert "width: auto" in search
+
+
 def test_log_list_css_grid_and_week_header():
     assert "grid-template-columns: 56px minmax(0, 1fr) auto 170px" in CSS
     assert "rv-session-dot--run" in CSS

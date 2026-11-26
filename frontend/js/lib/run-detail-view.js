@@ -217,6 +217,24 @@
   }
   function lapRange2(from1, to1) { return from1 === to1 ? "" + from1 : from1 + "–" + to1; }
 
+  function normalizeStravaMetricSplit(split, index) {
+    var row = normalizeStravaLap(
+      {
+        distance: split.distance,
+        moving_time: split.moving_time,
+        elapsed_time: split.elapsed_time,
+        average_heartrate: split.average_heartrate,
+        average_watts: split.average_watts,
+        average_cadence: split.average_cadence,
+        lap_index: split.split != null ? split.split : index + 1,
+      },
+      index
+    );
+    row.lap_type = "auto";
+    row._lapSource = "strava-km";
+    return row;
+  }
+
   function normalizeStravaLap(lap, index) {
     var distM = lap.distance;
     var cad = lap.average_cadence;
@@ -942,6 +960,14 @@
         var bi = b.split_index != null ? +b.split_index : 0;
         return ai - bi;
       });
+    if (
+      !splits.length &&
+      strava &&
+      Array.isArray(strava.splits_metric) &&
+      strava.splits_metric.length
+    ) {
+      splits = strava.splits_metric.map(normalizeStravaMetricSplit);
+    }
     var manualSplits = collectManualLapSplits(strava, stryd);
 
     var prefsRow = prefs && prefs.row ? prefs.row : {};
@@ -1890,45 +1916,14 @@
         }).join("");
       }
 
-      // HR line — independent scale; null laps omit a point (no fabrication).
-      var hrs = laps.map(function (lap) { return lap.split.avg_hr; });
+      // HR line — independent scale; missing laps omit a point (no fabrication)
+      // but still occupy their bar width so later dots stay on the matching km.
+      var hrs = laps.map(function (lap) { return lap.split && lap.split.avg_hr; });
       var hValid = hrs.filter(function (v) { return v != null && v > 0; });
       var hmin = hValid.length ? Math.min.apply(null, hValid) : 0;
       var hmax = hValid.length ? Math.max.apply(null, hValid) : 0;
-      var hrng = hmax - hmin || 1;
-      // Vertical band the HR curve occupies (viewBox 0..100). The old scale used
-      // 8..88 (span 80), which slammed the lowest lap onto the chart baseline —
-      // a warm-up lap (the HR minimum) read like a dropped/zero value — and
-      // jammed the mid-run plateau against the ceiling. Padding both ends to
-      // 19..81 (span 62) floats every point off the floor and ceiling so the
-      // curve reads as one band with air above and below.
-      var HR_PAD = 19;      // % margin at top and bottom
-      var HR_SPAN = 100 - 2 * HR_PAD;
-      var pts = [];
-      var cum = 0;
-      laps.forEach(function (lap, i) {
-        var hv = lap.split.avg_hr;
-        if (hv == null || hv <= 0) return;
-        var w = barDurWeights[i] != null ? barDurWeights[i] : 1 / laps.length;
-        var x = (cum + w / 2) * 100;
-        cum += w;
-        var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
-        pts.push(x.toFixed(2) + "," + y.toFixed(2));
-      });
       var svg = container.querySelector("#rd4-lap-hr");
-      if (svg) {
-        var inner = "";
-        if (pts.length >= 2) {
-          inner += '<polyline points="' + pts.join(" ") + '" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
-        }
-        // Round-cap zero-length dots: constant pixel size (non-scaling stroke),
-        // so they stay round instead of stretching with the non-uniform viewBox.
-        pts.forEach(function (p) {
-          var xy = p.split(",");
-          inner += '<path d="M' + xy[0] + " " + xy[1] + 'l0 0" stroke="#ef4444" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
-        });
-        svg.innerHTML = inner;
-      }
+      if (svg) svg.innerHTML = hrOverlayInner(hrs, barDurWeights);
 
       // legend with real ranges
       var legendEl = container.querySelector("#rd4-lap-legend");
@@ -2292,6 +2287,67 @@
     return null;
   }
 
+  /**
+   * HR overlay SVG markup (viewBox 0..100). Missing/zero HR omits a point
+   * (no fabrication) but still advances x so remaining dots sit on the
+   * matching bars. Contiguous valid laps share one polyline; a hole starts
+   * a new segment instead of a diagonal across empty km.
+   *
+   * Vertical band is 19..81 (span 62): the old 8..88 scale slammed the
+   * lowest lap onto the baseline — a warm-up min-HR read like a dropped
+   * zero — and jammed the mid-run plateau against the ceiling.
+   */
+  function hrOverlayInner(hrValues, weights) {
+    if (!hrValues || !hrValues.length) return "";
+    var n = hrValues.length;
+    var hValid = [];
+    var i;
+    for (i = 0; i < n; i++) {
+      var v = hrValues[i];
+      if (v != null && v > 0) hValid.push(v);
+    }
+    if (!hValid.length) return "";
+    var hmin = Math.min.apply(null, hValid);
+    var hmax = Math.max.apply(null, hValid);
+    var hrng = hmax - hmin || 1;
+    var HR_PAD = 19;
+    var HR_SPAN = 100 - 2 * HR_PAD;
+    var segs = [];
+    var cur = [];
+    var cum = 0;
+    for (i = 0; i < n; i++) {
+      var w = weights && weights[i] != null ? weights[i] : 1 / n;
+      var hv = hrValues[i];
+      if (hv != null && hv > 0) {
+        var x = (cum + w / 2) * 100;
+        var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
+        cur.push(x.toFixed(2) + "," + y.toFixed(2));
+      } else if (cur.length) {
+        segs.push(cur);
+        cur = [];
+      }
+      cum += w;
+    }
+    if (cur.length) segs.push(cur);
+    var inner = "";
+    segs.forEach(function (seg) {
+      if (seg.length >= 2) {
+        inner +=
+          '<polyline points="' + seg.join(" ") +
+          '" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+      }
+      // Round-cap zero-length dots: constant pixel size (non-scaling stroke),
+      // so they stay round instead of stretching with the non-uniform viewBox.
+      seg.forEach(function (p) {
+        var xy = p.split(",");
+        inner +=
+          '<path d="M' + xy[0] + " " + xy[1] +
+          'l0 0" stroke="#ef4444" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
+      });
+    });
+    return inner;
+  }
+
   /** Flex weights from lap durations (seconds); falls back to equal width. */
   function lapDurationFlexWeights(durationSecs) {
     if (!durationSecs || !durationSecs.length) return [];
@@ -2568,35 +2624,7 @@
     }
     var svg = chartRoot.querySelector(".rd4-hr-svg");
     if (!svg || !hrValues || !hrValues.length) return;
-    var hValid = hrValues.filter(function (v) { return v != null && v > 0; });
-    if (!hValid.length) return;
-    var hmin = Math.min.apply(null, hValid);
-    var hmax = Math.max.apply(null, hValid);
-    var hrng = hmax - hmin || 1;
-    var HR_PAD = 19;
-    var HR_SPAN = 100 - 2 * HR_PAD;
-    var pts = [];
-    var cum = 0;
-    hrValues.forEach(function (hv, i) {
-      if (hv == null || hv <= 0 || i >= weights.length) return;
-      var x = (cum + weights[i] / 2) * 100;
-      cum += weights[i];
-      var y = 100 - (((hv - hmin) / hrng) * HR_SPAN + HR_PAD);
-      pts.push(x.toFixed(2) + "," + y.toFixed(2));
-    });
-    var inner = "";
-    if (pts.length >= 2) {
-      inner +=
-        '<polyline points="' + pts.join(" ") +
-        '" fill="none" stroke="#ef4444" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
-    }
-    pts.forEach(function (p) {
-      var xy = p.split(",");
-      inner +=
-        '<path d="M' + xy[0] + " " + xy[1] +
-        'l0 0" stroke="#ef4444" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>';
-    });
-    svg.innerHTML = inner;
+    svg.innerHTML = hrOverlayInner(hrValues, weights);
   }
 
   function buildSocialPowerZones(stack) {
