@@ -1758,6 +1758,28 @@
   display: none !important;
 }
 
+.dp-screenshot-capture {
+  font-family: "Inter Tight", system-ui, sans-serif;
+  color: var(--text-primary, #0b1530);
+}
+
+.dp-screenshot-capture .rd4-laps-controls,
+.dp-screenshot-capture .rd4-idcopy,
+.dp-screenshot-capture .rd4-tss-chev,
+.dp-screenshot-capture .rd4-tss-menu,
+.dp-screenshot-capture .rd4-name-edit,
+.dp-screenshot-capture .rd4-lap-tip {
+  display: none !important;
+}
+
+.dp-screenshot-capture .rd4-lap-scroll {
+  overflow: visible !important;
+}
+
+.dp-screenshot-capture--share {
+  background: #0a0a0a;
+}
+
 .dp-screenshot-capture--simple {
   background: transparent !important;
   width: max-content !important;

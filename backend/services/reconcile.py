@@ -7,7 +7,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 from sqlalchemy import and_ as _and, or_ as _or
-from sqlalchemy.orm import Session as _Session, defer as _defer, load_only as _load_only
+from sqlalchemy.orm import Session as _Session, defer as _defer, load_only as _load_only, undefer as _undefer
 
 from backend.utils.time import to_bangkok, today_bangkok
 
@@ -163,31 +163,229 @@ def _apply_stryd_metrics(workout, act) -> None:
             workout.flat_equivalent_pace = round(normalized["flat_equivalent_pace"], 2)
 
 
-def _sync_splits(session, workout, act) -> None:
-    """Replace a workout's splits from the Stryd activity's computed km-splits."""
+def strava_splits_metric_to_rows(splits_metric) -> list[dict]:
+    """Map Strava 1 km ``splits_metric`` blobs into workout_splits field dicts.
+
+    Strava always emits these for GPS runs (distance in metres, times in seconds).
+    Empty / malformed input returns ``[]`` — never invent a split.
+    """
+    if not isinstance(splits_metric, list) or not splits_metric:
+        return []
+    rows: list[dict] = []
+    for i, raw in enumerate(splits_metric, start=1):
+        if not isinstance(raw, dict):
+            continue
+        dist_km = raw.get("distance_km")
+        if dist_km is None and raw.get("distance") is not None:
+            try:
+                dist_km = float(raw["distance"]) / 1000.0
+            except (TypeError, ValueError):
+                dist_km = 0.0
+        try:
+            dist_km = float(dist_km or 0)
+        except (TypeError, ValueError):
+            dist_km = 0.0
+        moving = raw.get("moving_time", raw.get("moving_time_seconds"))
+        elapsed = raw.get("elapsed_time", raw.get("elapsed_time_seconds"))
+        try:
+            moving_i = int(moving) if moving is not None else None
+        except (TypeError, ValueError):
+            moving_i = None
+        try:
+            elapsed_i = int(elapsed) if elapsed is not None else None
+        except (TypeError, ValueError):
+            elapsed_i = None
+        dur = moving_i or elapsed_i or 0
+        hr = raw.get("average_heartrate", raw.get("avg_hr"))
+        watts = raw.get("average_watts", raw.get("avg_power"))
+        cad = raw.get("average_cadence", raw.get("cadence_spm"))
+        cad_i = None
+        if cad is not None:
+            try:
+                cad_f = float(cad)
+                cad_i = int(round(cad_f * 2 if cad_f < 100 else cad_f))
+            except (TypeError, ValueError):
+                cad_i = None
+        split_idx = raw.get("split")
+        try:
+            split_idx = int(split_idx) if split_idx is not None else i
+        except (TypeError, ValueError):
+            split_idx = i
+        rows.append({
+            "split_index": split_idx,
+            "distance_km": round(dist_km, 3),
+            "duration_seconds": dur,
+            "moving_time_seconds": moving_i if moving_i is not None else dur,
+            "elapsed_time_seconds": elapsed_i if elapsed_i is not None else dur,
+            "avg_hr": int(round(float(hr))) if hr not in (None, 0) else None,
+            "avg_power": int(round(float(watts))) if watts not in (None, 0) else None,
+            "cadence_spm": cad_i,
+            "stride_length_m": None,
+            "lap_type": "auto",
+        })
+    return rows
+
+
+def strava_metric_from_activity(act) -> list:
+    """1 km splits: promoted column first, then detail_payload. Never invents rows."""
+    if act is None:
+        return []
+    metric = getattr(act, "splits_metric", None)
+    if isinstance(metric, list) and metric:
+        return metric
+    detail = getattr(act, "detail_payload", None) or {}
+    if isinstance(detail, dict):
+        metric = detail.get("splits_metric")
+        if isinstance(metric, list) and metric:
+            return metric
+    return []
+
+
+def apply_strava_detail_fields(sa, detail, streams=None) -> None:
+    """Copy a Strava detail/streams fetch onto a StravaActivity instance."""
+    if isinstance(detail, dict) and detail:
+        sa.detail_payload = detail
+        sa.laps = detail.get("laps") or []
+        sa.splits_metric = detail.get("splits_metric") or []
+        sa.best_efforts = detail.get("best_efforts") or []
+        if detail.get("calories") is not None:
+            sa.calories = detail.get("calories")
+    if isinstance(streams, dict) and streams:
+        sa.streams_payload = streams
+
+
+def fill_strava_km_splits_if_missing(workout_id, strava_act, *, user_id: str) -> list[dict]:
+    """Map Strava 1 km splits onto an empty workout; fetch detail once if needed.
+
+    Persists enrichment + workout_splits in a nested session so a GET /full
+    does not have to commit the request session. Returns mapped row dicts
+    (possibly empty). Network failures log and return [] — never raise.
+    """
+    if strava_act is None:
+        return []
+    metric = strava_metric_from_activity(strava_act)
+    detail = None
+    streams = None
+    fetched = False
+    already_detailed = (
+        getattr(strava_act, "splits_metric", None) is not None
+        or getattr(strava_act, "laps", None) is not None
+        or (
+            isinstance(getattr(strava_act, "detail_payload", None), dict)
+            and bool(strava_act.detail_payload)
+        )
+    )
+    if not metric and not already_detailed:
+        try:
+            from backend.services.strava_sync import _enrich_activity
+            detail, streams = _enrich_activity(user_id, strava_act.strava_activity_id)
+        except Exception:
+            _log.exception("strava detail fetch failed for workout %s", workout_id)
+            detail, streams = None, None
+        fetched = True
+        if isinstance(detail, dict):
+            metric = detail.get("splits_metric") or []
+            # Mirror onto the request-scoped instance so /full sources.strava
+            # can serve laps/splits without a refresh of deferred columns.
+            apply_strava_detail_fields(strava_act, detail, streams)
+    rows = strava_splits_metric_to_rows(metric)
+    if not rows and not fetched and not metric:
+        return []
+    from backend.db import engine as _engine
+    from backend.models import StravaActivity, Workout
+    with _Session(_engine) as session:
+        act = session.get(StravaActivity, strava_act.id)
+        w = session.get(Workout, workout_id)
+        if act is not None:
+            if fetched:
+                apply_strava_detail_fields(act, detail, streams)
+            elif act.splits_metric is None:
+                blob = getattr(strava_act, "detail_payload", None)
+                if isinstance(blob, dict) and blob:
+                    apply_strava_detail_fields(act, blob, None)
+        if w is not None and rows:
+            _write_split_rows(session, w, rows)
+        if fetched and streams and w is not None:
+            from backend.services.activity_streams import extract_strava_streams
+            stream_row, _err = extract_strava_streams(streams)
+            if stream_row:
+                write_activity_stream(w.id, stream_row, session)
+        session.commit()
+    return rows
+
+
+def synthetic_split_rows(workout_id, rows: list[dict]) -> list[SimpleNamespace]:
+    """Read-path stand-ins so /full can show Strava 1 km splits before a re-sync."""
+    out = []
+    for i, row in enumerate(rows, start=1):
+        out.append(SimpleNamespace(
+            id=None,
+            workout_id=workout_id,
+            split_index=row.get("split_index") or i,
+            distance_km=row.get("distance_km") or 0,
+            duration_seconds=row.get("duration_seconds") or 0,
+            moving_time_seconds=row.get("moving_time_seconds"),
+            elapsed_time_seconds=row.get("elapsed_time_seconds"),
+            avg_hr=row.get("avg_hr"),
+            avg_power=row.get("avg_power"),
+            cadence_spm=row.get("cadence_spm"),
+            stride_length_m=row.get("stride_length_m"),
+            lap_type=row.get("lap_type") or "auto",
+            intensity_band=row.get("intensity_band"),
+            created_at=None,
+            updated_at=None,
+        ))
+    return out
+
+
+def _write_split_rows(session, workout, rows: list[dict]) -> bool:
+    """Replace a workout's splits. Returns True if anything was written."""
     from backend.models import WorkoutSplit
-    splits = getattr(act, "splits", None)
-    if not isinstance(splits, list) or not splits or not isinstance(splits[0], dict):
-        return
+    if not rows:
+        return False
     session.query(WorkoutSplit).filter(WorkoutSplit.workout_id == workout.id).delete()
     session.flush()
-    # Index by position (1-based) so it is always unique, regardless of the
-    # source dict's own index field. Fields read defensively across split shapes.
     session.add_all([
         WorkoutSplit(
             workout_id=workout.id,
-            split_index=i,
-            distance_km=s.get("distance_km") or 0,
-            duration_seconds=s.get("duration_seconds") or 0,
-            moving_time_seconds=s.get("moving_time_seconds") or s.get("duration_seconds") or 0,
-            elapsed_time_seconds=s.get("elapsed_time_seconds") or s.get("duration_seconds") or 0,
-            avg_hr=s.get("avg_hr"),
-            avg_power=s.get("avg_power") if s.get("avg_power") is not None else s.get("avg_power_w"),
-            cadence_spm=s.get("cadence_spm"),
-            stride_length_m=s.get("stride_length_m"),
+            split_index=r["split_index"],
+            distance_km=r.get("distance_km") or 0,
+            duration_seconds=r.get("duration_seconds") or 0,
+            moving_time_seconds=r.get("moving_time_seconds") or r.get("duration_seconds") or 0,
+            elapsed_time_seconds=r.get("elapsed_time_seconds") or r.get("duration_seconds") or 0,
+            avg_hr=r.get("avg_hr"),
+            avg_power=r.get("avg_power"),
+            cadence_spm=r.get("cadence_spm"),
+            stride_length_m=r.get("stride_length_m"),
+            lap_type=r.get("lap_type") or "auto",
         )
-        for i, s in enumerate(splits, start=1)
+        for r in rows
     ])
+    return True
+
+
+def _sync_splits(session, workout, act) -> bool:
+    """Replace a workout's splits from the Stryd activity's computed km-splits."""
+    splits = getattr(act, "splits", None)
+    if not isinstance(splits, list) or not splits or not isinstance(splits[0], dict):
+        return False
+    rows = []
+    for i, s in enumerate(splits, start=1):
+        if not isinstance(s, dict):
+            continue
+        rows.append({
+            "split_index": i,
+            "distance_km": s.get("distance_km") or 0,
+            "duration_seconds": s.get("duration_seconds") or 0,
+            "moving_time_seconds": s.get("moving_time_seconds") or s.get("duration_seconds") or 0,
+            "elapsed_time_seconds": s.get("elapsed_time_seconds") or s.get("duration_seconds") or 0,
+            "avg_hr": s.get("avg_hr"),
+            "avg_power": s.get("avg_power") if s.get("avg_power") is not None else s.get("avg_power_w"),
+            "cadence_spm": s.get("cadence_spm"),
+            "stride_length_m": s.get("stride_length_m"),
+            "lap_type": "auto",
+        })
+    return _write_split_rows(session, workout, rows)
 
 
 def write_activity_stream(workout_id, row_data: dict, session) -> bool:
@@ -355,6 +553,7 @@ def reconcile_workouts(
                 .options(
                     _defer(StravaActivity.streams_payload),
                     _defer(StravaActivity.detail_payload),
+                    _undefer(StravaActivity.splits_metric),
                 )
                 .all()
             )
@@ -373,6 +572,7 @@ def reconcile_workouts(
                         StravaActivity.avg_hr, StravaActivity.avg_power_w,
                         StravaActivity.max_hr, StravaActivity.elevation_m,
                         StravaActivity.is_stryd_synced,
+                        StravaActivity.splits_metric,
                     ),
                     _defer(StravaActivity.streams_payload),
                     _defer(StravaActivity.detail_payload),
@@ -422,6 +622,7 @@ def reconcile_workouts(
                 q = q.options(
                     _defer(StravaActivity.streams_payload),
                     _defer(StravaActivity.detail_payload),
+                    _undefer(StravaActivity.splits_metric),
                 )
                 strava_acts = q.all()
             except Exception:
@@ -489,6 +690,7 @@ def reconcile_workouts(
 
         workout_index = _build_workout_index(existing_workouts)
         stryd_pairs = []
+        strava_pairs = []
         touched_workouts: list = []
         for source_type, act in all_acts:
             matched = _find_in_index(act.start_time, workout_index, _TOLERANCE)
@@ -559,9 +761,10 @@ def reconcile_workouts(
             if source_type == "stryd":
                 _apply_stryd_metrics(target, act)
                 stryd_pairs.append((target, act))
-
-            if source_type == "strava" and getattr(act, "elapsed_time_seconds", None) is not None:
-                target.elapsed_time_seconds = act.elapsed_time_seconds
+            if source_type == "strava":
+                strava_pairs.append((target, act))
+                if getattr(act, "elapsed_time_seconds", None) is not None:
+                    target.elapsed_time_seconds = act.elapsed_time_seconds
 
             touched_workouts.append(target)
 
@@ -574,8 +777,17 @@ def reconcile_workouts(
         # after session.commit() raises DetachedInstanceError (SQLAlchemy expires
         # all instance state on commit).
         affected_workout_ids = {w.id for w in touched_workouts if w.id is not None}
+        filled_split_ids: set = set()
         for workout, act in stryd_pairs:
-            _sync_splits(session, workout, act)
+            if _sync_splits(session, workout, act):
+                filled_split_ids.add(workout.id)
+        # Strava 1 km splits_metric fill any run Stryd did not cover.
+        for workout, act in strava_pairs:
+            if workout.id in filled_split_ids:
+                continue
+            rows = strava_splits_metric_to_rows(strava_metric_from_activity(act))
+            if _write_split_rows(session, workout, rows):
+                filled_split_ids.add(workout.id)
 
         _ingest_streams(session, all_acts, existing_workouts)
 

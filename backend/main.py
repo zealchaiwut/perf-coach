@@ -7280,6 +7280,23 @@ def get_workout_full(
             .order_by(WorkoutSplit.split_index)
             .all()
         )
+        if not split_rows:
+            from backend.services.reconcile import (
+                fill_strava_km_splits_if_missing as _fill_strava_km,
+                synthetic_split_rows as _synthetic_splits,
+            )
+            _sa = getattr(workout, "strava_activity", None)
+            _wtype = (workout.workout_type or "").lower()
+            _mapped = []
+            if _sa is not None and "run" in _wtype:
+                _mapped = _fill_strava_km(wid, _sa, user_id=str(user.id))
+            if _mapped:
+                split_rows = (
+                    session.query(WorkoutSplit)
+                    .filter(WorkoutSplit.workout_id == wid)
+                    .order_by(WorkoutSplit.split_index)
+                    .all()
+                ) or _synthetic_splits(wid, _mapped)
         prefs = (
             session.query(UserPreferences)
             .filter(UserPreferences.user_id == workout.user_id)
@@ -9257,7 +9274,7 @@ class SplitsIn(BaseModel):
 
 def _split_dict(s: WorkoutSplit) -> dict:
     return {
-        "id": str(s.id),
+        "id": str(s.id) if getattr(s, "id", None) is not None else None,
         "workout_id": str(s.workout_id),
         "split_index": s.split_index,
         "distance_km": str(s.distance_km),

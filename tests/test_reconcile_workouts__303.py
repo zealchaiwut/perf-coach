@@ -49,6 +49,8 @@ def _strava_act(uid, start_time, name="Morning Run", activity_type="Run", distan
     act.avg_hr = avg_hr
     act.avg_power_w = None
     act.tss = None
+    act.splits_metric = None
+    act.elapsed_time_seconds = None
     return act
 
 
@@ -97,6 +99,8 @@ def _make_session(strava_acts, stryd_acts, existing_workouts):
         from backend.models import StravaActivity, StrydActivity, Workout
         q = MagicMock()
         q.filter.return_value = q
+        q.options.return_value = q
+        q.order_by.return_value = q
         if columns:
             q.all.return_value = []
             return q
@@ -153,11 +157,13 @@ def test_reconcile_creates_workout_for_unmatched_strava_activity():
     act = _strava_act(uid, t)
     session = _make_session([act], [], [])
 
-    with patch("backend.services.reconcile._Session", return_value=session):
+    with patch("backend.services.reconcile._Session", return_value=session), \
+         patch("backend.services.reconcile.compute_run_metrics"), \
+         patch("backend.services.reconcile._update_duration_curves"):
         reconcile_workouts(uid, uid)
 
     session.add.assert_called_once()
-    session.commit.assert_called_once()
+    session.commit.assert_called()
 
 
 def test_reconcile_updates_existing_matched_workout():
@@ -171,12 +177,14 @@ def test_reconcile_updates_existing_matched_workout():
     w = _workout(uid, datetime(2026, 6, 1, 9, 2, 0, tzinfo=timezone.utc))
     session = _make_session([act], [], [w])
 
-    with patch("backend.services.reconcile._Session", return_value=session):
+    with patch("backend.services.reconcile._Session", return_value=session), \
+         patch("backend.services.reconcile.compute_run_metrics"), \
+         patch("backend.services.reconcile._update_duration_curves"):
         reconcile_workouts(uid, uid)
 
     session.add.assert_not_called()
     assert w.strava_activity_pk == act.id
-    session.commit.assert_called_once()
+    session.commit.assert_called()
 
 
 def test_stryd_partner_via_strava_when_workout_start_time_differs():
@@ -228,7 +236,9 @@ def test_reconcile_idempotent_second_run_no_duplicates():
 
     # First run: no existing workout
     session1 = _make_session([act], [], [])
-    with patch("backend.services.reconcile._Session", return_value=session1):
+    with patch("backend.services.reconcile._Session", return_value=session1), \
+         patch("backend.services.reconcile.compute_run_metrics"), \
+         patch("backend.services.reconcile._update_duration_curves"):
         reconcile_workouts(uid, uid)
 
     # Verify a workout was added
@@ -240,7 +250,9 @@ def test_reconcile_idempotent_second_run_no_duplicates():
     _clear_registry()
     sync_jobs.start(uid, "strava")
     session2 = _make_session([act], [], [created_workout])
-    with patch("backend.services.reconcile._Session", return_value=session2):
+    with patch("backend.services.reconcile._Session", return_value=session2), \
+         patch("backend.services.reconcile.compute_run_metrics"), \
+         patch("backend.services.reconcile._update_duration_curves"):
         reconcile_workouts(uid, uid)
 
     # No new workout created
